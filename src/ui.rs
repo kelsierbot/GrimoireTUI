@@ -54,21 +54,27 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         (left, Rect::default(), Rect::default())
     };
 
+    app.scene_visible = scene_area.height > 0;
+    app.music_visible = music_area.height > 0;
+    app.rect_scene = Rect::default();
+    app.rect_music = Rect::default();
+
     draw_tree(f, app, tree_area);
-    if scene_area.height > 0 {
+    if app.scene_visible {
         draw_scene(f, app, scene_area);
     }
-    if music_area.height > 0 {
+    if app.music_visible {
         draw_music(f, app, music_area);
     }
     draw_editor(f, app, edit_area);
     draw_status(f, app, status);
 }
 
-fn draw_scene(f: &mut Frame, app: &App, area: Rect) {
+fn draw_scene(f: &mut Frame, app: &mut App, area: Rect) {
     let label = app.pomo.label();
-    let block = pane_block(&label, app.pomo.running());
+    let block = pane_block(&label, app.focus == Focus::Clearing);
     let inner = block.inner(area);
+    app.rect_scene = inner;
     f.render_widget(block, area);
 
     let grid = scene::render(app.pomo.phase, app.pomo.progress(), app.frame);
@@ -107,9 +113,10 @@ fn draw_scene(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(Paragraph::new(lines), inner);
 }
 
-fn draw_music(f: &mut Frame, app: &App, area: Rect) {
-    let block = pane_block("♪", false);
+fn draw_music(f: &mut Frame, app: &mut App, area: Rect) {
+    let block = pane_block("♪", app.focus == Focus::Music);
     let inner = block.inner(area);
+    app.rect_music = inner;
     f.render_widget(block, area);
     let w = inner.width as usize;
 
@@ -186,6 +193,7 @@ fn draw_tree(f: &mut Frame, app: &mut App, area: Rect) {
     let focused = app.focus == Focus::Tree;
     let block = pane_block("MANUSCRIPT", focused);
     let inner = block.inner(area);
+    app.rect_tree = inner;
     f.render_widget(block, area);
 
     let height = inner.height as usize;
@@ -292,6 +300,7 @@ fn draw_editor(f: &mut Frame, app: &mut App, area: Rect) {
     let title = app.open_title();
     let block = pane_block(&title, focused).padding(Padding::new(2, 2, 0, 0));
     let inner = block.inner(area);
+    app.rect_editor = inner;
     f.render_widget(block, area);
 
     app.edit_width = inner.width as usize;
@@ -375,8 +384,7 @@ fn draw_status(f: &mut Frame, app: &App, area: Rect) {
         ));
     }
 
-    let m = app.mod_label();
-    let hints = format!("Tab pane  {m}S save  {m}Q quit ");
+    let hints = app.hints();
     let used: usize = spans.iter().map(|s| s.content.chars().count()).sum();
     let pad = (area.width as usize)
         .saturating_sub(used)

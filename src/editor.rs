@@ -263,6 +263,17 @@ impl Editor {
         self.goal = Some(goal);
     }
 
+    /// Put the cursor where the pointer landed.
+    pub fn click(&mut self, rows: &[VisRow], vis_row: usize, col: usize) {
+        if rows.is_empty() {
+            return;
+        }
+        let r = rows[vis_row.min(rows.len() - 1)];
+        self.cy = r.line;
+        self.cx = char_at_width(&self.lines[r.line], r.start, r.end, col);
+        self.goal = None;
+    }
+
     /// Keep the cursor row inside the viewport.
     pub fn clamp_scroll(&mut self, rows: &[VisRow], height: usize) {
         let (r, _) = self.cursor_vis(rows);

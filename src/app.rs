@@ -1,6 +1,7 @@
 //! Application state and key handling.
 
 use anyhow::Result;
+use ratatui::layout::Rect;
 use std::fs;
 use std::path::Path;
 
@@ -13,6 +14,8 @@ use crate::scene::Pomodoro;
 pub enum Focus {
     Tree,
     Editor,
+    Clearing,
+    Music,
 }
 
 pub struct App {
@@ -36,6 +39,19 @@ pub struct App {
     /// True when the terminal can actually report Cmd/Super — which needs the
     /// Kitty keyboard protocol. Ctrl always works regardless.
     pub super_keys: bool,
+    /// Set during draw: short terminals drop these panes, and Tab must not
+    /// focus something that isn't on screen.
+    pub scene_visible: bool,
+    pub music_visible: bool,
+    /// Inner rects recorded during draw, so clicks can be routed to a pane.
+    pub rect_tree: Rect,
+    pub rect_editor: Rect,
+    pub rect_scene: Rect,
+    pub rect_music: Rect,
+}
+
+fn hit(r: Rect, x: u16, y: u16) -> bool {
+    r.width > 0 && r.height > 0 && x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height
 }
 
 impl App {
@@ -79,6 +95,12 @@ impl App {
             music: Music::spawn(music::Config::load()),
             frame: 0,
             super_keys: false,
+            scene_visible: true,
+            music_visible: true,
+            rect_tree: Rect::default(),
+            rect_editor: Rect::default(),
+            rect_scene: Rect::default(),
+            rect_music: Rect::default(),
         })
         .map(|mut app: App| {
             if let Some(i) = first_scene {
@@ -177,7 +199,19 @@ impl App {
                     }
                 }
             }
-            Key::Right | Key::Enter => {
+            Key::Enter => {
+                let idx = self.visible[self.sel];
+                match self.project.nodes[idx].kind {
+                    Kind::Container => {
+                        let open = self.project.nodes[idx].expanded;
+                        self.project.nodes[idx].expanded = !open;
+                        self.refresh_visible();
+                    }
+                    Kind::Scene => self.open_scene(idx),
+                    Kind::Divider => {}
+                }
+            }
+            Key::Right => {
                 let idx = self.visible[self.sel];
                 match self.project.nodes[idx].kind {
                     Kind::Container => {
@@ -229,15 +263,128 @@ impl App {
         }
     }
 
-    pub fn toggle_focus(&mut self) {
-        self.focus = match self.focus {
-            Focus::Tree if self.open.is_some() => Focus::Editor,
-            Focus::Tree => Focus::Tree,
-            Focus::Editor => {
-                self.flush();
-                Focus::Tree
+    fn focusable(&self, f: Focus) -> bool {
+        match f {
+            Focus::Tree => true,
+            Focus::Editor => self.open.is_some(),
+            Focus::Clearing => self.scene_visible,
+            Focus::Music => self.music_visible,
+        }
+    }
+
+    /// Tab through every pane that is actually on screen.
+    pub fn cycle_focus(&mut self, forward: bool) {
+        const ORDER: [Focus; 4] = [Focus::Tree, Focus::Editor, Focus::Clearing, Focus::Music];
+        let cur = ORDER.iter().position(|&f| f == self.focus).unwrap_or(0);
+        for step in 1..=ORDER.len() {
+            let i = if forward {
+                (cur + step) % ORDER.len()
+            } else {
+                (cur + ORDER.len() - step) % ORDER.len()
+            };
+            if self.focusable(ORDER[i]) {
+                if self.focus == Focus::Editor {
+                    self.flush();
+                }
+                self.focus = ORDER[i];
+                return;
             }
-        };
+        }
+    }
+
+    pub fn on_clearing_key(&mut self, key: Key) {
+        match key {
+            Key::Enter | Key::Char(' ') => self.pomo.toggle(),
+            Key::Char('r') => {
+                self.pomo.reset();
+                self.msg = "timer reset".into();
+            }
+            Key::Esc => self.focus = Focus::Tree,
+            _ => {}
+        }
+    }
+
+    pub fn on_music_key(&mut self, key: Key) {
+        match key {
+            Key::Enter | Key::Char(' ') => self.music.send(music::Cmd::PlayPause),
+            Key::Right | Key::Char('l') | Key::Char('n') => self.music.send(music::Cmd::Next),
+            Key::Left | Key::Char('h') | Key::Char('p') => self.music.send(music::Cmd::Prev),
+            Key::Esc => self.focus = Focus::Tree,
+            _ => {}
+        }
+    }
+
+    /// A left click focuses the pane under the pointer and acts on it.
+    pub fn on_click(&mut self, x: u16, y: u16) {
+        if hit(self.rect_tree, x, y) {
+            if self.focus == Focus::Editor {
+                self.flush();
+            }
+            self.focus = Focus::Tree;
+            let row = self.tree_scroll + (y - self.rect_tree.y) as usize;
+            if row < self.visible.len() {
+                self.sel = row;
+                let idx = self.visible[row];
+                match self.project.nodes[idx].kind {
+                    Kind::Container => {
+                        let open = self.project.nodes[idx].expanded;
+                        self.project.nodes[idx].expanded = !open;
+                        self.refresh_visible();
+                    }
+                    Kind::Scene => self.open_scene(idx),
+                    Kind::Divider => {}
+                }
+            }
+        } else if hit(self.rect_editor, x, y) && self.open.is_some() {
+            self.focus = Focus::Editor;
+            let rows = self.editor.layout(self.edit_width);
+            let vis = self.editor.scroll + (y - self.rect_editor.y) as usize;
+            self.editor.click(&rows, vis, (x - self.rect_editor.x) as usize);
+        } else if hit(self.rect_scene, x, y) {
+            if self.focus == Focus::Editor {
+                self.flush();
+            }
+            self.focus = Focus::Clearing;
+            self.pomo.toggle();
+        } else if hit(self.rect_music, x, y) {
+            if self.focus == Focus::Editor {
+                self.flush();
+            }
+            self.focus = Focus::Music;
+            self.music.send(music::Cmd::PlayPause);
+        }
+    }
+
+    /// Wheel scrolls whichever pane is under the pointer, without stealing focus.
+    pub fn on_scroll(&mut self, x: u16, y: u16, down: bool) {
+        const STEP: usize = 3;
+        if hit(self.rect_tree, x, y) {
+            if down {
+                self.tree_scroll = (self.tree_scroll + STEP)
+                    .min(self.visible.len().saturating_sub(1));
+            } else {
+                self.tree_scroll = self.tree_scroll.saturating_sub(STEP);
+            }
+        } else if hit(self.rect_editor, x, y) {
+            let rows = self.editor.layout(self.edit_width);
+            if down {
+                self.editor.scroll = (self.editor.scroll + STEP)
+                    .min(rows.len().saturating_sub(1));
+            } else {
+                self.editor.scroll = self.editor.scroll.saturating_sub(STEP);
+            }
+        }
+    }
+
+    /// Status-bar hints for whichever pane has focus.
+    pub fn hints(&self) -> String {
+        let m = self.mod_label();
+        match self.focus {
+            Focus::Tree => format!("Tab pane  ↵ open/fold  {m}S save  {m}Q quit "),
+            Focus::Editor => format!("Tab pane  Esc tree  {m}S save  {m}Q quit "),
+            Focus::Clearing => format!("Tab pane  ↵ start/pause  r reset  {m}Q quit "),
+            Focus::Music => format!("Tab pane  ↵ play/pause  ←→ track  {m}Q quit "),
+        }
     }
 }
 
@@ -257,6 +404,7 @@ pub enum Key {
     PageDown,
     Esc,
     Tab,
+    BackTab,
     F(u8),
     Other,
 }

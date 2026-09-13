@@ -9,8 +9,9 @@ mod ui;
 
 use anyhow::{Context, Result};
 use ratatui::crossterm::event::{
-    self, Event, KeyCode, KeyEventKind, KeyModifiers, KeyboardEnhancementFlags,
-    PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
+    self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, KeyModifiers,
+    KeyboardEnhancementFlags, MouseButton, MouseEventKind, PopKeyboardEnhancementFlags,
+    PushKeyboardEnhancementFlags,
 };
 use ratatui::crossterm::execute;
 use std::path::{Path, PathBuf};
@@ -82,13 +83,14 @@ fn main() -> Result<()> {
     // full 2s when nothing answers, which is most of them.
     let _ = execute!(
         std::io::stdout(),
-        PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
+        PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES),
+        EnableMouseCapture,
     );
     app.super_keys = cmd_is_reachable();
 
     let res = run(&mut terminal, &mut app);
 
-    let _ = execute!(std::io::stdout(), PopKeyboardEnhancementFlags);
+    let _ = execute!(std::io::stdout(), DisableMouseCapture, PopKeyboardEnhancementFlags);
     ratatui::restore();
     res
 }
@@ -212,7 +214,19 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
             app.frame = app.frame.wrapping_add(1);
             continue;
         }
-        let Event::Key(k) = event::read()? else {
+        let ev = event::read()?;
+
+        if let Event::Mouse(m) = ev {
+            match m.kind {
+                MouseEventKind::Down(MouseButton::Left) => app.on_click(m.column, m.row),
+                MouseEventKind::ScrollDown => app.on_scroll(m.column, m.row, true),
+                MouseEventKind::ScrollUp => app.on_scroll(m.column, m.row, false),
+                _ => {}
+            }
+            continue;
+        }
+
+        let Event::Key(k) = ev else {
             continue;
         };
         if k.kind != KeyEventKind::Press {
@@ -267,7 +281,8 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
             KeyCode::PageUp => Key::PageUp,
             KeyCode::PageDown => Key::PageDown,
             KeyCode::Esc => Key::Esc,
-            KeyCode::Tab | KeyCode::BackTab => Key::Tab,
+            KeyCode::Tab => Key::Tab,
+            KeyCode::BackTab => Key::BackTab,
             KeyCode::F(n) => Key::F(n),
             _ => Key::Other,
         };
@@ -278,8 +293,8 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
             continue;
         }
 
-        if key == Key::Tab {
-            app.toggle_focus();
+        if key == Key::Tab || key == Key::BackTab {
+            app.cycle_focus(key == Key::Tab);
             continue;
         }
 
@@ -296,6 +311,8 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
                 app.on_tree_key(key);
             }
             Focus::Editor => app.on_editor_key(key),
+            Focus::Clearing => app.on_clearing_key(key),
+            Focus::Music => app.on_music_key(key),
         }
 
         if app.quit {

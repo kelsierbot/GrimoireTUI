@@ -88,9 +88,10 @@ never heard of.
 
 | Key | |
 |---|---|
-| `Tab` | switch pane |
+| `Tab` / `Shift-Tab` | cycle panes — tree, editor, clearing, music |
 | `↑ ↓` / `j k` | move in tree |
-| `→` / `l` / `Enter` | expand container, or open scene |
+| `Enter` | fold or unfold a container · open a scene |
+| `→` / `l` | expand a container, or open a scene |
 | `←` / `h` | collapse, or jump to parent |
 | `Ctrl-S` | save all changed scenes |
 | `Ctrl-Q` | quit (twice if unsaved) |
@@ -98,8 +99,19 @@ never heard of.
 | `F2` / `F3` | start or pause the timer / reset it |
 | `F4` `F5` `F6` | previous · play-pause · next |
 
-Function keys work from either pane, so they can never eat a keystroke while
-you're writing.
+In the clearing pane: `Enter` starts and pauses, `r` resets. In the music pane:
+`Enter` plays and pauses, `←`/`→` change track. Function keys work from any
+pane, so they can never eat a keystroke while you're writing.
+
+## Mouse
+
+It is a TUI, but the mouse works. Click a chapter to fold it, a scene to open
+it, anywhere in the prose to put the caret there. Click the clearing to start
+the timer or the music pane to play and pause. The wheel scrolls whichever pane
+is under the pointer without stealing focus.
+
+Mouse capture does mean the terminal's own click-drag text selection is
+suppressed — hold `Shift` while dragging to select as usual.
 
 **On the modifier:** Grimoire accepts either `Ctrl` or `Cmd`, and the status bar
 labels whichever your terminal can actually deliver. Cmd only reaches a terminal
