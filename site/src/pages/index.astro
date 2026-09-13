@@ -1,0 +1,286 @@
+---
+import '../styles/global.css';
+
+const TREE_W = 24;
+const EDIT_W = 47;
+
+const esc = (s: string) =>
+  s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
+type Row =
+  | { kind: 'container' | 'scene' | 'open'; text: string; count: string }
+  | { kind: 'divider' | 'blank' };
+
+const tree: Row[] = [
+  { kind: 'container', text: '▾ Part One', count: '2,120' },
+  { kind: 'container', text: '  ▾ Chapter One', count: '2,120' },
+  { kind: 'scene', text: '    • The Archive', count: '1,240' },
+  { kind: 'open', text: '    ● Gravel', count: '880' },
+  { kind: 'container', text: '  ▸ Chapter Two', count: '0' },
+  { kind: 'divider' },
+  { kind: 'container', text: '▾ Characters', count: '64' },
+  { kind: 'scene', text: '  • Wren', count: '64' },
+  { kind: 'blank' },
+  { kind: 'blank' },
+];
+
+const prose = [
+  '',
+  '  The caretaker was waiting by her car when',
+  '  she came back out, which meant he had been',
+  '  watching the door the whole time she was',
+  '  inside.',
+  '',
+  '  "You\'ll want to come back in daylight,"',
+  '  he said.',
+  '',
+  '  It was daylight.',
+];
+
+const treeCell = (r: Row) => {
+  if (r.kind === 'blank') return `<span class="b">${' '.repeat(TREE_W)}</span>`;
+  if (r.kind === 'divider')
+    return `<span class="b">── NOTES ${'─'.repeat(TREE_W - 9)}</span>`;
+  const gap = TREE_W - r.text.length - r.count.length - 1;
+  const cls = r.kind === 'container' ? 'c' : r.kind === 'open' ? 'o' : '';
+  return (
+    `<span class="${cls}">${esc(r.text)}</span>` +
+    ' '.repeat(Math.max(gap, 1)) +
+    `<span class="d">${r.count} </span>`
+  );
+};
+
+const rows = Math.max(tree.length, prose.length);
+
+let body = '';
+for (let i = 0; i < rows; i++) {
+  const left = i < tree.length ? treeCell(tree[i]) : `<span class="b">${' '.repeat(TREE_W)}</span>`;
+  const text = i < prose.length ? prose[i] : '';
+  // Rendered padded so the border is correct with no JS; CSS pins the width
+  // so it stays correct while the text types itself in.
+  const right = `<span class="ty" data-full="${esc(text)}">${esc(text.padEnd(EDIT_W))}</span>`;
+  body +=
+    `<span class="b">│</span>${left}<span class="b">││</span>${right}<span class="b">│</span>\n`;
+}
+
+const head =
+  `<span class="b">┌</span><span class="t"> MANUSCRIPT </span><span class="b">${'─'.repeat(TREE_W - 12)}┐</span>` +
+  `<span class="b">┌</span><span class="t"> Chapter One / Gravel </span><span class="b">${'─'.repeat(EDIT_W - 22)}┐</span>\n`;
+
+const foot =
+  `<span class="b">└${'─'.repeat(TREE_W)}┘└${'─'.repeat(EDIT_W)}┘</span>\n`;
+
+// Status line, padded so it lands on exactly the terminal's width.
+const TOTAL = 1 + TREE_W + 2 + EDIT_W + 1;
+const wcText = '2,120';
+const target = ' / 80,000 ';
+const today = '  today 412';
+const hints = 'Tab pane  ^S save  ^Q quit ';
+const BAR_W = 10;
+const pad = TOTAL - (1 + wcText.length + target.length + BAR_W + today.length + hints.length);
+
+const status =
+  `<span class="d"> </span>` +
+  `<span class="t" id="wc">${wcText}</span>` +
+  `<span class="d">${target}</span>` +
+  `<span class="bar-fill">▓</span>` +
+  `<span class="bar-empty">${'░'.repeat(BAR_W - 1)}</span>` +
+  `<span class="d">${today}${' '.repeat(Math.max(pad, 1))}${hints}</span>`;
+
+const term = head + body + foot + status;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GrimoireTUI — a terminal writing desk for novels</title>
+    <meta
+      name="description"
+      content="A terminal writing desk for novels, in Rust. Your manuscript is a folder of plain Markdown — no database, no lock-in, diffable in git."
+    />
+    <link rel="canonical" href="https://grimoire.joshking.ai/" />
+    <meta name="theme-color" content="#0a0a0f" />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://grimoire.joshking.ai/" />
+    <meta property="og:title" content="GrimoireTUI — a terminal writing desk for novels" />
+    <meta
+      property="og:description"
+      content="Your manuscript is a folder of plain Markdown. No database, no lock-in, diffable in git."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+
+  <body>
+    <div class="wrap">
+      <nav class="nav">
+        <a href="/" class="mark">grimoire</a>
+        <a href="https://joshking.ai">← joshking.ai</a>
+      </nav>
+
+      <header class="hero">
+        <h1 class="wordmark">Grimoire<em>TUI</em></h1>
+        <p class="tagline">A terminal writing desk for novels</p>
+
+        <div class="term-shell">
+          <div class="term-bar">
+            <i></i><i></i><i></i><span>grimoire ~/the-archive</span>
+          </div>
+          <div class="term-scroll">
+            <pre class="term" set:html={term} aria-label="GrimoireTUI running in a terminal"></pre>
+          </div>
+        </div>
+
+        <div class="install">
+          <code>git clone <b>github.com/kelsierbot/GrimoireTUI</b></code>
+          <code>cargo install --path .</code>
+          <span class="note">crates.io release coming</span>
+        </div>
+      </header>
+
+      <section>
+        <p class="eyebrow">The whole idea</p>
+        <h2>Your novel is a folder of Markdown.</h2>
+        <div class="measure">
+          <p>
+            Every open-source novel tool makes one of two mistakes. It traps your manuscript in a
+            database, or it's a text editor that has no idea what a manuscript is.
+          </p>
+          <p>
+            Grimoire does neither. <strong>The directory tree is the outline.</strong> Folders are
+            parts and chapters at any depth, files are scenes, order comes from the filename. There
+            is no index file, so there is no central thing to conflict when you sync across machines.
+          </p>
+          <p>
+            If Grimoire disappears tomorrow you still have your book — readable by
+            <code style="font-family:var(--mono);font-size:0.9em">cat</code>, editable in Obsidian,
+            diffable in git, line by line.
+          </p>
+        </div>
+
+        <div class="tree-fig">
+          <pre><b>the-archive/</b>
+├─ novel.toml                       <i>title, author, word targets</i>
+├─ manuscript/
+│  └─ 01-part-one/
+│     ├─ 01-chapter-one/
+│     │  ├─ <b>01-the-archive.md</b>            <i>a scene</i>
+│     │  └─ <b>02-gravel.md</b>
+│     └─ 02-chapter-two/
+└─ notes/
+   └─ characters/<b>wren.md</b></pre>
+        </div>
+      </section>
+
+      <section>
+        <p class="eyebrow">What it does</p>
+        <h2>Built for drafting, not for editing code.</h2>
+
+        <div class="grid">
+          <div>
+            <h3>Scene tree</h3>
+            <p>
+              Parts, chapters and scenes with live word counts that sum up the hierarchy. Collapse
+              what you're not working on.
+            </p>
+          </div>
+          <div>
+            <h3>Visual cursor</h3>
+            <p>
+              Down moves one screen row inside a wrapped paragraph, not one paragraph. The only
+              behaviour that feels right for prose.
+            </p>
+          </div>
+          <div>
+            <h3>Frontmatter untouched</h3>
+            <p>
+              Grimoire reads a few keys and never rewrites your YAML block, so Obsidian can own
+              fields Grimoire has never heard of.
+            </p>
+          </div>
+          <div>
+            <h3>Session tracking</h3>
+            <p>
+              The status bar shows words written today against your daily target, and total progress
+              against the finished book.
+            </p>
+          </div>
+          <div>
+            <h3>Save is a write</h3>
+            <p>
+              Ctrl-S writes changed scenes to disk as plain files. Nothing is cached anywhere you
+              can't see it.
+            </p>
+          </div>
+          <div>
+            <h3>One binary</h3>
+            <p>
+              Rust and Ratatui, 914&nbsp;KB stripped, no runtime. macOS and Linux. Type
+              <code style="font-family:var(--mono);font-size:0.9em">grimoire</code>.
+            </p>
+          </div>
+        </div>
+
+        <div class="honest">
+          <p>
+            <strong>v0.1, honestly:</strong> no command palette, corkboard, git sync, in-app file
+            creation, or search yet. It opens a manuscript, shows you the shape of it, and lets you
+            write. That's the whole thing so far.
+          </p>
+        </div>
+      </section>
+
+      <footer>
+        <span>Rust · Ratatui · MIT</span>
+        <span><a href="https://github.com/kelsierbot/GrimoireTUI">github</a> · <a href="https://joshking.ai">joshking.ai</a></span>
+      </footer>
+    </div>
+
+    <script>
+      const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      const spans = Array.from(document.querySelectorAll<HTMLElement>('.ty'));
+      const wc = document.getElementById('wc');
+
+      if (!reduce && spans.length) {
+        // Width is pinned in CSS, so emptying these can't shift the border.
+        for (const s of spans) s.textContent = '';
+
+        let i = 0;
+        const from = 1240;
+        const to = 2120;
+        const totalChars = spans.reduce((n, s) => n + (s.dataset.full || '').length, 0);
+        let written = 0;
+
+        const step = () => {
+          if (i >= spans.length) return;
+          const el = spans[i];
+          const full = el.dataset.full || '';
+          if (el.textContent!.length >= full.length) {
+            i++;
+            setTimeout(step, full.trim() ? 130 : 40);
+            return;
+          }
+          el.textContent = full.slice(0, el.textContent!.length + 1);
+          written++;
+          if (wc) {
+            const n = Math.round(from + (to - from) * (written / totalChars));
+            wc.textContent = n.toLocaleString('en-US');
+          }
+          setTimeout(step, 16);
+        };
+        setTimeout(step, 550);
+      }
+    </script>
+  </body>
+</html>

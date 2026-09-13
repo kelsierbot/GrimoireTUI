@@ -1,0 +1,30 @@
+[package]
+name = "grimoire-tui"
+version = "0.1.0"
+edition = "2024"
+description = "A terminal writing desk for novels"
+authors = ["Josh King"]
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/kelsierbot/GrimoireTUI"
+homepage = "https://grimoire.joshking.ai"
+keywords = ["tui", "writing", "novel", "markdown", "editor"]
+categories = ["command-line-utilities", "text-editors"]
+
+# The published crate is `grimoire-tui`; the command you type is `grimoire`.
+[[bin]]
+name = "grimoire"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0.104"
+chrono = "0.4.45"
+ratatui = "0.30.2"
+serde = { version = "1.0.229", features = ["derive"] }
+toml = "1.1.6"
+unicode-width = "0.2.2"
+
+[profile.release]
+opt-level = 3
+lto = true
+strip = true

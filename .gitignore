@@ -1,0 +1,10 @@
+# Rust
+/target
+
+# Grimoire per-project session state (never belongs in a manuscript repo)
+.grimoire/
+
+# Site
+site/node_modules/
+site/dist/
+site/.astro/

@@ -1,0 +1,199 @@
+/* Every colour here is sampled from the running TUI. */
+:root {
+  --void:      #0a0a0f;   /* joshking.ai family base */
+  --ink:       #12121a;
+  --raised:    #16161f;
+  --brass:     #d6ad60;   /* ui.rs ACCENT  rgb(214,173,96) */
+  --brass-dim: #8a7040;
+  --parchment: #dedcd4;   /* ui.rs TEXT    rgb(222,220,212) */
+  --slate:     #6c6c7a;   /* ui.rs DIM     rgb(108,108,122) */
+  --ember:     #c87864;   /* ui.rs unsaved rgb(200,120,100) */
+  --rule:      #26262f;   /* ui.rs BORDER  rgb(70,70,84), darkened */
+
+  --serif: 'EB Garamond', Georgia, 'Times New Roman', serif;
+  --mono:  'JetBrains Mono', ui-monospace, 'Cascadia Code', monospace;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--void);
+  color: var(--parchment);
+  font-family: var(--serif);
+  font-size: 1.125rem;
+  line-height: 1.75;
+  overflow-x: hidden;
+}
+
+::selection { background: rgba(214, 173, 96, 0.3); color: #fff; }
+
+a { color: var(--brass); text-decoration-color: var(--brass-dim); text-underline-offset: 0.2em; }
+a:hover { color: #efd8a4; }
+
+:focus-visible { outline: 2px solid var(--brass); outline-offset: 3px; border-radius: 2px; }
+
+.wrap { width: min(100% - 2.5rem, 64rem); margin-inline: auto; }
+.measure { max-width: 38rem; }
+
+/* ── nav ─────────────────────────────────────────────────── */
+.nav {
+  display: flex; justify-content: space-between; align-items: baseline;
+  gap: 1rem; padding: 1.75rem 0 0;
+  font-family: var(--mono); font-size: 0.8125rem; letter-spacing: 0.04em;
+}
+.nav a { text-decoration: none; color: var(--slate); }
+.nav a:hover { color: var(--brass); }
+.nav .mark { color: var(--brass); }
+
+/* ── hero ────────────────────────────────────────────────── */
+.hero { padding: clamp(3rem, 9vw, 6rem) 0 0; }
+
+.wordmark {
+  font-family: var(--serif);
+  font-weight: 500;
+  font-size: clamp(3.25rem, 12vw, 7rem);
+  line-height: 0.92;
+  letter-spacing: -0.025em;
+  margin: 0;
+  color: var(--parchment);
+}
+.wordmark em {
+  font-style: italic;
+  color: var(--brass);
+}
+
+.tagline {
+  font-family: var(--mono);
+  font-size: clamp(0.8125rem, 2.2vw, 0.9375rem);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--slate);
+  margin: 1.5rem 0 0;
+}
+
+/* ── the terminal ────────────────────────────────────────── */
+.term-shell {
+  margin: clamp(2.5rem, 6vw, 4rem) 0 0;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--ink);
+  box-shadow: 0 24px 70px -30px rgba(0,0,0,0.95), 0 0 0 1px rgba(214,173,96,0.05);
+  overflow: hidden;
+}
+.term-bar {
+  display: flex; align-items: center; gap: 0.5rem;
+  padding: 0.6rem 0.9rem;
+  border-bottom: 1px solid var(--rule);
+  background: var(--raised);
+  font-family: var(--mono); font-size: 0.75rem; color: var(--slate);
+}
+.term-bar i { width: 9px; height: 9px; border-radius: 50%; background: var(--rule); display: block; }
+.term-bar span { margin-left: 0.4rem; }
+
+.term-scroll { overflow-x: auto; padding: 1.1rem 1.1rem 1.3rem; }
+.term {
+  font-family: var(--mono);
+  font-size: clamp(0.5rem, 1.42vw, 0.8125rem);
+  line-height: 1.5;
+  white-space: pre;
+  margin: 0;
+  color: var(--parchment);
+  tab-size: 4;
+}
+.b  { color: var(--rule); }        /* box drawing   */
+.t  { color: var(--brass); }       /* pane titles   */
+.d  { color: var(--slate); }       /* counts, hints */
+.o  { color: var(--brass); }       /* open scene    */
+.c  { color: var(--parchment); font-weight: 500; }  /* containers */
+.bar-fill  { color: var(--brass); }
+.bar-empty { color: var(--rule); }
+/* Fixed cell width keeps the right-hand border still while text types in. */
+.ty { display: inline-block; width: 47ch; white-space: pre; }
+.cursor { color: var(--brass); animation: blink 1.15s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+
+.install {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem 1.25rem;
+  margin: 2rem 0 0;
+  font-family: var(--mono); font-size: 0.875rem;
+}
+.install code {
+  background: var(--ink);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 0.55rem 0.9rem;
+  color: var(--parchment);
+}
+.install code b { color: var(--brass); font-weight: 400; }
+.install .note { color: var(--slate); font-size: 0.8125rem; }
+
+/* ── sections ────────────────────────────────────────────── */
+section { padding: clamp(4rem, 11vw, 7.5rem) 0 0; }
+
+.eyebrow {
+  font-family: var(--mono); font-size: 0.75rem;
+  letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--brass-dim); margin: 0 0 1.25rem;
+}
+
+h2 {
+  font-family: var(--serif); font-weight: 500;
+  font-size: clamp(1.85rem, 5.2vw, 3rem);
+  line-height: 1.12; letter-spacing: -0.02em;
+  margin: 0 0 1.5rem; color: var(--parchment);
+}
+
+p { margin: 0 0 1.25rem; color: #c9c7c0; }
+p strong { color: var(--parchment); font-weight: 600; }
+
+.tree-fig {
+  margin: 2.5rem 0 0;
+  padding: 1.5rem 1.6rem;
+  border-left: 2px solid var(--brass-dim);
+  background: var(--ink);
+  overflow-x: auto;
+}
+.tree-fig pre {
+  margin: 0; font-family: var(--mono);
+  font-size: clamp(0.6875rem, 1.7vw, 0.8125rem);
+  line-height: 1.85; color: var(--slate); white-space: pre;
+}
+.tree-fig pre b { color: var(--parchment); font-weight: 400; }
+.tree-fig pre i { color: var(--brass); font-style: normal; }
+
+.grid {
+  display: grid; gap: 2.5rem 3rem;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  margin: 3rem 0 0;
+}
+.grid h3 {
+  font-family: var(--mono); font-size: 0.8125rem;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--brass); font-weight: 500;
+  margin: 0 0 0.65rem;
+}
+.grid p { font-size: 1rem; margin: 0; color: #b8b6af; }
+
+.honest {
+  margin-top: 3rem; padding: 1.4rem 1.6rem;
+  border: 1px dashed var(--rule); border-radius: 5px;
+}
+.honest p { margin: 0; font-size: 1rem; color: var(--slate); }
+.honest strong { color: var(--ember); font-weight: 600; }
+
+footer {
+  margin-top: clamp(4rem, 11vw, 7.5rem);
+  padding: 2rem 0 3rem;
+  border-top: 1px solid var(--rule);
+  font-family: var(--mono); font-size: 0.8125rem; color: var(--slate);
+  display: flex; flex-wrap: wrap; gap: 0.5rem 1.75rem; justify-content: space-between;
+}
+footer a { text-decoration: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
+  html { scroll-behavior: auto; }
+}

@@ -1,0 +1,327 @@
+//! Manuscript model: a project is a directory tree of plain Markdown files.
+//!
+//! Structure on disk is the source of truth — no central index to conflict in git:
+//!
+//!   novel.toml                     project metadata
+//!   manuscript/01-part-one/01-chapter-one/01-the-archive.md
+//!   notes/characters/wren.md
+//!
+//! Directories are containers (parts, chapters). `.md` files are scenes.
+//! Ordering comes from the filename; a leading `01-` is stripped for display.
+//! Scene metadata lives in YAML frontmatter, which we preserve verbatim so
+//! Obsidian and anything else can read and write it without us mangling it.
+
+use anyhow::{Context, Result};
+use serde::Deserialize;
+use std::fs;
+use std::path::{Path, PathBuf};
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct ProjectMeta {
+    pub title: String,
+    pub author: String,
+    pub draft: String,
+    pub target_words: usize,
+    pub daily_target: usize,
+}
+
+impl Default for ProjectMeta {
+    fn default() -> Self {
+        Self {
+            title: "Untitled".into(),
+            author: String::new(),
+            draft: String::new(),
+            target_words: 80_000,
+            daily_target: 1_000,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kind {
+    Container,
+    Scene,
+    Divider,
+}
+
+#[derive(Debug, Clone)]
+pub struct Node {
+    pub kind: Kind,
+    pub title: String,
+    pub path: PathBuf,
+    pub depth: usize,
+    pub expanded: bool,
+    pub children: Vec<usize>,
+    pub in_manuscript: bool,
+    /// Raw frontmatter block, without the `---` fences. Round-tripped untouched.
+    pub front: Option<String>,
+    pub body: String,
+    pub dirty: bool,
+    pub pov: Option<String>,
+    pub status: Option<String>,
+}
+
+impl Node {
+    pub fn words(&self) -> usize {
+        self.body.split_whitespace().count()
+    }
+}
+
+pub struct Project {
+    pub root: PathBuf,
+    pub meta: ProjectMeta,
+    pub nodes: Vec<Node>,
+    pub roots: Vec<usize>,
+}
+
+impl Project {
+    pub fn load(root: &Path) -> Result<Project> {
+        let meta_path = root.join("novel.toml");
+        let meta: ProjectMeta = if meta_path.exists() {
+            let s = fs::read_to_string(&meta_path)
+                .with_context(|| format!("reading {}", meta_path.display()))?;
+            toml::from_str(&s).with_context(|| format!("parsing {}", meta_path.display()))?
+        } else {
+            ProjectMeta::default()
+        };
+
+        let mut p = Project {
+            root: root.to_path_buf(),
+            meta,
+            nodes: Vec::new(),
+            roots: Vec::new(),
+        };
+
+        let manuscript = root.join("manuscript");
+        if manuscript.is_dir() {
+            let idxs = p.scan(&manuscript, 0, true)?;
+            p.roots.extend(idxs);
+        }
+
+        let notes = root.join("notes");
+        if notes.is_dir() {
+            let div = p.push(Node {
+                kind: Kind::Divider,
+                title: "NOTES".into(),
+                path: notes.clone(),
+                depth: 0,
+                expanded: true,
+                children: Vec::new(),
+                in_manuscript: false,
+                front: None,
+                body: String::new(),
+                dirty: false,
+                pov: None,
+                status: None,
+            });
+            p.roots.push(div);
+            let idxs = p.scan(&notes, 0, false)?;
+            p.roots.extend(idxs);
+        }
+
+        Ok(p)
+    }
+
+    fn push(&mut self, n: Node) -> usize {
+        self.nodes.push(n);
+        self.nodes.len() - 1
+    }
+
+    fn scan(&mut self, dir: &Path, depth: usize, in_manuscript: bool) -> Result<Vec<usize>> {
+        let mut entries: Vec<_> = fs::read_dir(dir)
+            .with_context(|| format!("reading {}", dir.display()))?
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                let name = e.file_name();
+                let name = name.to_string_lossy();
+                !name.starts_with('.')
+            })
+            .collect();
+        entries.sort_by_key(|e| e.file_name());
+
+        let mut out = Vec::new();
+        for e in entries {
+            let path = e.path();
+            if path.is_dir() {
+                let idx = self.push(Node {
+                    kind: Kind::Container,
+                    title: display_title(&path, None),
+                    path: path.clone(),
+                    depth,
+                    expanded: depth == 0,
+                    children: Vec::new(),
+                    in_manuscript,
+                    front: None,
+                    body: String::new(),
+                    dirty: false,
+                    pov: None,
+                    status: None,
+                });
+                let kids = self.scan(&path, depth + 1, in_manuscript)?;
+                self.nodes[idx].children = kids;
+                out.push(idx);
+            } else if path.extension().and_then(|s| s.to_str()) == Some("md") {
+                let raw = fs::read_to_string(&path)
+                    .with_context(|| format!("reading {}", path.display()))?;
+                let (front, body) = split_frontmatter(&raw);
+                let pov = front.as_deref().and_then(|f| front_get(f, "pov"));
+                let status = front.as_deref().and_then(|f| front_get(f, "status"));
+                let title = display_title(&path, front.as_deref());
+                let idx = self.push(Node {
+                    kind: Kind::Scene,
+                    title,
+                    path: path.clone(),
+                    depth,
+                    expanded: false,
+                    children: Vec::new(),
+                    in_manuscript,
+                    front,
+                    body,
+                    dirty: false,
+                    pov,
+                    status,
+                });
+                out.push(idx);
+            }
+        }
+        Ok(out)
+    }
+
+    /// Words in this node, summing descendants for containers.
+    pub fn subtree_words(&self, i: usize) -> usize {
+        let n = &self.nodes[i];
+        match n.kind {
+            Kind::Scene => n.words(),
+            _ => n.children.iter().map(|&c| self.subtree_words(c)).sum(),
+        }
+    }
+
+    pub fn total_words(&self) -> usize {
+        self.nodes
+            .iter()
+            .filter(|n| n.kind == Kind::Scene && n.in_manuscript)
+            .map(|n| n.words())
+            .sum()
+    }
+
+    /// Flattened list of visible rows, honouring collapse state.
+    pub fn visible(&self) -> Vec<usize> {
+        let mut out = Vec::new();
+        for &r in &self.roots {
+            self.walk(r, &mut out);
+        }
+        out
+    }
+
+    fn walk(&self, i: usize, out: &mut Vec<usize>) {
+        out.push(i);
+        let n = &self.nodes[i];
+        if n.expanded {
+            for &c in &n.children {
+                self.walk(c, out);
+            }
+        }
+    }
+
+    pub fn save_all(&mut self) -> Result<usize> {
+        let mut count = 0;
+        for i in 0..self.nodes.len() {
+            if self.nodes[i].dirty && self.nodes[i].kind == Kind::Scene {
+                let n = &self.nodes[i];
+                let mut out = String::new();
+                if let Some(f) = &n.front {
+                    out.push_str("---\n");
+                    out.push_str(f);
+                    if !f.ends_with('\n') {
+                        out.push('\n');
+                    }
+                    out.push_str("---\n\n");
+                }
+                out.push_str(&n.body);
+                if !out.ends_with('\n') {
+                    out.push('\n');
+                }
+                fs::write(&n.path, out)
+                    .with_context(|| format!("writing {}", n.path.display()))?;
+                self.nodes[i].dirty = false;
+                count += 1;
+            }
+        }
+        Ok(count)
+    }
+
+    pub fn dirty_count(&self) -> usize {
+        self.nodes.iter().filter(|n| n.dirty).count()
+    }
+}
+
+/// Split a `---` fenced YAML frontmatter block off the front of a file.
+fn split_frontmatter(raw: &str) -> (Option<String>, String) {
+    let s = raw.strip_prefix("\u{feff}").unwrap_or(raw);
+    let Some(rest) = s.strip_prefix("---\n") else {
+        return (None, s.to_string());
+    };
+    // Find the closing fence at the start of a line.
+    let mut offset = 0usize;
+    for line in rest.split_inclusive('\n') {
+        let trimmed = line.trim_end_matches(['\n', '\r']);
+        if trimmed == "---" {
+            let front = rest[..offset].to_string();
+            let body = rest[offset + line.len()..].trim_start_matches('\n').to_string();
+            return (Some(front), body);
+        }
+        offset += line.len();
+    }
+    (None, s.to_string())
+}
+
+/// Pull a scalar value out of a raw frontmatter block. Deliberately naive —
+/// we only read a few known keys and never rewrite the block.
+fn front_get(front: &str, key: &str) -> Option<String> {
+    for line in front.lines() {
+        let Some((k, v)) = line.split_once(':') else {
+            continue;
+        };
+        if k.trim() == key {
+            let v = v.trim().trim_matches('"').trim_matches('\'').trim();
+            if v.is_empty() {
+                return None;
+            }
+            return Some(v.to_string());
+        }
+    }
+    None
+}
+
+/// `01-the-archive.md` -> `The Archive`, unless frontmatter names it.
+fn display_title(path: &Path, front: Option<&str>) -> String {
+    if let Some(f) = front {
+        if let Some(t) = front_get(f, "title") {
+            return t;
+        }
+    }
+    let stem = path
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_default();
+
+    let stripped = stem
+        .char_indices()
+        .find(|(_, c)| !c.is_ascii_digit() && *c != '-' && *c != '_' && *c != ' ')
+        .map(|(i, _)| &stem[i..])
+        .unwrap_or(&stem);
+
+    stripped
+        .split(['-', '_', ' '])
+        .filter(|w| !w.is_empty())
+        .map(|w| {
+            let mut c = w.chars();
+            match c.next() {
+                Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
