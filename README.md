@@ -1,39 +1,29 @@
-# GrimoireTUI
+<img src="assets/banner.svg" alt="grimoire — a terminal writing desk for novels" width="820">
 
-A terminal writing desk for novels. Rust + [Ratatui](https://ratatui.rs).
+**[grimoire.joshking.ai](https://grimoire.joshking.ai)** · Rust + [Ratatui](https://ratatui.rs) · MIT · macOS and Linux
 
-**[grimoire.joshking.ai](https://grimoire.joshking.ai)**
+A writing desk for novels that lives in your terminal. It knows what a
+manuscript is — parts, chapters, scenes, word targets — and it keeps every word
+of it as plain files you could read with `cat`.
 
-```
-┌ MANUSCRIPT ────────────┐┌ Chapter One / Gravel ─────────────────────────┐
-│▾ Part One        2,120 ││                                               │
-│  ▾ Chapter One   2,120 ││  The caretaker was waiting by her car when    │
-│    • The Archive 1,240 ││  she came back out, which meant he had been   │
-│    ● Gravel        880 ││  watching the door the whole time she was     │
-│  ▸ Chapter Two       0 ││  inside.                                      │
-│── NOTES ───────────────││                                               │
-│▾ Characters         64 ││  "You'll want to come back in daylight,"      │
-│  • Wren             64 ││  he said.                                     │
-│                        ││                                               │
-│                        ││  It was daylight.                             │
-└────────────────────────┘└───────────────────────────────────────────────┘
- 2,120 / 80,000 ▓░░░░░░░░░  today 412           Tab pane  ^S save  ^Q quit
-```
+---
 
 ## Why it exists
 
-Every open-source novel tool makes one of two mistakes: it traps your manuscript
-in a database, or it's a text editor with no idea what a manuscript is.
-GrimoireTUI does neither.
+Every open-source novel tool makes one of two mistakes. It traps your
+manuscript in a database, or it's a text editor with no idea what a manuscript
+is.
 
-**Your novel is a folder of plain Markdown.** No index file, no database, no
-lock-in — so there's no central thing to conflict when you sync across machines.
-If this project disappears tomorrow you still have your book: readable by `cat`,
-editable in Obsidian, diffable in git, line by line.
+Grimoire does neither. **The directory tree is the outline.** There is no index
+file, so there is nothing central to conflict when you sync across machines.
+Reordering is renaming. Backing up is copying a folder.
+
+If this project is abandoned tomorrow you still have your book. That is the
+whole design constraint, and everything else follows from it.
 
 ## Install
 
-Requires Rust 1.85+ (edition 2024).
+Requires Rust 1.85 or newer.
 
 ```sh
 git clone https://github.com/kelsierbot/GrimoireTUI
@@ -42,33 +32,39 @@ cargo install --path .
 grimoire
 ```
 
-`cargo install` puts the binary in `~/.cargo/bin`, so make sure that is on your
-`PATH`.
-
-Typing `grimoire` on its own opens the current directory if it is a manuscript,
-otherwise the last one you had open, otherwise it starts a fresh one in
-`~/Documents/Grimoire`. To be explicit:
+The crate is `grimoire-tui`; the binary it installs is `grimoire`. Make sure
+`~/.cargo/bin` is on your `PATH`. A crates.io release is coming.
 
 ```sh
-grimoire ~/novels/the-archive     open a specific manuscript
+grimoire                          open your manuscript
+grimoire ~/novels/the-archive     open a specific one
 grimoire new ~/novels/next-one    start one
 ```
 
-The crate is `grimoire-tui`; the binary it installs is `grimoire`.
-A crates.io release is coming.
+With no arguments it opens the current directory if it's a manuscript,
+otherwise the last one you had open, otherwise it creates one in
+`~/Documents/Grimoire`.
 
-## Project layout
+## On disk
+
+Folders are containers, at any depth. Files are scenes. Order comes from the
+name — a leading `01-` sorts the file and is stripped for display.
 
 ```
-novel.toml                                       title, author, word targets
-manuscript/01-part-one/01-chapter-one/01-the-archive.md
-notes/characters/wren.md
-.grimoire/progress.toml                          session tracking (gitignored)
+the-archive/
+├─ novel.toml                    title, author, word targets
+├─ manuscript/
+│  └─ 01-part-one/
+│     ├─ 01-chapter-one/
+│     │  ├─ 01-the-archive.md    a scene
+│     │  └─ 02-gravel.md
+│     └─ 02-chapter-two/
+├─ notes/
+│  └─ characters/wren.md
+└─ .grimoire/                    session state, gitignored
 ```
 
-Directories are containers — parts, chapters, any depth you like. `.md` files
-are scenes. Order comes from the filename; a leading `01-` is stripped for
-display. Scene metadata lives in YAML frontmatter:
+Scene metadata lives in YAML frontmatter:
 
 ```yaml
 ---
@@ -80,49 +76,42 @@ target: 1200
 ---
 ```
 
-Frontmatter is **round-tripped verbatim**. GrimoireTUI reads a few keys and
-never rewrites the block, so Obsidian and anything else can own fields it has
-never heard of.
+Frontmatter is **round-tripped verbatim**. Grimoire reads a few keys and never
+rewrites the block, so Obsidian and anything else can own fields it has never
+heard of.
 
 ## Keys
 
 | Key | |
 |---|---|
 | `Tab` / `Shift-Tab` | cycle panes — tree, editor, clearing, music |
-| `↑ ↓` / `j k` | move in tree |
+| `↑ ↓` · `j k` | move in the tree |
 | `Enter` | fold or unfold a container · open a scene |
-| `→` / `l` | expand a container, or open a scene |
-| `←` / `h` | collapse, or jump to parent |
+| `→` `l` / `←` `h` | expand / collapse, or jump to parent |
 | `Ctrl-S` | save all changed scenes |
-| `Ctrl-Q` | quit (twice if unsaved) |
-| `Esc` | leave editor, back to tree |
-| `F2` / `F3` | start or pause the timer / reset it |
+| `Ctrl-Q` | quit — twice if unsaved |
+| `Esc` | leave the editor |
+| `F2` `F3` | start or pause the timer · reset |
 | `F4` `F5` `F6` | previous · play-pause · next |
 
-In the clearing pane: `Enter` starts and pauses, `r` resets. In the music pane:
-`Enter` plays and pauses, `←`/`→` change track. Function keys work from any
-pane, so they can never eat a keystroke while you're writing.
+Vertical movement in the editor is **visual, not logical** — Down moves one
+screen row inside a wrapped paragraph rather than jumping the whole paragraph,
+which is the only behaviour that feels right for prose.
+
+Grimoire accepts `Ctrl` or `Cmd`, and the status bar labels whichever your
+terminal can actually deliver. Cmd only reaches a terminal application through
+the Kitty keyboard protocol — Ghostty, Kitty, WezTerm and foot support it,
+Apple Terminal cannot send it at all. Ctrl always works.
 
 ## Mouse
 
-It is a TUI, but the mouse works. Click a chapter to fold it, a scene to open
+It's a TUI, but the mouse works. Click a chapter to fold it, a scene to open
 it, anywhere in the prose to put the caret there. Click the clearing to start
-the timer or the music pane to play and pause. The wheel scrolls whichever pane
-is under the pointer without stealing focus.
+the timer, or the music pane to play and pause. The wheel scrolls whichever
+pane is under the pointer without stealing focus.
 
-Mouse capture does mean the terminal's own click-drag text selection is
-suppressed — hold `Shift` while dragging to select as usual.
-
-**On the modifier:** Grimoire accepts either `Ctrl` or `Cmd`, and the status bar
-labels whichever your terminal can actually deliver. Cmd only reaches a terminal
-application through the Kitty keyboard protocol — Ghostty, Kitty, WezTerm and
-foot support it; Apple Terminal does not, and there is nothing an application
-can do about that. Ctrl always works.
-
-In the editor: type. Arrows, Home/End, PageUp/PageDown, Backspace, Delete.
-Vertical movement is **visual** — Down moves one screen row inside a wrapped
-paragraph rather than jumping a whole paragraph, which is the only behaviour
-that feels right for prose.
+Mouse capture suppresses the terminal's own drag-to-select — hold `Shift` while
+dragging to select text as usual.
 
 ## The clearing
 
@@ -142,27 +131,24 @@ Below the manuscript tree is a forest, and the forest is the timer.
 └────────────────────────────┘
 ```
 
-The sun's **position is the clock** — it crosses the sky over a 25 minute focus
-session, so you read the time remaining off the light instead of watching a
-countdown. Break time is night: the moon rises, the flowers close, and fireflies
-come out between the rabbits. The rabbits flick their ears on mutually-prime
-cycles so they never move in lockstep.
-
-`F2` starts and pauses. `F3` resets.
+The sun's **position is the clock**. It crosses the sky over a twenty-five
+minute session, so you read the time remaining off the light instead of
+watching a number count down. Break time is night: the moon rises, the flowers
+close, and fireflies come out between the rabbits.
 
 ## Music
 
 There is no official YouTube Music API, and anything that extracts stream URLs
-both violates the terms and side-steps the subscription you already pay for. So
-Grimoire never plays audio.
+both violates the terms and side-steps the subscription you already pay for.
+**So Grimoire never plays audio.**
 
-Instead it drives [YTMDesktop](https://github.com/ytmdesktop/ytmdesktop)'s
-Companion Server, which is already signed into your real account. Your
-playlists, your Premium, your playback — Grimoire just presses the buttons.
+It drives [YTMDesktop](https://github.com/ytmdesktop/ytmdesktop)'s Companion
+Server instead, which is already signed into your real account. Your playlists,
+your Premium, your playback — Grimoire just presses the buttons.
 
 ```sh
 brew install --cask ytmdesktop-youtube-music
-# enable Settings → Integrations → Companion Server, then:
+# enable Settings → Integrations → Companion Server
 grimoire music-auth
 ```
 
@@ -172,21 +158,34 @@ and never touches the network.
 
 ## Status
 
-v0.1. It opens a manuscript, shows you the shape of it, tracks your words, and
-lets you write.
+**v0.1.** It opens a manuscript, shows you the shape of it, tracks your words,
+and lets you write.
 
-Not yet: command palette, corkboard view, git sync, scene reordering,
-create/delete from inside the app, search, spellcheck. `pov` and `status` are
-already parsed out of frontmatter and waiting on the corkboard.
+Not yet: command palette, corkboard view (`pov` and `status` are already parsed
+and waiting for it), git sync, scene reordering, creating files from inside the
+app, search, spellcheck, and undo.
 
-## Repo layout
+## Development
+
+```sh
+cargo build --release
+cargo test            # scene geometry and timer behaviour
+cargo install --path .
+```
 
 ```
-src/          the app
-example/      a tiny sample manuscript to try it against
-site/         the landing page (Astro) behind grimoire.joshking.ai
+src/main.rs      entry, event loop, key and mouse routing
+src/app.rs       state, focus, per-pane input
+src/project.rs   manuscript tree, frontmatter, scaffolding
+src/editor.rs    word-wrapping buffer with visual cursor movement
+src/scene.rs     the forest and the pomodoro
+src/ui.rs        rendering
+src/music.rs     YTMDesktop companion client
+site/            the landing page
 ```
+
+Issues and pull requests welcome.
 
 ## License
 
-MIT
+MIT © Josh King
