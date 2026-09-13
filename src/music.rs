@@ -1,12 +1,17 @@
-//! YouTube Music, by remote control.
+//! Music, by remote control.
 //!
 //! There is no official YouTube Music API, and anything that extracts stream
 //! URLs both violates the terms and side-steps the subscription you already
-//! pay for. So Grimoire never plays audio. It drives YTMDesktop's Companion
-//! Server, which is already signed into your real account — your playlists,
-//! your Premium, your playback. We just press the buttons.
+//! pay for. So Grimoire never plays audio. It drives a desktop client that is
+//! already signed into your real account — your playlists, your Premium, your
+//! playback. We just press the buttons.
 //!
-//!   https://github.com/ytmdesktop/ytmdesktop/wiki/v2-%E2%80%90-Companion-Server-API-v1
+//! The backend is th-ch/youtube-music's API Server plugin, chosen because it
+//! ships a signed .dmg *and* an .AppImage, so the same setup works on macOS
+//! and Linux. (YTMDesktop was the original target; its Homebrew cask was
+//! disabled on 2026-09-01 for failing Apple's Gatekeeper check.)
+//!
+//!   https://github.com/th-ch/youtube-music
 
 use anyhow::{Context, Result, anyhow};
 use std::path::PathBuf;
@@ -15,8 +20,7 @@ use std::thread;
 use std::time::Duration;
 
 pub const APP_ID: &str = "grimoiretui";
-pub const APP_NAME: &str = "GrimoireTUI";
-pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
+pub const DEFAULT_PORT: u16 = 26538;
 
 const POLL: Duration = Duration::from_millis(1500);
 const HTTP_TIMEOUT: Duration = Duration::from_millis(1200);
@@ -32,7 +36,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             host: "127.0.0.1".into(),
-            port: 9863,
+            port: DEFAULT_PORT,
             token: None,
         }
     }
@@ -72,8 +76,7 @@ impl Config {
     pub fn save(&self) -> Result<()> {
         let path = Config::path();
         if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir)
-                .with_context(|| format!("creating {}", dir.display()))?;
+            std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
         }
         let body = format!(
             "host = \"{}\"\nport = {}\ntoken = \"{}\"\n",
@@ -101,9 +104,9 @@ pub struct Track {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum State {
-    /// No token configured — the pane invites you to run the auth command.
+    /// No token configured — the pane invites you to pair.
     NoToken,
-    /// Configured, but YTMDesktop isn't reachable.
+    /// Configured, but the client isn't reachable.
     Offline,
     /// Connected, nothing loaded.
     Idle,
@@ -118,11 +121,11 @@ pub enum Cmd {
 }
 
 impl Cmd {
-    fn name(self) -> &'static str {
+    fn path(self) -> &'static str {
         match self {
-            Cmd::PlayPause => "playPause",
-            Cmd::Next => "next",
-            Cmd::Prev => "previous",
+            Cmd::PlayPause => "/api/v1/toggle-play",
+            Cmd::Next => "/api/v1/next",
+            Cmd::Prev => "/api/v1/previous",
         }
     }
 }
@@ -153,6 +156,7 @@ impl Music {
                 .timeout_global(Some(HTTP_TIMEOUT))
                 .build()
                 .new_agent();
+            let bearer = format!("Bearer {token}");
 
             loop {
                 // Commands first, so a keypress feels immediate.
@@ -160,19 +164,16 @@ impl Music {
                     match cmd_rx.try_recv() {
                         Ok(c) => {
                             let _ = agent
-                                .post(format!("{base}/api/v1/command"))
-                                .header("Authorization", &token)
-                                .send_json(serde_json::json!({ "command": c.name() }));
+                                .post(format!("{base}{}", c.path()))
+                                .header("Authorization", &bearer)
+                                .send_empty();
                         }
                         Err(TryRecvError::Empty) => break,
                         Err(TryRecvError::Disconnected) => return,
                     }
                 }
 
-                let next = match fetch_state(&agent, &base, &token) {
-                    Ok(s) => s,
-                    Err(_) => State::Offline,
-                };
+                let next = fetch_state(&agent, &base, &bearer).unwrap_or(State::Offline);
                 if state_tx.send(next).is_err() {
                     return;
                 }
@@ -201,88 +202,70 @@ impl Music {
             let _ = tx.send(c);
         }
     }
-
-    pub fn enabled(&self) -> bool {
-        self.tx.is_some()
-    }
 }
 
-fn fetch_state(agent: &ureq::Agent, base: &str, token: &str) -> Result<State> {
+fn fetch_state(agent: &ureq::Agent, base: &str, bearer: &str) -> Result<State> {
     let mut res = agent
-        .get(format!("{base}/api/v1/state"))
-        .header("Authorization", token)
+        .get(format!("{base}/api/v1/song"))
+        .header("Authorization", bearer)
         .call()?;
-    let v: serde_json::Value = res.body_mut().read_json()?;
 
-    let title = v["video"]["title"].as_str().unwrap_or("").to_string();
+    // Nothing loaded: the plugin answers 204, or a body with no title.
+    if res.status() == 204 {
+        return Ok(State::Idle);
+    }
+    let v: serde_json::Value = res.body_mut().read_json()?;
+    let title = v["title"].as_str().unwrap_or("").to_string();
     if title.is_empty() {
         return Ok(State::Idle);
     }
 
-    // trackState: -1 unknown, 0 paused, 1 playing, 2 buffering.
-    let track_state = v["player"]["trackState"].as_i64().unwrap_or(-1);
-
     Ok(State::Playing(Track {
         title,
-        artist: v["video"]["author"].as_str().unwrap_or("").to_string(),
-        progress: v["player"]["videoProgress"].as_f64().unwrap_or(0.0),
-        duration: v["video"]["durationSeconds"].as_f64().unwrap_or(0.0),
-        playing: track_state == 1,
+        artist: v["artist"].as_str().unwrap_or("").to_string(),
+        progress: v["elapsedSeconds"].as_f64().unwrap_or(0.0),
+        duration: v["songDuration"].as_f64().unwrap_or(0.0),
+        // isPaused is optional; absent means playing.
+        playing: !v["isPaused"].as_bool().unwrap_or(false),
     }))
 }
 
-/// Interactive pairing. Prints a code you approve inside YTMDesktop.
+/// Pair with the desktop client. With the default AUTH_AT_FIRST strategy the
+/// app shows a prompt you accept; the token it returns is stored locally.
 pub fn authenticate(host: &str, port: u16) -> Result<()> {
     let base = format!("http://{host}:{port}");
     let agent = ureq::Agent::config_builder()
-        .timeout_global(Some(Duration::from_secs(35)))
+        .timeout_global(Some(Duration::from_secs(60)))
         .build()
         .new_agent();
 
-    println!("Contacting YTMDesktop at {base} ...");
+    println!("Contacting YouTube Music at {base} ...");
+    println!("Accept the pairing prompt in the app if one appears.");
 
     let mut res = agent
-        .post(format!("{base}/auth/requestcode"))
-        .send_json(serde_json::json!({
-            "appId": APP_ID,
-            "appName": APP_NAME,
-            "appVersion": APP_VERSION,
-        }))
+        .post(format!("{base}/auth/{APP_ID}"))
+        .send_empty()
         .map_err(|e| {
             anyhow!(
-                "could not reach the companion server ({e}).\n\
-                 Is YTMDesktop running, with Settings → Integrations → \
-                 Companion Server enabled?"
+                "could not reach the API server ({e}).\n\n\
+                 Install th-ch/youtube-music, then enable\n\
+                 Plugins → API Server (default port {DEFAULT_PORT}).\n\n\
+                   macOS  https://github.com/th-ch/youtube-music/releases (.dmg)\n\
+                   Linux  the same page (.AppImage), or your package manager"
             )
         })?;
 
     let v: serde_json::Value = res.body_mut().read_json()?;
-    let code = v["code"]
+    let token = v["accessToken"]
         .as_str()
-        .ok_or_else(|| anyhow!("no code in response: {v}"))?;
+        .ok_or_else(|| anyhow!("no accessToken in response: {v}"))?;
 
-    println!();
-    println!("   Approve this code in YTMDesktop:   {code}");
-    println!();
-    println!("   (Settings → Integrations → Companion Server → allow)");
-    println!("   Waiting up to 30 seconds ...");
-
-    let mut res = agent
-        .post(format!("{base}/auth/request"))
-        .send_json(serde_json::json!({ "appId": APP_ID, "code": code }))
-        .map_err(|e| anyhow!("pairing was not approved in time ({e})"))?;
-
-    let v: serde_json::Value = res.body_mut().read_json()?;
-    let token = v["token"]
-        .as_str()
-        .ok_or_else(|| anyhow!("no token in response: {v}"))?;
-
-    let cfg = Config {
+    Config {
         host: host.to_string(),
         port,
         token: Some(token.to_string()),
-    };
-    cfg.save()?;
+    }
+    .save()?;
 
     println!();
     println!("Paired. Token saved to {}", Config::path().display());

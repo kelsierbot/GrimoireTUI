@@ -142,19 +142,27 @@ There is no official YouTube Music API, and anything that extracts stream URLs
 both violates the terms and side-steps the subscription you already pay for.
 **So Grimoire never plays audio.**
 
-It drives [YTMDesktop](https://github.com/ytmdesktop/ytmdesktop)'s Companion
-Server instead, which is already signed into your real account. Your playlists,
-your Premium, your playback — Grimoire just presses the buttons.
+It drives [th-ch/youtube-music](https://github.com/th-ch/youtube-music)'s API
+Server instead — a desktop client already signed into your real account. Your
+playlists, your Premium, your playback; Grimoire just presses the buttons. That
+client ships a `.dmg` and an `.AppImage`, so the same setup works on macOS and
+Linux.
+
+1. Install it from [the releases page](https://github.com/th-ch/youtube-music/releases)
+2. Enable **Plugins → API Server** (listens on `26538`)
+3. Pair:
 
 ```sh
-brew install --cask ytmdesktop-youtube-music
-# enable Settings → Integrations → Companion Server
 grimoire music-auth
 ```
 
-Pairing prints a code you approve inside YTMDesktop; the token lands in
+Accept the prompt in the app; the token lands in
 `~/.config/grimoire/music.toml`. With no token configured the pane stays inert
 and never touches the network.
+
+> Earlier versions targeted YTMDesktop. Its Homebrew cask was disabled on
+> 2026-09-01 for failing Apple's Gatekeeper check, so the backend moved to a
+> client that installs cleanly on both platforms.
 
 ## Status
 
