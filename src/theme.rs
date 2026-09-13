@@ -134,11 +134,12 @@ pub fn presets() -> Vec<Theme> {
          theme!("", 0x7aa2f7, 0xc0caf5, 0x565f89, 0x292e42, 0x33467c, 0xf7768e, 0xe0af68, 0x7dcfff, 0x9ece6a, 0xa07a52, 0xbb9af7, 0x445a3c)),
         ("Everforest",
          theme!("", 0xdbbc7f, 0xd3c6aa, 0x859289, 0x3d484d, 0x475258, 0xe67e80, 0xe69875, 0x7fbbb3, 0xa7c080, 0x9c7a5c, 0xd699b6, 0x4a5a48)),
-        // Deep woods: greens all the way down, cyan as the cold light coming
-        // through the canopy, and a rust warning so alerts can't disappear
-        // into the foliage.
+        // Deep woods. `accent` drives focused borders, titles, the open-scene
+        // marker and the progress bar, so it has to be green or the whole
+        // interface reads as whatever colour it is. Cyan is kept for the two
+        // places it stays rare — the break-time moon and the flowers.
         ("Lost Forest",
-         theme!("", 0x5ed7c0, 0xcfdcc9, 0x6f8574, 0x2c3a30, 0x33463a, 0xd1745e, 0xd9c87e, 0xa8d8d0, 0x5a8f5e, 0x6b5644, 0xa98cc0, 0x3b5340)),
+         theme!("", 0x7cc47f, 0xcdddc6, 0x5f7a63, 0x24332a, 0x2e4436, 0xd1745e, 0xd9c87e, 0x7fd4c8, 0x4a8250, 0x5f4c3a, 0x68c2b4, 0x2f4a37)),
     ];
     v.iter_mut().for_each(|(n, t)| t.name = (*n).to_string());
     v.into_iter().map(|(_, t)| t).collect()
@@ -221,10 +222,10 @@ mod tests {
         }
     }
 
-    /// Lost Forest should actually be green with a cyan accent, not just named
-    /// that way — cheap guard against a careless palette edit.
+    /// Lost Forest has to stay green-led with cyan only as a rare contrast —
+    /// cheap guard against the palette drifting back to cyan-dominant.
     #[test]
-    fn lost_forest_is_green_with_a_cyan_accent() {
+    fn lost_forest_is_green_led_with_cyan_only_as_contrast() {
         let t = presets()
             .into_iter()
             .find(|t| t.name == "Lost Forest")
@@ -235,14 +236,39 @@ mod tests {
             _ => panic!("themes must be truecolor"),
         };
 
-        // Accent reads cyan: blue and green both well clear of red.
+        // Accent is what the eye sees most, so it must read green: green
+        // clearly ahead of red, and NOT cyan (blue must stay below green).
         let (r, g, b) = chan(t.accent);
-        assert!(g > r + 40 && b > r + 40, "accent {:?} is not cyan", t.accent);
+        assert!(g > r + 30, "accent {:?} is not green enough", t.accent);
+        assert!(g > b + 30, "accent {:?} has drifted to cyan", t.accent);
 
-        // The woodland roles are green-dominant.
-        for (name, c) in [("foliage", t.foliage), ("turf", t.turf), ("dim", t.dim)] {
+        // Every structural and woodland role is green-dominant.
+        for (name, c) in [
+            ("text", t.text),
+            ("dim", t.dim),
+            ("border", t.border),
+            ("selection", t.sel),
+            ("foliage", t.foliage),
+            ("turf", t.turf),
+        ] {
             let (r, g, b) = chan(c);
             assert!(g > r && g > b, "{name} {c:?} should be green-dominant");
+        }
+
+        // Foliage must sit darker than the accent or the tree pane blurs into it.
+        let lum = |c| {
+            let (r, g, b) = chan(c);
+            r + g + b
+        };
+        assert!(
+            lum(t.foliage) < lum(t.accent),
+            "foliage should be darker than accent"
+        );
+
+        // Cyan survives, but only where it is rare: the moon and the flowers.
+        for (name, c) in [("moon", t.moon), ("bloom", t.bloom)] {
+            let (r, g, b) = chan(c);
+            assert!(b > r + 30 && g > r + 30, "{name} {c:?} should read cyan");
         }
 
         // Warning has to stay warm or it vanishes into the trees.

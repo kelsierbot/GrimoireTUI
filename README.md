@@ -89,6 +89,7 @@ heard of.
 | `Enter` · `Space` | fold or unfold a container · open a scene |
 | `→` `l` / `←` `h` | expand / collapse, or jump to parent |
 | `Ctrl-S` | save all changed scenes |
+| `Ctrl-C` | copy the selection |
 | `Ctrl-Q` | quit — twice if unsaved |
 | `Esc` | leave the editor |
 | `F2` `F3` | start or pause the timer · reset |
@@ -112,9 +113,12 @@ Nord, Dracula, Solarized Dark, Catppuccin Mocha, Tokyo Night, Everforest and
 pick by looking rather than by name. `Enter` keeps it, `Esc` puts back what
 you had.
 
-Lost Forest is the one written for this app rather than borrowed: greens all
-the way down, cyan standing in for cold light through the canopy, and a rust
-warning colour so alerts can't disappear into the foliage.
+Lost Forest is the one written for this app rather than borrowed. It is
+green-led on purpose: `accent` drives focused borders, pane titles, the
+open-scene marker and the progress bar, so a cyan accent would make the whole
+interface read cyan. Cyan is kept for the two places it stays rare — the
+break-time moon and the flowers — with a warm rust for warnings, since an
+all-green palette otherwise hides its own alerts.
 
 The last entry is **Custom…**, which opens a swatch editor: twelve named roles
 (accent, text, dim, border, selection, warning, then the six the forest uses),
@@ -132,8 +136,14 @@ it, anywhere in the prose to put the caret there. Click the clearing to start
 the timer, or the music pane to play and pause. The wheel scrolls whichever
 pane is under the pointer without stealing focus.
 
-Mouse capture suppresses the terminal's own drag-to-select — hold `Shift` while
-dragging to select text as usual.
+**Drag to select.** Click and drag in the prose to select across lines;
+`Ctrl-C` copies it (via `pbcopy`, `wl-copy`, `xclip` or `xsel`, whichever the
+machine has). Any keystroke collapses the selection — it deliberately does not
+delete it, because there is no undo yet and a stray key must never eat text.
+
+Mouse capture does suppress the terminal's *own* drag-to-select. Grimoire's is
+the replacement inside the prose pane; hold `Shift` while dragging if you want
+the terminal's version anywhere else.
 
 ## The clearing
 

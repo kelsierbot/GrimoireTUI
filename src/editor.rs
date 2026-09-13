@@ -25,6 +25,9 @@ pub struct Editor {
     pub scroll: usize,
     /// Remembered column for vertical movement.
     goal: Option<usize>,
+    /// Where a drag started, as (line, char). Selection runs from here to the
+    /// cursor, in whichever order they happen to be.
+    anchor: Option<(usize, usize)>,
 }
 
 impl Editor {
@@ -39,6 +42,7 @@ impl Editor {
             cx: 0,
             scroll: 0,
             goal: None,
+            anchor: None,
         }
     }
 
@@ -263,8 +267,78 @@ impl Editor {
         self.goal = Some(goal);
     }
 
+    // ---- selection ---------------------------------------------------
+
+    pub fn begin_select(&mut self) {
+        self.anchor = Some((self.cy, self.cx));
+    }
+
+    pub fn clear_selection(&mut self) {
+        self.anchor = None;
+    }
+
+    pub fn has_selection(&self) -> bool {
+        self.selection().is_some()
+    }
+
+    /// Ordered ((line, char), (line, char)), or None if nothing is selected.
+    pub fn selection(&self) -> Option<((usize, usize), (usize, usize))> {
+        let a = self.anchor?;
+        let b = (self.cy, self.cx);
+        if a == b {
+            return None;
+        }
+        Some(if a <= b { (a, b) } else { (b, a) })
+    }
+
+    /// The selected slice of a single visual row, for painting a background.
+    pub fn row_selection(&self, r: VisRow) -> Option<(usize, usize)> {
+        let ((l0, c0), (l1, c1)) = self.selection()?;
+        if r.line < l0 || r.line > l1 {
+            return None;
+        }
+        let from = if r.line == l0 { c0.max(r.start) } else { r.start };
+        let to = if r.line == l1 { c1.min(r.end) } else { r.end };
+        (from < to).then_some((from, to))
+    }
+
+    pub fn selected_text(&self) -> Option<String> {
+        let ((l0, c0), (l1, c1)) = self.selection()?;
+        let take = |line: usize, from: usize, to: usize| -> String {
+            self.lines[line]
+                .chars()
+                .skip(from)
+                .take(to.saturating_sub(from))
+                .collect()
+        };
+        if l0 == l1 {
+            return Some(take(l0, c0, c1));
+        }
+        let mut out = take(l0, c0, self.line_len(l0));
+        for l in l0 + 1..l1 {
+            out.push('\n');
+            out.push_str(&self.lines[l]);
+        }
+        out.push('\n');
+        out.push_str(&take(l1, 0, c1));
+        Some(out)
+    }
+
     /// Put the cursor where the pointer landed.
     pub fn click(&mut self, rows: &[VisRow], vis_row: usize, col: usize) {
+        self.move_to(rows, vis_row, col);
+        self.begin_select();
+    }
+
+    /// Same as click but leaves the anchor alone, extending the selection.
+    pub fn drag(&mut self, rows: &[VisRow], vis_row: usize, col: usize) {
+        if self.anchor.is_none() {
+            self.begin_select();
+        }
+        self.move_to(rows, vis_row, col);
+    }
+
+    fn move_to(&mut self, rows: &[VisRow], vis_row: usize, col: usize) {
         if rows.is_empty() {
             return;
         }
@@ -310,4 +384,85 @@ fn char_at_width(line: &str, start: usize, end: usize, goal: usize) -> usize {
         i += 1;
     }
     i
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ed(s: &str) -> Editor {
+        Editor::from_str(s)
+    }
+
+    #[test]
+    fn no_selection_until_the_cursor_moves_off_the_anchor() {
+        let mut e = ed("hello world");
+        e.cx = 3;
+        e.begin_select();
+        assert!(!e.has_selection(), "anchor == cursor is not a selection");
+        e.cx = 7;
+        assert!(e.has_selection());
+    }
+
+    #[test]
+    fn selection_is_ordered_regardless_of_drag_direction() {
+        let mut e = ed("hello world");
+        e.cx = 8;
+        e.begin_select();
+        e.cx = 2; // dragged backwards
+        assert_eq!(e.selection(), Some(((0, 2), (0, 8))));
+        assert_eq!(e.selected_text().as_deref(), Some("llo wo"));
+    }
+
+    #[test]
+    fn selection_spans_lines() {
+        let mut e = ed("one\ntwo\nthree");
+        e.cy = 0;
+        e.cx = 1;
+        e.begin_select();
+        e.cy = 2;
+        e.cx = 3;
+        assert_eq!(e.selected_text().as_deref(), Some("ne\ntwo\nthr"));
+    }
+
+    #[test]
+    fn row_selection_clips_to_the_visual_row() {
+        let mut e = ed("aaaabbbbcccc");
+        e.cx = 2;
+        e.begin_select();
+        e.cx = 10;
+        // A wrapped row covering chars 4..8 is entirely inside the selection.
+        let mid = VisRow { line: 0, start: 4, end: 8 };
+        assert_eq!(e.row_selection(mid), Some((4, 8)));
+        // The first row is only selected from char 2.
+        let first = VisRow { line: 0, start: 0, end: 4 };
+        assert_eq!(e.row_selection(first), Some((2, 4)));
+        // A row past the selection end is untouched.
+        let last = VisRow { line: 0, start: 10, end: 12 };
+        assert_eq!(e.row_selection(last), None);
+    }
+
+    #[test]
+    fn rows_outside_the_selected_lines_are_untouched() {
+        let mut e = ed("one\ntwo\nthree");
+        e.cy = 1;
+        e.cx = 0;
+        e.begin_select();
+        e.cy = 1;
+        e.cx = 3;
+        assert_eq!(e.row_selection(VisRow { line: 0, start: 0, end: 3 }), None);
+        assert_eq!(e.row_selection(VisRow { line: 2, start: 0, end: 5 }), None);
+        assert_eq!(e.row_selection(VisRow { line: 1, start: 0, end: 3 }), Some((0, 3)));
+    }
+
+    #[test]
+    fn clearing_drops_the_selection() {
+        let mut e = ed("hello");
+        e.begin_select();
+        e.cx = 4;
+        assert!(e.has_selection());
+        e.clear_selection();
+        assert!(!e.has_selection());
+        assert_eq!(e.selected_text(), None);
+    }
 }

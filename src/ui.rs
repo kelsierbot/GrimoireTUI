@@ -317,11 +317,28 @@ fn draw_editor(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
     let rows = app.editor.layout(app.edit_width);
     app.editor.clamp_scroll(&rows, app.edit_height);
 
+    // Paint the drag selection by splitting each row into up to three runs.
     let visible: Vec<Line> = rows
         .iter()
         .skip(app.editor.scroll)
         .take(app.edit_height)
-        .map(|&r| Line::from(Span::styled(app.editor.row_text(r), Style::default().fg(t.text))))
+        .map(|&r| {
+            let plain = Style::default().fg(t.text);
+            match app.editor.row_selection(r) {
+                None => Line::from(Span::styled(app.editor.row_text(r), plain)),
+                Some((from, to)) => {
+                    let seg = |a: usize, b: usize| app.editor.row_text(scene_slice(r, a, b));
+                    Line::from(vec![
+                        Span::styled(seg(r.start, from), plain),
+                        Span::styled(
+                            seg(from, to),
+                            Style::default().fg(t.text).bg(t.sel),
+                        ),
+                        Span::styled(seg(to, r.end), plain),
+                    ])
+                }
+            }
+        })
         .collect();
 
     f.render_widget(Paragraph::new(visible), inner);
@@ -483,6 +500,15 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             )));
             f.render_widget(Paragraph::new(lines), inner);
         }
+    }
+}
+
+/// A sub-range of a visual row, for painting selection runs.
+fn scene_slice(r: crate::editor::VisRow, start: usize, end: usize) -> crate::editor::VisRow {
+    crate::editor::VisRow {
+        line: r.line,
+        start,
+        end,
     }
 }
 

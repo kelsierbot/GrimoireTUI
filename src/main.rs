@@ -220,6 +220,7 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
         if let Event::Mouse(m) = ev {
             match m.kind {
                 MouseEventKind::Down(MouseButton::Left) => app.on_click(m.column, m.row),
+                MouseEventKind::Drag(MouseButton::Left) => app.on_drag(m.column, m.row),
                 MouseEventKind::ScrollDown => app.on_scroll(m.column, m.row, true),
                 MouseEventKind::ScrollUp => app.on_scroll(m.column, m.row, false),
                 _ => {}
@@ -249,6 +250,7 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
                     app.save();
                     confirm_quit = false;
                 }
+                KeyCode::Char('c') => app.copy_selection(),
                 KeyCode::Char('q') => {
                     if app.project.dirty_count() > 0 && !confirm_quit {
                         confirm_quit = true;

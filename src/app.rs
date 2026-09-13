@@ -245,6 +245,9 @@ impl App {
     }
 
     pub fn on_editor_key(&mut self, key: Key) {
+        // Collapse the selection on any keystroke. Deliberately does NOT
+        // delete it — there is no undo yet, so a stray key must not eat text.
+        self.editor.clear_selection();
         let rows = self.editor.layout(self.edit_width);
         match key {
             Key::Char(c) => self.editor.insert(c),
@@ -370,6 +373,38 @@ impl App {
             }
             self.focus = Focus::Music;
             self.music.send(music::Cmd::PlayPause);
+        }
+    }
+
+    /// Extend the editor selection while the left button is held.
+    pub fn on_drag(&mut self, x: u16, y: u16) {
+        if self.focus != Focus::Editor || self.open.is_none() {
+            return;
+        }
+        let r = self.rect_editor;
+        if r.width == 0 || r.height == 0 {
+            return;
+        }
+        // Clamp to the pane so dragging past an edge keeps extending.
+        let cx = x.clamp(r.x, r.x + r.width.saturating_sub(1));
+        let cy = y.clamp(r.y, r.y + r.height.saturating_sub(1));
+        let rows = self.editor.layout(self.edit_width);
+        let vis = self.editor.scroll + (cy - r.y) as usize;
+        self.editor.drag(&rows, vis, (cx - r.x) as usize);
+    }
+
+    /// Copy the editor selection to the system clipboard.
+    pub fn copy_selection(&mut self) {
+        match self.editor.selected_text() {
+            Some(text) if !text.is_empty() => {
+                let n = text.chars().count();
+                if copy_to_clipboard(&text) {
+                    self.msg = format!("copied {n} char{}", if n == 1 { "" } else { "s" });
+                } else {
+                    self.msg = "no clipboard tool found".into();
+                }
+            }
+            _ => self.msg = "nothing selected".into(),
         }
     }
 
@@ -502,10 +537,10 @@ impl App {
     pub fn hints(&self) -> String {
         let m = self.mod_label();
         match self.focus {
-            Focus::Tree => format!("Tab pane  ↵ open/fold  {m}S save  {m}Q quit "),
-            Focus::Editor => format!("Tab pane  Esc tree  {m}S save  {m}Q quit "),
-            Focus::Clearing => format!("Tab pane  ↵ start/pause  r reset  {m}Q quit "),
-            Focus::Music => format!("Tab pane  ↵ play/pause  ←→ track  {m}Q quit "),
+            Focus::Tree => format!("Tab pane  ↵ fold  F9 theme  {m}S save  {m}Q quit "),
+            Focus::Editor => format!("Tab pane  Esc tree  F9 theme  {m}S save  {m}Q quit "),
+            Focus::Clearing => format!("Tab pane  ↵ start/pause  r reset  F9 theme  {m}Q quit "),
+            Focus::Music => format!("Tab pane  ↵ play/pause  ←→ track  F9 theme  {m}Q quit "),
         }
     }
 }
@@ -561,6 +596,36 @@ fn load_baseline(project: &Project) -> Result<usize> {
 fn write_baseline(dir: &Path, path: &Path, today: &str, total: usize) {
     let _ = fs::create_dir_all(dir);
     let _ = fs::write(path, format!("date = \"{today}\"\nbaseline = {total}\n"));
+}
+
+/// Hand text to whatever clipboard tool this machine has.
+fn copy_to_clipboard(text: &str) -> bool {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+
+    const TOOLS: &[(&str, &[&str])] = &[
+        ("pbcopy", &[]),                              // macOS
+        ("wl-copy", &[]),                             // Wayland
+        ("xclip", &["-selection", "clipboard"]),      // X11
+        ("xsel", &["--clipboard", "--input"]),        // X11 alternative
+    ];
+
+    for (cmd, args) in TOOLS {
+        let Ok(mut child) = Command::new(cmd)
+            .args(*args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+        else {
+            continue;
+        };
+        if let Some(mut stdin) = child.stdin.take() {
+            let _ = stdin.write_all(text.as_bytes());
+        }
+        return child.wait().map(|s| s.success()).unwrap_or(false);
+    }
+    false
 }
 
 /// Apply a typed hex buffer to a role, ignoring anything unparseable.
