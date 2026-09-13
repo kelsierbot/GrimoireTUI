@@ -3,14 +3,15 @@
 use anyhow::Result;
 use ratatui::layout::Rect;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::editor::Editor;
 use crate::manuscript;
 use crate::music::{self, Music};
-use crate::project::{Kind, Project};
+use crate::project::{self, Kind, Project};
 use crate::scene::{Mode, Pomodoro};
 use crate::theme::{self, Theme};
+use crate::visualizer::Visualizer;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Focus {
@@ -38,6 +39,11 @@ pub struct App {
     /// What the small pane under the tree is showing. ←/→ cycles it.
     pub pane_mode: Mode,
     pub music: Music,
+    /// Listens to system audio, but only while the spectrum view is showing.
+    pub viz: Visualizer,
+    /// The garden's last step and when it last grew, so new growth can glint.
+    pub growth_step: Option<usize>,
+    pub growth_changed: Option<std::time::Instant>,
     /// Animation counter, bumped once per event-loop tick.
     pub frame: u64,
     /// True when the terminal can actually report Cmd/Super — which needs the
@@ -68,6 +74,14 @@ pub enum Overlay {
     Sources { sel: usize },
     /// Editing the custom theme swatch by swatch.
     Custom { field: usize, buf: String },
+    /// Naming a new scene or folder. `dir` is where it will go; `label` says
+    /// so in the prompt.
+    Create {
+        folder: bool,
+        dir: PathBuf,
+        label: String,
+        buf: String,
+    },
 }
 
 fn hit(r: Rect, x: u16, y: u16) -> bool {
@@ -114,6 +128,9 @@ impl App {
             pomo: Pomodoro::default(),
             pane_mode: Mode::Clearing,
             music: Music::spawn(music::Config::load()),
+            viz: Visualizer::new(),
+            growth_step: None,
+            growth_changed: None,
             frame: 0,
             super_keys: false,
             scene_visible: true,
@@ -200,11 +217,135 @@ impl App {
         }
     }
 
+    // ---- creating scenes and folders --------------------------------------
+
+    /// Where `n` (scene) or `N` (folder) puts the new item, judged from the
+    /// selection, plus a phrase for the prompt. Always the end of a folder:
+    /// nothing existing is ever renamed or renumbered.
+    fn creation_target(&self, folder: bool) -> (PathBuf, String) {
+        let root = &self.project.root;
+        let section = |path: &Path| -> (PathBuf, String) {
+            let top = path
+                .strip_prefix(root)
+                .ok()
+                .and_then(|p| p.components().next())
+                .map(|c| root.join(c))
+                .unwrap_or_else(|| root.join("manuscript"));
+            let label = match top.file_name().and_then(|s| s.to_str()) {
+                Some("notes") => "notes",
+                Some("front-matter") => "the front matter",
+                _ => "the manuscript",
+            };
+            (top, label.to_string())
+        };
+        let inside = |i: usize| {
+            let n = &self.project.nodes[i];
+            (n.path.clone(), n.title.clone())
+        };
+        let Some(&idx) = self.visible.get(self.sel) else {
+            return section(&root.join("manuscript"));
+        };
+        let node = &self.project.nodes[idx];
+        let up = |i: usize| self.parents[i];
+        match (node.kind, folder) {
+            (Kind::Divider, _) => section(&node.path),
+            // A scene goes into the selected chapter, or the selected scene's.
+            (Kind::Container, false) => inside(idx),
+            (Kind::Scene, false) => up(idx).map_or_else(|| section(&node.path), inside),
+            // A folder goes beside the selected one: Chapter Two after Chapter One.
+            (Kind::Container, true) => up(idx).map_or_else(|| section(&node.path), inside),
+            (Kind::Scene, true) => up(idx)
+                .and_then(up)
+                .map_or_else(|| section(&node.path), inside),
+        }
+    }
+
+    pub fn start_create(&mut self, folder: bool) {
+        let (dir, label) = self.creation_target(folder);
+        self.overlay = Overlay::Create {
+            folder,
+            dir,
+            label,
+            buf: String::new(),
+        };
+    }
+
+    fn finish_create(&mut self, folder: bool, dir: PathBuf, name: String) {
+        // Save first, so re-reading the tree can't lose an unsaved sentence.
+        self.flush();
+        let saved = match self.project.save_all() {
+            Ok(n) => n,
+            Err(e) => {
+                self.msg = format!("couldn't save before creating: {e}");
+                return;
+            }
+        };
+        let path = match project::create(&dir, &name, folder) {
+            Ok(p) => p,
+            Err(e) => {
+                self.msg = format!("couldn't create it: {e}");
+                return;
+            }
+        };
+        if let Err(e) = self.reload_tree() {
+            self.msg = format!("created, but couldn't re-read the tree: {e}");
+            return;
+        }
+        if let Some(i) = self.project.nodes.iter().position(|n| n.path == path) {
+            let mut p = self.parents[i];
+            while let Some(pi) = p {
+                self.project.nodes[pi].expanded = true;
+                p = self.parents[pi];
+            }
+            self.refresh_visible();
+            if let Some(pos) = self.visible.iter().position(|&v| v == i) {
+                self.sel = pos;
+            }
+            if !folder {
+                self.open_scene(i);
+            }
+        }
+        let file = path.file_name().unwrap_or_default().to_string_lossy();
+        let also = if saved > 0 { format!(" · saved {saved} first") } else { String::new() };
+        self.msg = format!("created {file}{also}");
+    }
+
+    /// Re-read the tree from disk, keeping what's folded, which scene is open,
+    /// and the editor exactly as it is.
+    fn reload_tree(&mut self) -> Result<()> {
+        let collapsed: Vec<PathBuf> = self
+            .project
+            .nodes
+            .iter()
+            .filter(|n| n.kind == Kind::Container && !n.expanded)
+            .map(|n| n.path.clone())
+            .collect();
+        let open_path = self.open.map(|i| self.project.nodes[i].path.clone());
+        let root = self.project.root.clone();
+        self.project = Project::load(&root)?;
+        for n in &mut self.project.nodes {
+            if collapsed.contains(&n.path) {
+                n.expanded = false;
+            }
+        }
+        self.parents = vec![None; self.project.nodes.len()];
+        for (i, n) in self.project.nodes.iter().enumerate() {
+            for &c in &n.children {
+                self.parents[c] = Some(i);
+            }
+        }
+        self.open = open_path.and_then(|p| self.project.nodes.iter().position(|n| n.path == p));
+        self.refresh_visible();
+        Ok(())
+    }
+
     // ---- key handling -----------------------------------------------------
 
     pub fn on_tree_key(&mut self, key: Key) {
         match key {
             Key::Char('t') => self.open_theme_picker(),
+            Key::Char('n') => self.start_create(false),
+            Key::Char('N') => self.start_create(true),
             Key::Up => self.sel = self.sel.saturating_sub(1),
             Key::Down => {
                 if self.sel + 1 < self.visible.len() {
@@ -448,7 +589,9 @@ impl App {
         v
     }
 
-    pub const MENU: [&'static str; 5] = [
+    pub const MENU: [&'static str; 7] = [
+        "New scene…          (n)",
+        "New folder…         (N)",
         "Update project map  (project.md)",
         "Compile manuscript",
         "Music source…",
@@ -462,7 +605,9 @@ impl App {
 
     fn run_menu(&mut self, i: usize) {
         match i {
-            0 => {
+            0 => self.start_create(false),
+            1 => self.start_create(true),
+            2 => {
                 self.flush_public();
                 match manuscript::write_project_file(&self.project) {
                     Ok(p) => {
@@ -475,7 +620,7 @@ impl App {
                 }
                 self.overlay = Overlay::None;
             }
-            1 => {
+            3 => {
                 self.flush_public();
                 match manuscript::compile(&self.project) {
                     Ok(c) => {
@@ -496,12 +641,12 @@ impl App {
                 }
                 self.overlay = Overlay::None;
             }
-            2 => {
+            4 => {
                 let cur = self.music.source;
                 let sel = music::Source::ALL.iter().position(|s| *s == cur).unwrap_or(0);
                 self.overlay = Overlay::Sources { sel };
             }
-            3 => self.open_theme_picker(),
+            5 => self.open_theme_picker(),
             _ => self.overlay = Overlay::None,
         }
     }
@@ -637,6 +782,20 @@ impl App {
                 }
                 _ => {},
             },
+
+            Overlay::Create { folder, dir, buf, .. } => match key {
+                Key::Char(c) if !c.is_control() && buf.chars().count() < 60 => buf.push(c),
+                Key::Backspace => {
+                    buf.pop();
+                }
+                Key::Enter => {
+                    let (folder, dir, name) = (*folder, dir.clone(), buf.clone());
+                    self.overlay = Overlay::None;
+                    self.finish_create(folder, dir, name);
+                }
+                Key::Esc => self.overlay = Overlay::None,
+                _ => {}
+            },
         }
     }
 
@@ -644,7 +803,7 @@ impl App {
     pub fn hints(&self) -> String {
         let m = self.mod_label();
         match self.focus {
-            Focus::Tree => format!("Tab pane  ↵ fold  F1 menu  F9 theme  {m}S save  {m}Q quit "),
+            Focus::Tree => format!("Tab pane  ↵ fold  n scene  N folder  F1 menu  {m}S save  {m}Q quit "),
             Focus::Editor => format!("Tab pane  Esc tree  F1 menu  {m}S save  {m}Q quit "),
             Focus::Clearing => format!("Tab pane  ←→ view  ↵ start/pause  r reset  {m}Q quit "),
             Focus::Music => format!("Tab pane  ↵ play/pause  ←→ track  F9 theme  {m}Q quit "),

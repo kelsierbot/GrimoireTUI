@@ -329,15 +329,15 @@ mod tests {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
     Clearing,
-    Waveform,
+    Spectrum,
     Growth,
 }
 
 impl Mode {
     pub fn next(self) -> Mode {
         match self {
-            Mode::Clearing => Mode::Waveform,
-            Mode::Waveform => Mode::Growth,
+            Mode::Clearing => Mode::Spectrum,
+            Mode::Spectrum => Mode::Growth,
             Mode::Growth => Mode::Clearing,
         }
     }
@@ -346,115 +346,168 @@ impl Mode {
     }
 }
 
-fn hash(s: &str) -> u64 {
-    // FNV-1a. Only needs to be stable and well-spread, not cryptographic.
-    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-    for b in s.as_bytes() {
-        h ^= *b as u64;
-        h = h.wrapping_mul(0x0100_0000_01b3);
-    }
-    h
-}
+/// Partial blocks, zero to seven eighths of a cell, so a bar can end mid-row.
+const EIGHTHS: [char; 8] = [' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇'];
 
-/// A waveform for the playing track.
+/// A spectrum analyser for whatever the machine is playing.
 ///
-/// Honest about what this is: the API gives track metadata and position, never
-/// audio samples, so the *shape* is a stable fingerprint derived from the
-/// title — the same song always draws the same wave — while the playhead and
-/// the fill are real playback position. It is a progress bar with a face, not
-/// a spectrum analyser, and pretending otherwise would be a lie in pixels.
-pub fn render_waveform(title: &str, frac: f64, playing: bool, frame: u64) -> Vec<Vec<Cell>> {
+/// `levels` and `peaks` are 0..1 per bar, from [`crate::visualizer`], which
+/// listens to the real audio. Bars are drawn in eighths of a cell, so eight
+/// rows give 64 steps of height. The bottom row is the real playback position,
+/// and its played part flashes on a beat. `note` replaces the bars with a short
+/// message, for when there is nothing to show and a reason worth giving.
+pub fn render_spectrum(
+    levels: &[f32],
+    peaks: &[f32],
+    beat: f32,
+    frac: f64,
+    note: Option<&str>,
+) -> Vec<Vec<Cell>> {
     let mut g = vec![vec![(' ', Ink::Sky); W]; H];
-    if title.is_empty() {
-        let msg = "nothing playing";
-        let x0 = (W - msg.len()) / 2;
-        for (i, c) in msg.chars().enumerate() {
-            g[H / 2][x0 + i] = (c, Ink::Star);
-        }
-        return g;
-    }
-
-    let seed = hash(title);
-    let head = ((frac.clamp(0.0, 1.0)) * (W - 1) as f64).round() as usize;
     let rows = H - 1;
-
-    for x in 0..W {
-        // Two mixed frequencies keep it from looking like a sawtooth.
-        let a = ((seed >> (x % 48)) & 0x7) as f64 / 7.0;
-        let b = (((seed.rotate_left(x as u32 * 3)) >> 5) & 0x7) as f64 / 7.0;
-        let mut v = (a * 0.65 + b * 0.35).clamp(0.05, 1.0);
-
-        // Only the playhead breathes, and only while actually playing.
-        if playing && x == head {
-            v = (v + 0.25 * (((frame / 2) % 4) as f64 / 3.0)).min(1.0);
+    let steps = rows * 8;
+    let at = |v: &[f32], x: usize| -> f32 {
+        if v.is_empty() {
+            0.0
+        } else {
+            v[x * v.len() / W].clamp(0.0, 1.0)
         }
-        let h = ((v * rows as f64).round() as usize).max(1);
+    };
 
-        for y in 0..rows {
-            if y >= rows - h {
-                let ink = if x < head {
+    if let Some(text) = note {
+        let lines = wrap(text, W - 2);
+        let top = rows.saturating_sub(lines.len()) / 2;
+        for (i, line) in lines.iter().enumerate().take(rows) {
+            let x0 = W.saturating_sub(line.chars().count()) / 2;
+            for (j, c) in line.chars().enumerate().take(W - x0) {
+                g[top + i][x0 + j] = (c, Ink::Star);
+            }
+        }
+    } else {
+        for x in 0..W {
+            let fill = (at(levels, x) * steps as f32).round() as usize;
+            let (full, part) = (fill / 8, fill % 8);
+            for r in 0..rows {
+                let ch = if r < full {
+                    '█'
+                } else if r == full && part > 0 {
+                    EIGHTHS[part]
+                } else {
+                    continue;
+                };
+                // Green at the roots, gold through the middle, bloom at the top.
+                let ink = if r >= rows - 2 {
+                    Ink::Flower
+                } else if r >= rows / 2 {
                     Ink::Sun
-                } else if x == head {
-                    Ink::Moon
                 } else {
                     Ink::Tree
                 };
-                g[y][x] = ('█', ink);
+                g[rows - 1 - r][x] = (ch, ink);
+            }
+            // A cap that lingers above the bar after it falls.
+            let cap = (at(peaks, x) * steps as f32).round() as usize;
+            if cap > fill + 4 {
+                let y = rows - 1 - (cap / 8).min(rows - 1);
+                if g[y][x].0 == ' ' {
+                    g[y][x] = ('▔', Ink::Moon);
+                }
             }
         }
     }
+
+    let head = (frac.clamp(0.0, 1.0) * W as f64).round() as usize;
+    let played = if beat > 0.5 { Ink::Flower } else { Ink::Sun };
     for x in 0..W {
-        g[H - 1][x] = ('▔', Ink::Ground);
+        g[H - 1][x] = ('▔', if x < head { played } else { Ink::Ground });
     }
     g
 }
 
-/// A plant that grows with the words you write today.
+/// Word-wrap for the short notes the pane can show.
+fn wrap(text: &str, width: usize) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut cur = String::new();
+    for word in text.split_whitespace() {
+        if !cur.is_empty() && cur.chars().count() + 1 + word.chars().count() > width {
+            lines.push(std::mem::take(&mut cur));
+        }
+        if !cur.is_empty() {
+            cur.push(' ');
+        }
+        cur.push_str(word);
+    }
+    if !cur.is_empty() {
+        lines.push(cur);
+    }
+    lines
+}
+
+/// Words per step of growth: every 50 words, something in the garden changes.
+pub const WORDS_PER_STEP: usize = 50;
+
+/// How tall each of the fourteen plants grows before it flowers. Uneven on
+/// purpose, so the finished garden has a skyline rather than a hedge.
+const HEIGHTS: [usize; 14] = [4, 6, 3, 5, 4, 6, 5, 3, 6, 4, 5, 3, 6, 4];
+
+/// A garden that grows with the words you write today.
 ///
-/// Reactive in the way that matters for a writing app: the stem climbs and
-/// leaves unfurl as the session count rises toward the daily target, so the
-/// pane answers "how is today going" without a number.
-pub fn render_growth(today: usize, target: usize, frame: u64) -> Vec<Vec<Cell>> {
+/// Every 50 words adds one cell: the current plant climbs a row (a leaf on
+/// every other one), or flowers once it's as tall as it gets, and the next
+/// seed starts. `glint` makes the newest growth sparkle so a step is noticed.
+/// Reaching the daily target brings the sun out; past a full garden, about
+/// 3,900 words, each step adds a firefly to the sky instead.
+pub fn render_growth(today: usize, target: usize, glint: bool, frame: u64) -> Vec<Vec<Cell>> {
     let mut g = vec![vec![(' ', Ink::Sky); W]; H];
-    let frac = if target == 0 {
-        0.0
-    } else {
-        (today as f64 / target as f64).clamp(0.0, 1.0)
-    };
-
     let soil = H - 1;
-    let max_stem = soil - 1;
-    let stem = ((frac * max_stem as f64).round() as usize).min(max_stem);
-    let cx = W / 2;
+    let base = soil - 1;
+    let mut left = today / WORDS_PER_STEP;
+    let mut newest = None;
 
-    if stem == 0 {
-        // A seed, waiting.
-        g[soil - 1][cx] = ('.', Ink::Trunk);
-    }
-
-    for i in 0..stem {
-        let y = soil - 1 - i;
-        // A gentle sway, slow enough to read as alive rather than jittery.
-        let sway = if (frame / 12 + i as u64) % 7 == 0 { 1 } else { 0 };
-        let x = cx + sway;
-        if x < W {
-            g[y][x] = ('│', Ink::Tree);
+    for (i, &h) in HEIGHTS.iter().enumerate() {
+        let x = 1 + 2 * i;
+        let k = left.min(h + 1);
+        left -= k;
+        if k == 0 {
+            g[base][x] = ('.', Ink::Trunk); // a seed, waiting its turn
+            continue;
         }
-        // Leaves alternate sides every other segment.
-        if i > 0 && i % 2 == 0 {
-            let (lx, ch) = if (i / 2) % 2 == 0 {
-                (x.saturating_sub(1), '❧')
-            } else {
-                ((x + 1).min(W - 1), '❦')
-            };
-            g[y][lx] = (ch, Ink::Tree);
+        for j in 0..k.min(h) {
+            let tip = j + 1 == k && k <= h;
+            g[base - j][x] = (if tip { '╷' } else { '│' }, Ink::Tree);
+            if j % 2 == 1 && x + 1 < W {
+                g[base - j][x + 1] = ('❧', Ink::Tree);
+            }
+            newest = Some((base - j, x));
+        }
+        if k == h + 1 {
+            g[base - h][x] = (if i % 2 == 0 { '✿' } else { '❀' }, Ink::Flower);
+            newest = Some((base - h, x));
         }
     }
 
-    // A bloom once the day's target is met.
-    if frac >= 1.0 && stem > 0 {
-        let y = soil - 1 - (stem - 1);
-        g[y.saturating_sub(1).min(H - 1)][cx] = ('✿', Ink::Flower);
+    if target > 0 && today >= target {
+        g[0][W - 4] = ('☀', Ink::Sun);
+    }
+
+    // A full garden: further steps gather fireflies in whatever sky is free,
+    // in a scattered but fixed order so each new one lands somewhere new.
+    if left > 0 {
+        let mut sky: Vec<(usize, usize)> = (0..2)
+            .flat_map(|y| (0..W).map(move |x| (y, x)))
+            .filter(|&(y, x)| g[y][x].0 == ' ')
+            .collect();
+        sky.sort_by_key(|&(y, x)| (y * W + x) * 7919 % 97);
+        for &(y, x) in sky.iter().take(left) {
+            g[y][x] = ('˙', Ink::Star);
+            newest = Some((y, x));
+        }
+    }
+
+    if let (true, Some((y, x))) = (glint, newest) {
+        if frame % 2 == 0 {
+            g[y][x] = ('✦', Ink::Moon);
+        }
     }
 
     for x in 0..W {
@@ -472,54 +525,107 @@ mod mode_tests {
         let m = Mode::Clearing;
         assert_eq!(m.next().next().next(), m);
         assert_eq!(m.next().prev(), m);
-        assert_eq!(Mode::Waveform.prev(), Mode::Clearing);
+        assert_eq!(Mode::Spectrum.prev(), Mode::Clearing);
+    }
+
+    fn count(g: &[Vec<Cell>], c: char) -> usize {
+        g.iter().flatten().filter(|(ch, _)| *ch == c).count()
     }
 
     #[test]
-    fn waveform_is_stable_per_track_but_fills_with_progress() {
-        let a = render_waveform("Weightless", 0.0, false, 0);
-        let b = render_waveform("Weightless", 0.0, false, 0);
-        assert_eq!(a, b, "the same track must always draw the same wave");
+    fn bars_climb_in_eighths_of_a_cell() {
+        let half = render_spectrum(&[0.5; W], &[0.0; W], 0.0, 0.0, None);
+        assert_eq!(count(&half, '█'), W * (H - 1) / 2, "half height fills half the rows");
 
-        let c = render_waveform("Something Else", 0.0, false, 0);
-        assert_ne!(a, c, "different tracks should look different");
+        let one_more = 0.5 + 1.0 / ((H - 1) * 8) as f32;
+        let g = render_spectrum(&[one_more; W], &[0.0; W], 0.0, 0.0, None);
+        assert_eq!(count(&g, '▁'), W, "an extra eighth shows as a partial block");
+    }
 
+    #[test]
+    fn silence_draws_no_bars() {
+        let g = render_spectrum(&[0.0; W], &[0.0; W], 0.0, 0.0, None);
+        assert!(g[..H - 1].iter().flatten().all(|(c, _)| *c == ' '));
+    }
+
+    #[test]
+    fn a_falling_bar_leaves_its_peak_cap_behind() {
+        let g = render_spectrum(&[0.1; W], &[0.9; W], 0.0, 0.0, None);
+        assert_eq!(count(&g[..H - 1], '▔'), W, "every bar should show a cap above it");
+    }
+
+    #[test]
+    fn bottom_row_is_the_playback_position() {
         let played = |f: f64| {
-            render_waveform("Weightless", f, false, 0)
+            render_spectrum(&[0.0; W], &[0.0; W], 0.0, f, None)[H - 1]
                 .iter()
-                .flatten()
                 .filter(|(_, i)| *i == Ink::Sun)
                 .count()
         };
-        assert!(played(0.9) > played(0.1), "more of the wave fills as it plays");
+        assert_eq!(played(0.0), 0);
+        assert!(played(0.9) > played(0.1), "more of the row fills as the track plays");
     }
 
     #[test]
-    fn growth_tracks_the_daily_count() {
-        let stem = |t: usize| {
-            render_growth(t, 1000, 0)
+    fn a_note_replaces_the_bars() {
+        let g = render_spectrum(&[1.0; W], &[1.0; W], 0.0, 0.0, Some("allow audio capture in settings"));
+        let text: String = g.iter().flatten().map(|(c, _)| *c).collect();
+        assert!(text.contains("allow"), "the note should be drawn");
+        assert_eq!(count(&g, '█'), 0, "and the bars hidden behind it");
+    }
+
+    #[test]
+    fn every_fifty_words_grows_something() {
+        // Past the 78 steps of a full garden, into the fireflies.
+        let mut prev = render_growth(0, 1000, false, 0);
+        for step in 1..=90 {
+            let g = render_growth(step * WORDS_PER_STEP, 1000, false, 0);
+            assert_ne!(g, prev, "{} words should look different from {}", step * 50, (step - 1) * 50);
+            prev = g;
+        }
+    }
+
+    #[test]
+    fn words_between_steps_change_nothing() {
+        assert_eq!(render_growth(100, 1000, false, 0), render_growth(149, 1000, false, 0));
+    }
+
+    #[test]
+    fn plants_flower_once_they_are_full_grown() {
+        let flowers = |w: usize| {
+            render_growth(w, 1000, false, 0)
                 .iter()
                 .flatten()
-                .filter(|(c, _)| *c == '│')
+                .filter(|(_, i)| *i == Ink::Flower)
                 .count()
         };
-        assert_eq!(stem(0), 0, "nothing written, nothing grown");
-        assert!(stem(500) > 0);
-        assert!(stem(1000) > stem(500), "the plant keeps climbing");
+        assert_eq!(flowers(4 * WORDS_PER_STEP), 0, "the first plant is still growing");
+        assert_eq!(flowers(5 * WORDS_PER_STEP), 1, "and flowers on its fifth step");
+    }
 
-        let bloomed = render_growth(1200, 1000, 0)
-            .iter()
-            .flatten()
-            .any(|(c, _)| *c == '✿');
-        assert!(bloomed, "hitting the target should flower");
+    #[test]
+    fn the_sun_comes_out_at_the_daily_target() {
+        let sun = |w: usize| render_growth(w, 1000, false, 0).iter().flatten().any(|(_, i)| *i == Ink::Sun);
+        assert!(!sun(950));
+        assert!(sun(1000));
+    }
+
+    #[test]
+    fn new_growth_glints() {
+        let g = render_growth(500, 1000, true, 0);
+        assert!(g.iter().flatten().any(|(c, _)| *c == '✦'));
+        let quiet = render_growth(500, 1000, false, 0);
+        assert!(!quiet.iter().flatten().any(|(c, _)| *c == '✦'));
     }
 
     #[test]
     fn every_mode_renders_the_advertised_grid() {
         for g in [
-            render_waveform("x", 0.5, true, 3),
-            render_waveform("", 0.0, false, 0),
-            render_growth(300, 1000, 5),
+            render_spectrum(&[0.3; W], &[0.6; W], 1.0, 0.5, None),
+            render_spectrum(&[], &[], 0.0, 0.0, Some("nothing playing")),
+            render_spectrum(&[0.2; 7], &[], 0.0, 2.0, Some("a-note-far-longer-than-the-pane-is-wide")),
+            render_growth(300, 1000, true, 5),
+            render_growth(9000, 1000, false, 0),
         ] {
             assert_eq!(g.len(), H);
             assert!(g.iter().all(|r| r.len() == W));

@@ -9,6 +9,7 @@ mod project;
 mod scene;
 mod theme;
 mod ui;
+mod visualizer;
 
 use anyhow::{Context, Result};
 use ratatui::crossterm::event::{
@@ -18,13 +19,15 @@ use ratatui::crossterm::event::{
 };
 use ratatui::crossterm::execute;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use app::{App, Focus, Key, Overlay};
 use project::Project;
 
 /// How often we wake to repaint. Also the animation clock.
 const TICK: Duration = Duration::from_millis(250);
+/// Repaint rate while the spectrum is on screen, fast enough to keep up with a beat.
+const FAST_TICK: Duration = Duration::from_millis(33);
 
 fn main() -> Result<()> {
     let mut args = std::env::args().skip(1);
@@ -244,6 +247,7 @@ fn cmd_is_reachable() -> bool {
 
 fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
     let mut confirm_quit = false;
+    let mut last_frame = Instant::now();
 
     loop {
         app.music.drain();
@@ -254,10 +258,21 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
             };
         }
 
+        // The spectrum listens only while it's on screen.
+        let spectrum = app.pane_mode == scene::Mode::Spectrum && app.scene_visible;
+        app.viz.set_active(spectrum);
+        if spectrum {
+            app.viz.update();
+        }
+
         terminal.draw(|f| ui::draw(f, app))?;
 
-        if !event::poll(TICK)? {
-            app.frame = app.frame.wrapping_add(1);
+        if !event::poll(if spectrum { FAST_TICK } else { TICK })? {
+            // The scenes animate on TICK whatever the repaint rate.
+            if last_frame.elapsed() >= TICK {
+                app.frame = app.frame.wrapping_add(1);
+                last_frame = Instant::now();
+            }
             continue;
         }
         let ev = event::read()?;

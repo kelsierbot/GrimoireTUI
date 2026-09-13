@@ -439,3 +439,116 @@ fn write_new(path: &Path, body: &str) -> Result<()> {
     }
     fs::write(path, body).with_context(|| format!("writing {}", path.display()))
 }
+
+/// Make a new scene (`.md`) or folder at the end of `dir`, numbered after
+/// whatever is already there. Nothing existing is renamed, so links from
+/// Obsidian or anywhere else keep working. Returns the new path.
+pub fn create(dir: &Path, name: &str, folder: bool) -> Result<PathBuf> {
+    let name = name.trim();
+    let name = if name.is_empty() { "Untitled" } else { name };
+    fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
+    let stem = format!("{:02}-{}", next_number(dir)?, file_safe(name));
+    if folder {
+        let path = dir.join(stem);
+        fs::create_dir(&path).with_context(|| format!("creating {}", path.display()))?;
+        return Ok(path);
+    }
+    let path = dir.join(format!("{stem}.md"));
+    if path.exists() {
+        anyhow::bail!("{} already exists", path.display());
+    }
+    // The title is kept exactly as typed; only the filename is tidied.
+    let title = name.replace('"', "'");
+    fs::write(
+        &path,
+        format!("---\ntitle: \"{title}\"\npov:\nstatus: draft\nsynopsis:\n---\n\n"),
+    )
+    .with_context(|| format!("writing {}", path.display()))?;
+    Ok(path)
+}
+
+/// One more than the highest leading number among the entries in `dir`.
+fn next_number(dir: &Path) -> Result<usize> {
+    let mut top = 0;
+    for e in fs::read_dir(dir).with_context(|| format!("reading {}", dir.display()))? {
+        let name = e?.file_name();
+        let digits: String = name
+            .to_string_lossy()
+            .chars()
+            .take_while(|c| c.is_ascii_digit())
+            .collect();
+        if let Ok(n) = digits.parse::<usize>() {
+            top = top.max(n);
+        }
+    }
+    Ok(top + 1)
+}
+
+/// A name as it can live on disk: words joined by dashes, with capitals and
+/// apostrophes kept so the tree shows a folder back the way it was typed.
+fn file_safe(name: &str) -> String {
+    let words: Vec<&str> = name
+        .split(|c: char| !(c.is_alphanumeric() || c == '\''))
+        .filter(|w| !w.is_empty())
+        .collect();
+    if words.is_empty() {
+        "untitled".into()
+    } else {
+        words.join("-")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_dir(tag: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("grimoire-test-{tag}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&d);
+        fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[test]
+    fn new_items_are_numbered_after_what_is_there() {
+        let d = temp_dir("number");
+        fs::write(d.join("01-opening.md"), "x").unwrap();
+        fs::write(d.join("02-gravel.md"), "x").unwrap();
+        fs::write(d.join(".DS_Store"), "").unwrap();
+        let scene = create(&d, "The Lamp", false).unwrap();
+        assert_eq!(scene.file_name().unwrap(), "03-The-Lamp.md");
+        let folder = create(&d, "Part Two", true).unwrap();
+        assert!(folder.is_dir());
+        assert_eq!(folder.file_name().unwrap(), "04-Part-Two");
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn a_new_scene_keeps_its_title_exactly_as_typed() {
+        let d = temp_dir("title");
+        let p = create(&d, "  Wren's \"last\" letter: part 2 ", false).unwrap();
+        let raw = fs::read_to_string(&p).unwrap();
+        let (front, body) = split_frontmatter(&raw);
+        assert_eq!(display_title(&p, front.as_deref()), "Wren's 'last' letter: part 2");
+        assert!(body.is_empty(), "a new scene starts blank");
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn a_new_folder_reads_back_as_its_name() {
+        let d = temp_dir("folder");
+        let f = create(&d, "The Lamp's Light", true).unwrap();
+        assert_eq!(display_title(&f, None), "The Lamp's Light");
+        let blank = create(&d, "   ", true).unwrap();
+        assert_eq!(blank.file_name().unwrap(), "02-Untitled");
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn the_first_item_in_a_new_folder_is_number_one() {
+        let d = temp_dir("empty");
+        let p = create(&d.join("new-chapter"), "Opening", false).unwrap();
+        assert_eq!(p.file_name().unwrap(), "01-Opening.md");
+        fs::remove_dir_all(&d).unwrap();
+    }
+}

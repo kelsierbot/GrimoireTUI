@@ -190,7 +190,7 @@ fn draw_scene(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
             app.pomo.label(),
             scene::render(app.pomo.phase, app.pomo.progress(), app.frame),
         ),
-        Mode::Waveform => {
+        Mode::Spectrum => {
             let (title, frac, playing) = match &app.music.state {
                 MusicState::Playing(tr) => (
                     tr.title.clone(),
@@ -204,21 +204,35 @@ fn draw_scene(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
                 _ => (String::new(), 0.0, false),
             };
             let head = if title.is_empty() {
-                "waveform".to_string()
+                "spectrum".to_string()
             } else {
                 truncate(&title, 22)
             };
+            let viz = &app.viz;
+            let note = viz.note(playing);
             (
                 head,
-                scene::render_waveform(&title, frac, playing, app.frame),
+                scene::render_spectrum(&viz.levels, &viz.peaks, viz.beat, frac, note.as_deref()),
             )
         }
         Mode::Growth => {
             let today = app.project.total_words().saturating_sub(app.baseline);
             let target = app.project.meta.daily_target.max(1);
+            // New growth glints for two seconds. The first sighting just records
+            // the step, so opening the view doesn't fake a milestone.
+            let step = today / scene::WORDS_PER_STEP;
+            match app.growth_step {
+                Some(seen) if step > seen => app.growth_changed = Some(std::time::Instant::now()),
+                _ => {}
+            }
+            app.growth_step = Some(step);
+            let glint = app
+                .growth_changed
+                .is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(2));
+            let next = scene::WORDS_PER_STEP - today % scene::WORDS_PER_STEP;
             (
-                format!("today · {today} / {target}"),
-                scene::render_growth(today, target, app.frame),
+                format!("today · {today} · next in {next}"),
+                scene::render_growth(today, target, glint, app.frame),
             )
         }
     };
@@ -494,6 +508,32 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
                 " j/k move   ↵ choose   esc close",
                 Style::default().fg(t.dim),
             )));
+            f.render_widget(Paragraph::new(lines), inner);
+        }
+
+        Overlay::Create { folder, label, buf, .. } => {
+            let box_area = centred(area, 56, 7);
+            f.render_widget(Clear, box_area);
+            let block = pane_block(if *folder { "NEW FOLDER" } else { "NEW SCENE" }, true, t);
+            let inner = block.inner(box_area);
+            f.render_widget(block, box_area);
+            let lines = vec![
+                Line::from(Span::styled(
+                    format!(" at the end of {label}"),
+                    Style::default().fg(t.dim),
+                )),
+                Line::from(""),
+                Line::from(vec![
+                    Span::styled(" ▸ ", Style::default().fg(t.accent)),
+                    Span::styled(buf.clone(), Style::default().fg(t.text)),
+                    Span::styled("█", Style::default().fg(t.accent)),
+                ]),
+                Line::from(""),
+                Line::from(Span::styled(
+                    " type a name   ↵ create   esc cancel",
+                    Style::default().fg(t.dim),
+                )),
+            ];
             f.render_widget(Paragraph::new(lines), inner);
         }
 

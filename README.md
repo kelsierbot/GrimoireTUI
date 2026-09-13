@@ -89,6 +89,8 @@ heard of.
 | `↑ ↓` · `j k` | move in the tree |
 | `Enter` · `Space` | fold or unfold a container · open a scene |
 | `→` `l` / `←` `h` | expand / collapse, or jump to parent |
+| `n` | new scene — in the selected chapter, at the end |
+| `N` | new folder (part, chapter, or notes category) — beside the selected one |
 | `Ctrl-S` | save all changed scenes |
 | `Ctrl-C` | copy the selection |
 | `Ctrl-Q` | quit — twice if unsaved |
@@ -165,9 +167,11 @@ Below the manuscript tree is a forest, and the forest is the timer.
 └────────────────────────────┘
 ```
 
-`←`/`→` cycles the pane through three views: **the clearing**, a **waveform**
-for the playing track, and **growth** — a plant that climbs as your session
-word count rises toward the daily target.
+`←`/`→` cycles the pane through three views: **the clearing**; a **spectrum**
+analyser that listens to whatever your Mac is playing (macOS 14.6+, once your
+terminal is allowed under *Privacy & Security › Screen & System Audio
+Recording › System Audio Recording Only*); and **growth** — a garden where
+every 50 words you write today adds a stem, a leaf or a flower.
 
 The sun's **position is the clock**. It crosses the sky over a twenty-five
 minute session, so you read the time remaining off the light instead of
@@ -213,8 +217,8 @@ remote-control sources.
 and lets you write.
 
 Not yet: command palette, corkboard view (`pov` and `status` are already parsed
-and waiting for it), git sync, scene reordering, creating files from inside the
-app, search, spellcheck, and undo.
+and waiting for it), git sync, scene reordering, renaming and deleting from
+inside the app, search, spellcheck, and undo.
 
 ## Development
 
