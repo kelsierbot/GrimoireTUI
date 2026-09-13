@@ -1,199 +1,223 @@
-/* Every colour here is sampled from the running TUI. */
-:root {
-  --void:      #0a0a0f;   /* joshking.ai family base */
-  --ink:       #12121a;
-  --raised:    #16161f;
-  --brass:     #d6ad60;   /* ui.rs ACCENT  rgb(214,173,96) */
-  --brass-dim: #8a7040;
-  --parchment: #dedcd4;   /* ui.rs TEXT    rgb(222,220,212) */
-  --slate:     #6c6c7a;   /* ui.rs DIM     rgb(108,108,122) */
-  --ember:     #c87864;   /* ui.rs unsaved rgb(200,120,100) */
-  --rule:      #26262f;   /* ui.rs BORDER  rgb(70,70,84), darkened */
+/* The page is the application: title bar, panes, status line.
+   One typeface. One accent, and it only ever means "focused". */
 
-  --serif: 'EB Garamond', Georgia, 'Times New Roman', serif;
-  --mono:  'JetBrains Mono', ui-monospace, 'Cascadia Code', monospace;
+:root {
+  --bg:    #0d0d10;
+  --line:  #2a2a32;
+  --text:  #d7d5cd;
+  --mute:  #71717d;
+  --focus: #d6ad60;   /* the app's ACCENT — used for selection, nothing else */
+
+  --mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  --fs: clamp(0.78rem, 0.72rem + 0.28vw, 0.875rem);
+  --lh: 1.65;
+  --row: 1.65em;
 }
 
 *, *::before, *::after { box-sizing: border-box; }
 
-html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
+html, body { height: 100%; }
 
 body {
   margin: 0;
-  background: var(--void);
-  color: var(--parchment);
-  font-family: var(--serif);
-  font-size: 1.125rem;
-  line-height: 1.75;
-  overflow-x: hidden;
-}
-
-::selection { background: rgba(214, 173, 96, 0.3); color: #fff; }
-
-a { color: var(--brass); text-decoration-color: var(--brass-dim); text-underline-offset: 0.2em; }
-a:hover { color: #efd8a4; }
-
-:focus-visible { outline: 2px solid var(--brass); outline-offset: 3px; border-radius: 2px; }
-
-.wrap { width: min(100% - 2.5rem, 64rem); margin-inline: auto; }
-.measure { max-width: 38rem; }
-
-/* ── nav ─────────────────────────────────────────────────── */
-.nav {
-  display: flex; justify-content: space-between; align-items: baseline;
-  gap: 1rem; padding: 1.75rem 0 0;
-  font-family: var(--mono); font-size: 0.8125rem; letter-spacing: 0.04em;
-}
-.nav a { text-decoration: none; color: var(--slate); }
-.nav a:hover { color: var(--brass); }
-.nav .mark { color: var(--brass); }
-
-/* ── hero ────────────────────────────────────────────────── */
-.hero { padding: clamp(3rem, 9vw, 6rem) 0 0; }
-
-.wordmark {
-  font-family: var(--serif);
-  font-weight: 500;
-  font-size: clamp(3.25rem, 12vw, 7rem);
-  line-height: 0.92;
-  letter-spacing: -0.025em;
-  margin: 0;
-  color: var(--parchment);
-}
-.wordmark em {
-  font-style: italic;
-  color: var(--brass);
-}
-
-.tagline {
+  background: var(--bg);
+  color: var(--text);
   font-family: var(--mono);
-  font-size: clamp(0.8125rem, 2.2vw, 0.9375rem);
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--slate);
-  margin: 1.5rem 0 0;
+  font-size: var(--fs);
+  line-height: var(--lh);
+  font-variant-ligatures: none;
+  -webkit-font-smoothing: antialiased;
 }
 
-/* ── the terminal ────────────────────────────────────────── */
-.term-shell {
-  margin: clamp(2.5rem, 6vw, 4rem) 0 0;
-  border: 1px solid var(--rule);
-  border-radius: 6px;
-  background: var(--ink);
-  box-shadow: 0 24px 70px -30px rgba(0,0,0,0.95), 0 0 0 1px rgba(214,173,96,0.05);
+::selection { background: var(--focus); color: var(--bg); }
+
+a { color: inherit; text-underline-offset: 0.25em; text-decoration-color: var(--line); }
+a:hover { color: var(--focus); text-decoration-color: var(--focus); }
+
+:focus-visible { outline: 1px solid var(--focus); outline-offset: 2px; }
+
+/* ── the window ──────────────────────────────────────────────── */
+
+.screen {
+  height: 100dvh;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  padding: 0 clamp(0.5rem, 2vw, 1.25rem) clamp(0.35rem, 1.2vw, 0.6rem);
+  max-width: 78rem;
+  margin-inline: auto;
+}
+
+.titlebar {
+  display: flex;
+  align-items: baseline;
+  gap: 1.25rem;
+  padding: 0.9rem 0.25rem 0.75rem;
+  white-space: nowrap;
   overflow: hidden;
 }
-.term-bar {
-  display: flex; align-items: center; gap: 0.5rem;
-  padding: 0.6rem 0.9rem;
-  border-bottom: 1px solid var(--rule);
-  background: var(--raised);
-  font-family: var(--mono); font-size: 0.75rem; color: var(--slate);
-}
-.term-bar i { width: 9px; height: 9px; border-radius: 50%; background: var(--rule); display: block; }
-.term-bar span { margin-left: 0.4rem; }
+.titlebar .brand { color: var(--focus); letter-spacing: 0.02em; }
+.titlebar .desc { color: var(--mute); overflow: hidden; text-overflow: ellipsis; }
+.titlebar .right { margin-left: auto; color: var(--mute); }
+.titlebar .right a { text-decoration: none; }
 
-.term-scroll { overflow-x: auto; padding: 1.1rem 1.1rem 1.3rem; }
-.term {
-  font-family: var(--mono);
-  font-size: clamp(0.5rem, 1.42vw, 0.8125rem);
+.panes {
+  display: grid;
+  grid-template-columns: 15rem minmax(0, 1fr);
+  gap: 0.6rem;
+  min-height: 0;
+}
+
+/* A pane is a hairline box with its label notched into the top edge. */
+.pane {
+  position: relative;
+  border: 1px solid var(--line);
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.pane > .label {
+  position: absolute;
+  top: 0;
+  left: 1.1em;
+  transform: translateY(-50%);
+  background: var(--bg);
+  padding: 0 0.6em;
+  color: var(--mute);
+  letter-spacing: 0.14em;
+  font-size: 0.82em;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+.pane[data-focused='true'] { border-color: var(--focus); }
+.pane[data-focused='true'] > .label { color: var(--focus); }
+
+/* ── contents tree ───────────────────────────────────────────── */
+
+.tree { padding: 1.1rem 0 0.7rem; overflow-y: auto; }
+.tree ol { list-style: none; margin: 0; padding: 0; }
+
+.tree button {
+  all: unset;
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.1em 1.1em;
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tree button::before { content: '• '; color: var(--mute); }
+.tree button:hover { color: var(--focus); }
+.tree button[aria-selected='true'] { color: var(--focus); }
+.tree button[aria-selected='true']::before { content: '● '; color: var(--focus); }
+
+.tree .group {
+  padding: 1.4em 1.1em 0.2em;
+  color: var(--mute);
+  font-size: 0.82em;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+/* ── document pane ───────────────────────────────────────────── */
+
+.doc {
+  padding: 1.35rem clamp(1rem, 3vw, 2.4rem) 1.6rem;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+.doc::-webkit-scrollbar { width: 7px; }
+.doc::-webkit-scrollbar-thumb { background: var(--line); }
+
+.doc section { max-width: 62ch; }
+/* Without JS every section stays visible and crawlable; the tab behaviour is
+   layered on top only once the inline head script has set .js. */
+.js .doc section { display: none; }
+.js .doc section.on { display: block; }
+.doc section + section { margin-top: 2.4em; }
+.js .doc section + section { margin-top: 0; }
+
+.doc h2 {
+  font-size: 1em;
+  font-weight: 600;
+  margin: 0 0 var(--row);
+  color: var(--text);
+  letter-spacing: 0.02em;
+}
+.doc h2::before { content: '# '; color: var(--mute); font-weight: 400; }
+
+.doc p { margin: 0 0 var(--row); color: var(--text); }
+.doc p.mute { color: var(--mute); }
+.doc strong { font-weight: 600; color: var(--focus); }
+
+.doc ul { margin: 0 0 var(--row); padding: 0; list-style: none; }
+.doc ul li { padding-left: 1.4em; text-indent: -1.4em; }
+.doc ul li::before { content: '— '; color: var(--mute); }
+
+/* Character grids: the only place real box-drawing is used, where the
+   whole block shares one font and alignment is self-contained. */
+.grid-block {
+  margin: 0 0 var(--row);
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.grid-block pre {
+  margin: 0;
+  font: inherit;
+  font-size: clamp(0.52rem, 1.15vw, 0.8rem);
   line-height: 1.5;
   white-space: pre;
-  margin: 0;
-  color: var(--parchment);
-  tab-size: 4;
+  color: var(--mute);
 }
-.b  { color: var(--rule); }        /* box drawing   */
-.t  { color: var(--brass); }       /* pane titles   */
-.d  { color: var(--slate); }       /* counts, hints */
-.o  { color: var(--brass); }       /* open scene    */
-.c  { color: var(--parchment); font-weight: 500; }  /* containers */
-.bar-fill  { color: var(--brass); }
-.bar-empty { color: var(--rule); }
-/* Fixed cell width keeps the right-hand border still while text types in. */
-.ty { display: inline-block; width: 47ch; white-space: pre; }
-.cursor { color: var(--brass); animation: blink 1.15s steps(1) infinite; }
-@keyframes blink { 50% { opacity: 0; } }
+.grid-block pre b { font-weight: 400; color: var(--text); }
+.grid-block pre i { font-style: normal; color: var(--focus); }
 
-.install {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem 1.25rem;
-  margin: 2rem 0 0;
-  font-family: var(--mono); font-size: 0.875rem;
-}
-.install code {
-  background: var(--ink);
-  border: 1px solid var(--rule);
-  border-radius: 4px;
-  padding: 0.55rem 0.9rem;
-  color: var(--parchment);
-}
-.install code b { color: var(--brass); font-weight: 400; }
-.install .note { color: var(--slate); font-size: 0.8125rem; }
+.keys { width: 100%; border-collapse: collapse; margin: 0 0 var(--row); }
+.keys td { padding: 0.05em 1.2em 0.05em 0; vertical-align: top; }
+.keys td:first-child { color: var(--focus); white-space: nowrap; width: 1%; }
+.keys td:last-child { color: var(--text); }
 
-/* ── sections ────────────────────────────────────────────── */
-section { padding: clamp(4rem, 11vw, 7.5rem) 0 0; }
+.cmd {
+  display: block;
+  padding: 0.1em 0 0.1em 1.4em;
+  text-indent: -1.4em;
+  color: var(--text);
+}
+.cmd::before { content: '$ '; color: var(--mute); }
+.cmd + .cmd { margin-top: 0.1em; }
+.cmd.note::before { content: '# '; }
+.cmd.note { color: var(--mute); }
 
-.eyebrow {
-  font-family: var(--mono); font-size: 0.75rem;
-  letter-spacing: 0.18em; text-transform: uppercase;
-  color: var(--brass-dim); margin: 0 0 1.25rem;
-}
+/* ── status line ─────────────────────────────────────────────── */
 
-h2 {
-  font-family: var(--serif); font-weight: 500;
-  font-size: clamp(1.85rem, 5.2vw, 3rem);
-  line-height: 1.12; letter-spacing: -0.02em;
-  margin: 0 0 1.5rem; color: var(--parchment);
+.statusbar {
+  display: flex;
+  gap: 1.5rem;
+  padding: 0.5rem 0.35rem 0.2rem;
+  color: var(--mute);
+  white-space: nowrap;
+  overflow: hidden;
 }
+.statusbar .pos { color: var(--focus); }
+.statusbar .right { margin-left: auto; }
+.statusbar kbd {
+  font: inherit;
+  color: var(--text);
+}
+.statusbar .hint + .hint { margin-left: 1.1rem; }
 
-p { margin: 0 0 1.25rem; color: #c9c7c0; }
-p strong { color: var(--parchment); font-weight: 600; }
+/* ── narrow screens: stop pretending to be a window ──────────── */
 
-.tree-fig {
-  margin: 2.5rem 0 0;
-  padding: 1.5rem 1.6rem;
-  border-left: 2px solid var(--brass-dim);
-  background: var(--ink);
-  overflow-x: auto;
+@media (max-width: 46rem) {
+  .screen { height: auto; min-height: 100dvh; }
+  .panes { grid-template-columns: minmax(0, 1fr); }
+  .doc, .tree { overflow: visible; }
+  .statusbar .keys-hint { display: none; }
 }
-.tree-fig pre {
-  margin: 0; font-family: var(--mono);
-  font-size: clamp(0.6875rem, 1.7vw, 0.8125rem);
-  line-height: 1.85; color: var(--slate); white-space: pre;
-}
-.tree-fig pre b { color: var(--parchment); font-weight: 400; }
-.tree-fig pre i { color: var(--brass); font-style: normal; }
-
-.grid {
-  display: grid; gap: 2.5rem 3rem;
-  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
-  margin: 3rem 0 0;
-}
-.grid h3 {
-  font-family: var(--mono); font-size: 0.8125rem;
-  letter-spacing: 0.1em; text-transform: uppercase;
-  color: var(--brass); font-weight: 500;
-  margin: 0 0 0.65rem;
-}
-.grid p { font-size: 1rem; margin: 0; color: #b8b6af; }
-
-.honest {
-  margin-top: 3rem; padding: 1.4rem 1.6rem;
-  border: 1px dashed var(--rule); border-radius: 5px;
-}
-.honest p { margin: 0; font-size: 1rem; color: var(--slate); }
-.honest strong { color: var(--ember); font-weight: 600; }
-
-footer {
-  margin-top: clamp(4rem, 11vw, 7.5rem);
-  padding: 2rem 0 3rem;
-  border-top: 1px solid var(--rule);
-  font-family: var(--mono); font-size: 0.8125rem; color: var(--slate);
-  display: flex; flex-wrap: wrap; gap: 0.5rem 1.75rem; justify-content: space-between;
-}
-footer a { text-decoration: none; }
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
-  html { scroll-behavior: auto; }
+  * { animation: none !important; transition: none !important; }
 }
