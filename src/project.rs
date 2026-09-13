@@ -149,7 +149,9 @@ impl Project {
                     title: display_title(&path, None),
                     path: path.clone(),
                     depth,
-                    expanded: depth == 0,
+                    // A novel tree is small. Start it open; collapsing is a
+                    // deliberate act, not something to make the user undo.
+                    expanded: true,
                     children: Vec::new(),
                     in_manuscript,
                     front: None,
@@ -324,4 +326,50 @@ fn display_title(path: &Path, front: Option<&str>) -> String {
         })
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+/// Create a new manuscript skeleton. Refuses to touch a directory that
+/// already holds a project.
+pub fn scaffold(root: &Path) -> Result<()> {
+    if root.join("manuscript").is_dir() {
+        anyhow::bail!("{} already contains a manuscript/", root.display());
+    }
+
+    let title = root
+        .file_name()
+        .map(|s| display_title(Path::new(s), None))
+        .unwrap_or_else(|| "Untitled".into());
+
+    let scene_dir = root.join("manuscript/01-part-one/01-chapter-one");
+    fs::create_dir_all(&scene_dir)
+        .with_context(|| format!("creating {}", scene_dir.display()))?;
+    fs::create_dir_all(root.join("notes/characters"))?;
+    fs::create_dir_all(root.join("notes/places"))?;
+
+    write_new(
+        &root.join("novel.toml"),
+        &format!(
+            "title = \"{title}\"\nauthor = \"\"\ndraft = \"1\"\ntarget_words = 80000\ndaily_target = 1000\n"
+        ),
+    )?;
+
+    write_new(
+        &scene_dir.join("01-opening.md"),
+        "---\ntitle: Opening\npov:\nstatus: outline\nsynopsis:\ntarget: 1500\n---\n\n",
+    )?;
+
+    write_new(
+        &root.join("notes/characters/example.md"),
+        "---\ntitle: Example\n---\n\nDelete this and write someone real.\n",
+    )?;
+
+    write_new(&root.join(".gitignore"), ".grimoire/\n")?;
+    Ok(())
+}
+
+fn write_new(path: &Path, body: &str) -> Result<()> {
+    if path.exists() {
+        return Ok(());
+    }
+    fs::write(path, body).with_context(|| format!("writing {}", path.display()))
 }

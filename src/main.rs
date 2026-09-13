@@ -13,7 +13,7 @@ use ratatui::crossterm::event::{
     PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
 };
 use ratatui::crossterm::execute;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use app::{App, Focus, Key};
@@ -39,25 +39,35 @@ fn main() -> Result<()> {
     if matches!(first.as_deref(), Some("-h") | Some("--help")) {
         println!("grimoire — a terminal writing desk for novels\n");
         println!("usage:");
-        println!("  grimoire <project-dir>      open a manuscript");
+        println!("  grimoire                    open your current manuscript");
+        println!("  grimoire <dir>              open a specific one");
+        println!("  grimoire new <dir>          start a new one");
         println!("  grimoire music-auth         pair with YTMDesktop");
+        println!();
+        println!("With no arguments grimoire opens the current directory if it is a");
+        println!("manuscript, otherwise the last one you had open, otherwise it creates");
+        println!("{}.", pretty(&default_root()));
         return Ok(());
     }
 
-    let root = match first {
-        Some(p) => PathBuf::from(p),
-        None => std::env::current_dir()?,
-    };
-
-    if !root.join("manuscript").is_dir() {
-        anyhow::bail!(
-            "no manuscript/ directory found in {}\n\nusage: grimoire <project-dir>",
-            root.display()
-        );
+    if first.as_deref() == Some("new") {
+        let dir = args.next().map(PathBuf::from).unwrap_or_else(default_root);
+        std::fs::create_dir_all(&dir)
+            .with_context(|| format!("creating {}", dir.display()))?;
+        project::scaffold(&dir)?;
+        println!("Started a manuscript in {}", pretty(&dir));
+        println!("Open it with:  grimoire {}", pretty(&dir));
+        return Ok(());
     }
+
+    let (root, opening_msg) = resolve_project(first.map(PathBuf::from))?;
+    remember(&root);
 
     let project = Project::load(&root).context("loading project")?;
     let mut app = App::new(project)?;
+    if let Some(m) = opening_msg {
+        app.msg = m;
+    }
 
     let mut terminal = ratatui::try_init()
         .context("this needs a real terminal — grimoire cannot run in a pipe")?;
@@ -81,6 +91,93 @@ fn main() -> Result<()> {
     let _ = execute!(std::io::stdout(), PopKeyboardEnhancementFlags);
     ratatui::restore();
     res
+}
+
+
+/// Where a first-time manuscript goes if the user never names one.
+fn default_root() -> PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+    PathBuf::from(home).join("Documents/Grimoire")
+}
+
+fn state_path() -> PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+    PathBuf::from(home).join(".config/grimoire/state.toml")
+}
+
+/// Shorten $HOME to ~ so printed paths stay readable.
+fn pretty(p: &Path) -> String {
+    let s = p.display().to_string();
+    match std::env::var("HOME") {
+        Ok(h) if !h.is_empty() && s.starts_with(&h) => format!("~{}", &s[h.len()..]),
+        _ => s,
+    }
+}
+
+fn is_project(p: &Path) -> bool {
+    p.join("manuscript").is_dir()
+}
+
+fn last_opened() -> Option<PathBuf> {
+    let s = std::fs::read_to_string(state_path()).ok()?;
+    for line in s.lines() {
+        if let Some(v) = line.strip_prefix("last = ") {
+            let v = v.trim().trim_matches('"');
+            if !v.is_empty() {
+                return Some(PathBuf::from(v));
+            }
+        }
+    }
+    None
+}
+
+fn remember(root: &Path) {
+    let path = state_path();
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let _ = std::fs::write(path, format!("last = \"{}\"\n", root.display()));
+}
+
+/// Decide what `grimoire` with no arguments should open. In order: the current
+/// directory, the last manuscript you had open, or a fresh one.
+fn resolve_project(arg: Option<PathBuf>) -> Result<(PathBuf, Option<String>)> {
+    if let Some(p) = arg {
+        let abs = std::fs::canonicalize(&p).unwrap_or_else(|_| p.clone());
+        if !abs.exists() {
+            anyhow::bail!(
+                "{} does not exist\n\n  grimoire new {}   start a manuscript there\n  grimoire                  open your current one",
+                pretty(&abs),
+                pretty(&p)
+            );
+        }
+        if !is_project(&abs) {
+            anyhow::bail!(
+                "{} is not a manuscript — no manuscript/ directory inside it\n\n  grimoire new {}   start one there",
+                pretty(&abs),
+                pretty(&p)
+            );
+        }
+        return Ok((abs, None));
+    }
+
+    let cwd = std::env::current_dir()?;
+    if is_project(&cwd) {
+        return Ok((cwd, None));
+    }
+    if let Some(last) = last_opened() {
+        if is_project(&last) {
+            return Ok((last, None));
+        }
+    }
+
+    let root = default_root();
+    if is_project(&root) {
+        return Ok((root, None));
+    }
+    std::fs::create_dir_all(&root).with_context(|| format!("creating {}", root.display()))?;
+    project::scaffold(&root)?;
+    Ok((root.clone(), Some(format!("new manuscript at {}", pretty(&root)))))
 }
 
 /// Whether this terminal is one that can actually deliver Cmd, decided from

@@ -39,7 +39,19 @@ Requires Rust 1.85+ (edition 2024).
 git clone https://github.com/kelsierbot/GrimoireTUI
 cd GrimoireTUI
 cargo install --path .
-grimoire example
+grimoire
+```
+
+`cargo install` puts the binary in `~/.cargo/bin`, so make sure that is on your
+`PATH`.
+
+Typing `grimoire` on its own opens the current directory if it is a manuscript,
+otherwise the last one you had open, otherwise it starts a fresh one in
+`~/Documents/Grimoire`. To be explicit:
+
+```sh
+grimoire ~/novels/the-archive     open a specific manuscript
+grimoire new ~/novels/next-one    start one
 ```
 
 The crate is `grimoire-tui`; the binary it installs is `grimoire`.

@@ -53,6 +53,14 @@ impl App {
             }
         }
         let baseline = load_baseline(&project)?;
+        // Open the first scene straight away so launching lands you on prose
+        // rather than an empty pane. Focus stays on the tree, so a stray
+        // keystroke can't wander into the manuscript.
+        let first_scene = project
+            .visible()
+            .into_iter()
+            .find(|&i| project.nodes[i].kind == Kind::Scene && project.nodes[i].in_manuscript);
+
         Ok(Self {
             project,
             visible,
@@ -71,6 +79,16 @@ impl App {
             music: Music::spawn(music::Config::load()),
             frame: 0,
             super_keys: false,
+        })
+        .map(|mut app: App| {
+            if let Some(i) = first_scene {
+                app.editor = Editor::from_str(&app.project.nodes[i].body);
+                app.open = Some(i);
+                if let Some(pos) = app.visible.iter().position(|&v| v == i) {
+                    app.sel = pos;
+                }
+            }
+            app
         })
     }
 
