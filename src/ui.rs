@@ -375,13 +375,14 @@ fn draw_status(f: &mut Frame, app: &App, area: Rect) {
         ));
     }
 
-    let hints = "Tab pane  ^S save  ^Q quit ";
+    let m = app.mod_label();
+    let hints = format!("Tab pane  {m}S save  {m}Q quit ");
     let used: usize = spans.iter().map(|s| s.content.chars().count()).sum();
     let pad = (area.width as usize)
         .saturating_sub(used)
         .saturating_sub(hints.chars().count());
     spans.push(Span::raw(" ".repeat(pad)));
-    spans.push(Span::styled(hints, Style::default().fg(DIM)));
+    spans.push(Span::styled(hints.clone(), Style::default().fg(DIM)));
 
     f.render_widget(Paragraph::new(Line::from(spans)), area);
 }

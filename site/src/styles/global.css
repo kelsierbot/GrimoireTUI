@@ -91,9 +91,21 @@ a:hover { color: var(--focus); text-decoration-color: var(--focus); }
 .pane[data-focused='true'] { border-color: var(--focus); }
 .pane[data-focused='true'] > .label { color: var(--focus); }
 
+/* Scrolling lives on an inner element. If the pane itself scrolled it would
+   become a clipping box and shear the top half off its own notch label. */
+.pane-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+.pane-body::-webkit-scrollbar { width: 7px; }
+.pane-body::-webkit-scrollbar-thumb { background: var(--line); }
+
 /* ── contents tree ───────────────────────────────────────────── */
 
-.tree { padding: 1.1rem 0 0.7rem; overflow-y: auto; }
+.tree .pane-body { padding: 1.1rem 0 0.7rem; }
 .tree ol { list-style: none; margin: 0; padding: 0; }
 
 .tree button {
@@ -123,16 +135,11 @@ a:hover { color: var(--focus); text-decoration-color: var(--focus); }
 
 /* ── document pane ───────────────────────────────────────────── */
 
-.doc {
-  padding: 1.35rem clamp(1rem, 3vw, 2.4rem) 1.6rem;
-  overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: var(--line) transparent;
-}
-.doc::-webkit-scrollbar { width: 7px; }
-.doc::-webkit-scrollbar-thumb { background: var(--line); }
+.doc .pane-body { padding: 1.35rem clamp(1rem, 3vw, 2.4rem) 1.6rem; }
 
-.doc section { max-width: 62ch; }
+/* The measure belongs to prose only. Character grids are a fixed number of
+   columns wide and must never be squeezed by it. */
+.doc p, .doc ul, .doc .keys { max-width: 62ch; }
 /* Without JS every section stays visible and crawlable; the tab behaviour is
    layered on top only once the inline head script has set .js. */
 .js .doc section { display: none; }

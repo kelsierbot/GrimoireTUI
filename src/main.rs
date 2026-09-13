@@ -8,7 +8,11 @@ mod scene;
 mod ui;
 
 use anyhow::{Context, Result};
-use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
+use ratatui::crossterm::event::{
+    self, Event, KeyCode, KeyEventKind, KeyModifiers, KeyboardEnhancementFlags,
+    PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
+};
+use ratatui::crossterm::execute;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -55,10 +59,42 @@ fn main() -> Result<()> {
     let project = Project::load(&root).context("loading project")?;
     let mut app = App::new(project)?;
 
-    let mut terminal = ratatui::init();
+    let mut terminal = ratatui::try_init()
+        .context("this needs a real terminal — grimoire cannot run in a pipe")?;
+
+    // Cmd/Super only reaches a TUI when the terminal speaks the Kitty keyboard
+    // protocol. Ghostty, Kitty, WezTerm and foot do; Apple Terminal does not.
+    // Ctrl is always accepted, so this only ever adds a second option.
+    //
+    // We push the flags unconditionally — terminals that don't understand the
+    // sequence ignore it. We deliberately do NOT call
+    // supports_keyboard_enhancement(): it queries the terminal and blocks for a
+    // full 2s when nothing answers, which is most of them.
+    let _ = execute!(
+        std::io::stdout(),
+        PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
+    );
+    app.super_keys = cmd_is_reachable();
+
     let res = run(&mut terminal, &mut app);
+
+    let _ = execute!(std::io::stdout(), PopKeyboardEnhancementFlags);
     ratatui::restore();
     res
+}
+
+/// Whether this terminal is one that can actually deliver Cmd, decided from
+/// the environment so startup stays instant. If a Super-modified key ever
+/// arrives we believe the evidence over this guess.
+fn cmd_is_reachable() -> bool {
+    if !cfg!(target_os = "macos") {
+        return false;
+    }
+    let prog = std::env::var("TERM_PROGRAM").unwrap_or_default().to_lowercase();
+    let term = std::env::var("TERM").unwrap_or_default();
+    matches!(prog.as_str(), "ghostty" | "wezterm")
+        || term.contains("kitty")
+        || std::env::var("KITTY_WINDOW_ID").is_ok()
 }
 
 fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
@@ -86,7 +122,14 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
             continue;
         }
 
-        let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
+        // Either modifier drives the shortcuts: Ctrl everywhere, Cmd where the
+        // terminal can actually report it.
+        let sup = k.modifiers.contains(KeyModifiers::SUPER);
+        if sup {
+            // Hard proof this terminal can send Cmd; trust it over the guess.
+            app.super_keys = true;
+        }
+        let ctrl = k.modifiers.contains(KeyModifiers::CONTROL) || sup;
 
         if ctrl {
             match k.code {
@@ -97,7 +140,8 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
                 KeyCode::Char('q') => {
                     if app.project.dirty_count() > 0 && !confirm_quit {
                         confirm_quit = true;
-                        app.msg = "unsaved — ^Q again to discard, ^S to save".into();
+                        let m = app.mod_label();
+                        app.msg = format!("unsaved — {m}Q again to discard, {m}S to save");
                     } else {
                         return Ok(());
                     }

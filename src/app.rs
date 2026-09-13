@@ -33,9 +33,17 @@ pub struct App {
     pub music: Music,
     /// Animation counter, bumped once per event-loop tick.
     pub frame: u64,
+    /// True when the terminal can actually report Cmd/Super — which needs the
+    /// Kitty keyboard protocol. Ctrl always works regardless.
+    pub super_keys: bool,
 }
 
 impl App {
+    /// What to print in front of a shortcut, given what this terminal can send.
+    pub fn mod_label(&self) -> &'static str {
+        if self.super_keys { "⌘" } else { "^" }
+    }
+
     pub fn new(project: Project) -> Result<Self> {
         let visible = project.visible();
         let mut parents = vec![None; project.nodes.len()];
@@ -62,6 +70,7 @@ impl App {
             pomo: Pomodoro::default(),
             music: Music::spawn(music::Config::load()),
             frame: 0,
+            super_keys: false,
         })
     }
 

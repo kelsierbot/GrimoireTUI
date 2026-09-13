@@ -89,6 +89,12 @@ never heard of.
 Function keys work from either pane, so they can never eat a keystroke while
 you're writing.
 
+**On the modifier:** Grimoire accepts either `Ctrl` or `Cmd`, and the status bar
+labels whichever your terminal can actually deliver. Cmd only reaches a terminal
+application through the Kitty keyboard protocol — Ghostty, Kitty, WezTerm and
+foot support it; Apple Terminal does not, and there is nothing an application
+can do about that. Ctrl always works.
+
 In the editor: type. Arrows, Home/End, PageUp/PageDown, Backspace, Delete.
 Vertical movement is **visual** — Down moves one screen row inside a wrapped
 paragraph rather than jumping a whole paragraph, which is the only behaviour

@@ -63,6 +63,7 @@ const flat = nav.flatMap((g) => g.items);
       <main class="panes">
         <nav class="pane tree" id="tree" data-focused="false" aria-label="Contents">
           <span class="label">contents</span>
+          <div class="pane-body">
           {nav.map((g) => (
             <>
               <div class="group">{g.group}</div>
@@ -82,10 +83,12 @@ const flat = nav.flatMap((g) => g.items);
               </ol>
             </>
           ))}
+          </div>
         </nav>
 
         <div class="pane doc" id="doc" data-focused="true">
           <span class="label" id="doc-label">what it is</span>
+          <div class="pane-body" id="doc-body">
 
           <section id="what" role="tabpanel" aria-labelledby="tab-what">
             <h2>what it is</h2>
@@ -275,6 +278,7 @@ const flat = nav.flatMap((g) => g.items);
             </ul>
             <p class="mute">MIT. Issues and patches welcome at <a href={REPO}>the repo</a>.</p>
           </section>
+          </div>
         </div>
       </main>
 
@@ -296,6 +300,7 @@ const flat = nav.flatMap((g) => g.items);
       const pos = document.getElementById('pos');
       const tree = document.getElementById('tree');
       const doc = document.getElementById('doc');
+      const docBody = document.getElementById('doc-body');
       let i = 0;
 
       function show(next, moveFocus) {
@@ -313,7 +318,7 @@ const flat = nav.flatMap((g) => g.items);
         label.textContent = tabs[i].textContent;
         pos.textContent = `${i + 1}/${tabs.length}`;
         history.replaceState(null, '', `#${id}`);
-        doc.scrollTop = 0;
+        if (docBody) docBody.scrollTop = 0;
         if (moveFocus) tabs[i].focus();
       }
 
