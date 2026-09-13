@@ -5,6 +5,7 @@ mod editor;
 mod music;
 mod project;
 mod scene;
+mod theme;
 mod ui;
 
 use anyhow::{Context, Result};
@@ -17,7 +18,7 @@ use ratatui::crossterm::execute;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use app::{App, Focus, Key};
+use app::{App, Focus, Key, Overlay};
 use project::Project;
 
 /// How often we wake to repaint. Also the animation clock.
@@ -286,6 +287,16 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
             KeyCode::F(n) => Key::F(n),
             _ => Key::Other,
         };
+
+        if !matches!(app.overlay, Overlay::None) {
+            app.on_overlay_key(key);
+            continue;
+        }
+
+        if key == Key::F(9) {
+            app.open_theme_picker();
+            continue;
+        }
 
         // Timer and music work from either pane, so they can't eat keystrokes.
         if let Key::F(n) = key {

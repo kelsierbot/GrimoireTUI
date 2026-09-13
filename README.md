@@ -92,6 +92,7 @@ heard of.
 | `Ctrl-Q` | quit — twice if unsaved |
 | `Esc` | leave the editor |
 | `F2` `F3` | start or pause the timer · reset |
+| `F9` · `t` | themes |
 | `F4` `F5` `F6` | previous · play-pause · next |
 
 Vertical movement in the editor is **visual, not logical** — Down moves one
@@ -102,6 +103,22 @@ Grimoire accepts `Ctrl` or `Cmd`, and the status bar labels whichever your
 terminal can actually deliver. Cmd only reaches a terminal application through
 the Kitty keyboard protocol — Ghostty, Kitty, WezTerm and foot support it,
 Apple Terminal cannot send it at all. Ctrl always works.
+
+## Themes
+
+`F9` anywhere, or `t` from the tree. Eight presets — Grimoire, Gruvbox Dark,
+Nord, Dracula, Solarized Dark, Catppuccin Mocha, Tokyo Night, Everforest —
+and `j`/`k` **previews each one live** as you move, so you pick by looking
+rather than by name. `Enter` keeps it, `Esc` puts back what you had.
+
+The last entry is **Custom…**, which opens a swatch editor: twelve named roles
+(accent, text, dim, border, selection, warning, then the six the forest uses),
+each showing its colour block and hex. Type six hex digits and it applies the
+moment the sixth lands. It starts from whichever theme you were previewing, so
+you can pick the closest preset and adjust from there.
+
+Saved to `~/.config/grimoire/theme.toml`. Presets store only their name, so
+they follow any future refinements; Custom stores every swatch.
 
 ## Mouse
 
@@ -187,8 +204,9 @@ src/app.rs       state, focus, per-pane input
 src/project.rs   manuscript tree, frontmatter, scaffolding
 src/editor.rs    word-wrapping buffer with visual cursor movement
 src/scene.rs     the forest and the pomodoro
+src/theme.rs     presets, custom palette, load/save
 src/ui.rs        rendering
-src/music.rs     YTMDesktop companion client
+src/music.rs     youtube-music API Server client
 site/            the landing page
 ```
 

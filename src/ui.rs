@@ -1,21 +1,16 @@
-//! Rendering. Two panes and a status line — tree on the left, prose on the right.
+//! Rendering. Panes, status line, and the theme picker overlay.
 
-use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Padding, Paragraph};
 use ratatui::Frame;
+use ratatui::layout::{Constraint, Layout, Rect};
+use ratatui::style::{Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, Borders, Clear, Padding, Paragraph};
 
-use crate::app::{App, Focus};
+use crate::app::{App, Focus, Overlay};
 use crate::music::State as MusicState;
 use crate::project::Kind;
 use crate::scene::{self, Ink, Phase};
-
-const ACCENT: Color = Color::Rgb(214, 173, 96);
-const DIM: Color = Color::Rgb(108, 108, 122);
-const SEL_BG: Color = Color::Rgb(48, 48, 60);
-const BORDER: Color = Color::Rgb(70, 70, 84);
-const TEXT: Color = Color::Rgb(222, 220, 212);
+use crate::theme::{self, Theme};
 
 /// Wide enough that the scene's 28 columns fit inside the border.
 pub const LEFT_W: u16 = (scene::W + 2) as u16;
@@ -24,14 +19,11 @@ const SCENE_H: u16 = (scene::H + 2) as u16;
 const MUSIC_H: u16 = 4;
 const MIN_TREE: u16 = 6;
 
-const SUN: Color = Color::Rgb(232, 182, 92);
-const MOON: Color = Color::Rgb(172, 182, 212);
-const FOLIAGE: Color = Color::Rgb(92, 120, 96);
-const BARK: Color = Color::Rgb(112, 92, 72);
-const BLOOM: Color = Color::Rgb(198, 138, 158);
-const TURF: Color = Color::Rgb(70, 82, 66);
-
 pub fn draw(f: &mut Frame, app: &mut App) {
+    // Cloned once per frame so sub-renderers can read the theme while `app`
+    // stays mutably borrowed for scroll and rect bookkeeping.
+    let t = app.theme.clone();
+
     let [main, status] =
         Layout::vertical([Constraint::Min(3), Constraint::Length(1)]).areas(f.area());
     let [left, edit_area] =
@@ -39,17 +31,17 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 
     // Give up the ornaments before the tree gets unusable.
     let (tree_area, scene_area, music_area) = if left.height >= SCENE_H + MUSIC_H + MIN_TREE {
-        let [t, s, m] = Layout::vertical([
+        let [a, b, c] = Layout::vertical([
             Constraint::Min(MIN_TREE),
             Constraint::Length(SCENE_H),
             Constraint::Length(MUSIC_H),
         ])
         .areas(left);
-        (t, s, m)
+        (a, b, c)
     } else if left.height >= MUSIC_H + MIN_TREE {
-        let [t, m] =
+        let [a, c] =
             Layout::vertical([Constraint::Min(MIN_TREE), Constraint::Length(MUSIC_H)]).areas(left);
-        (t, Rect::default(), m)
+        (a, Rect::default(), c)
     } else {
         (left, Rect::default(), Rect::default())
     };
@@ -59,139 +51,36 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     app.rect_scene = Rect::default();
     app.rect_music = Rect::default();
 
-    draw_tree(f, app, tree_area);
+    draw_tree(f, app, tree_area, &t);
     if app.scene_visible {
-        draw_scene(f, app, scene_area);
+        draw_scene(f, app, scene_area, &t);
     }
     if app.music_visible {
-        draw_music(f, app, music_area);
+        draw_music(f, app, music_area, &t);
     }
-    draw_editor(f, app, edit_area);
-    draw_status(f, app, status);
+    draw_editor(f, app, edit_area, &t);
+    draw_status(f, app, status, &t);
+
+    if !matches!(app.overlay, Overlay::None) {
+        draw_overlay(f, app, f.area(), &t);
+    }
 }
 
-fn draw_scene(f: &mut Frame, app: &mut App, area: Rect) {
-    let label = app.pomo.label();
-    let block = pane_block(&label, app.focus == Focus::Clearing);
-    let inner = block.inner(area);
-    app.rect_scene = inner;
-    f.render_widget(block, area);
-
-    let grid = scene::render(app.pomo.phase, app.pomo.progress(), app.frame);
-    let night = app.pomo.phase == Phase::Break;
-
-    let lines: Vec<Line> = grid
-        .iter()
-        .map(|row| {
-            Line::from(
-                row.iter()
-                    .map(|&(ch, ink)| {
-                        let col = match ink {
-                            Ink::Sky => BORDER,
-                            Ink::Star => {
-                                if night {
-                                    MOON
-                                } else {
-                                    DIM
-                                }
-                            }
-                            Ink::Sun => SUN,
-                            Ink::Moon => MOON,
-                            Ink::Tree => FOLIAGE,
-                            Ink::Trunk => BARK,
-                            Ink::Rabbit => TEXT,
-                            Ink::Flower => BLOOM,
-                            Ink::Ground => TURF,
-                        };
-                        Span::styled(ch.to_string(), Style::default().fg(col))
-                    })
-                    .collect::<Vec<_>>(),
-            )
-        })
-        .collect();
-
-    f.render_widget(Paragraph::new(lines), inner);
-}
-
-fn draw_music(f: &mut Frame, app: &mut App, area: Rect) {
-    let block = pane_block("♪", app.focus == Focus::Music);
-    let inner = block.inner(area);
-    app.rect_music = inner;
-    f.render_widget(block, area);
-    let w = inner.width as usize;
-
-    let lines: Vec<Line> = match &app.music.state {
-        MusicState::NoToken => vec![
-            Line::from(Span::styled("no account linked", Style::default().fg(DIM))),
-            Line::from(Span::styled(
-                "grimoire music-auth",
-                Style::default().fg(BORDER),
-            )),
-        ],
-        MusicState::Offline => vec![
-            Line::from(Span::styled("YTMDesktop offline", Style::default().fg(DIM))),
-            Line::from(Span::styled(
-                "start it to connect",
-                Style::default().fg(BORDER),
-            )),
-        ],
-        MusicState::Idle => vec![
-            Line::from(Span::styled("connected", Style::default().fg(DIM))),
-            Line::from(Span::styled("nothing playing", Style::default().fg(BORDER))),
-        ],
-        MusicState::Playing(t) => {
-            let glyph = if t.playing { "▶" } else { "❚❚" };
-            let head = format!("{glyph} {}", t.title);
-            let frac = if t.duration > 0.0 {
-                (t.progress / t.duration).clamp(0.0, 1.0)
-            } else {
-                0.0
-            };
-            let barw = w.saturating_sub(7).max(4);
-            let filled = (frac * barw as f64).round() as usize;
-            let mins = |s: f64| format!("{:.0}:{:02.0}", (s / 60.0).floor(), s % 60.0);
-
-            vec![
-                Line::from(Span::styled(
-                    truncate(&head, w),
-                    Style::default().fg(if t.playing { ACCENT } else { DIM }),
-                )),
-                // Different weights, not just different colours, so the bar
-                // still reads on a monochrome terminal.
-                Line::from(vec![
-                    Span::styled("━".repeat(filled.min(barw)), Style::default().fg(ACCENT)),
-                    Span::styled(
-                        "─".repeat(barw.saturating_sub(filled)),
-                        Style::default().fg(BORDER),
-                    ),
-                    Span::styled(
-                        format!(" {}", mins(t.progress)),
-                        Style::default().fg(DIM),
-                    ),
-                ]),
-            ]
-        }
-    };
-
-    f.render_widget(Paragraph::new(lines), inner);
-}
-
-fn pane_block(title: &str, focused: bool) -> Block<'_> {
-    let border = if focused { ACCENT } else { BORDER };
+fn pane_block<'a>(title: &'a str, focused: bool, t: &Theme) -> Block<'a> {
     Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(border))
+        .border_style(Style::default().fg(if focused { t.accent } else { t.border }))
         .title(Span::styled(
             format!(" {title} "),
             Style::default()
-                .fg(if focused { ACCENT } else { DIM })
+                .fg(if focused { t.accent } else { t.dim })
                 .add_modifier(Modifier::BOLD),
         ))
 }
 
-fn draw_tree(f: &mut Frame, app: &mut App, area: Rect) {
+fn draw_tree(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
     let focused = app.focus == Focus::Tree;
-    let block = pane_block("MANUSCRIPT", focused);
+    let block = pane_block("MANUSCRIPT", focused, t);
     let inner = block.inner(area);
     app.rect_tree = inner;
     f.render_widget(block, area);
@@ -221,7 +110,7 @@ fn draw_tree(f: &mut Frame, app: &mut App, area: Rect) {
             let pad = width.saturating_sub(label.chars().count());
             lines.push(Line::from(Span::styled(
                 format!("{label}{}", "─".repeat(pad)),
-                Style::default().fg(BORDER),
+                Style::default().fg(t.border),
             )));
             continue;
         }
@@ -254,29 +143,27 @@ fn draw_tree(f: &mut Frame, app: &mut App, area: Rect) {
 
         let left = format!("{indent}{marker}{}", n.title);
         let left_w = left.chars().count();
-        let gap = width
-            .saturating_sub(left_w)
-            .saturating_sub(count.chars().count() + 1);
-        let left = if left_w + count.chars().count() + 1 > width {
+        let overflow = left_w + count.chars().count() + 1 > width;
+        let left = if overflow {
             truncate(&left, width.saturating_sub(count.chars().count() + 2))
         } else {
             left
         };
-        let gap = if left_w + count.chars().count() + 1 > width {
+        let gap = if overflow {
             1
         } else {
-            gap
+            width
+                .saturating_sub(left_w)
+                .saturating_sub(count.chars().count() + 1)
         };
 
         let name_style = match n.kind {
-            Kind::Container => Style::default()
-                .fg(TEXT)
-                .add_modifier(Modifier::BOLD),
-            _ if Some(idx) == app.open => Style::default().fg(ACCENT),
-            _ => Style::default().fg(TEXT),
+            Kind::Container => Style::default().fg(t.text).add_modifier(Modifier::BOLD),
+            _ if Some(idx) == app.open => Style::default().fg(t.accent),
+            _ => Style::default().fg(t.text),
         };
         let base = if selected && focused {
-            Style::default().bg(SEL_BG)
+            Style::default().bg(t.sel)
         } else {
             Style::default()
         };
@@ -285,7 +172,7 @@ fn draw_tree(f: &mut Frame, app: &mut App, area: Rect) {
             Line::from(vec![
                 Span::styled(left, name_style.patch(base)),
                 Span::styled(" ".repeat(gap), base),
-                Span::styled(count, Style::default().fg(DIM).patch(base)),
+                Span::styled(count, Style::default().fg(t.dim).patch(base)),
                 Span::styled(" ", base),
             ])
             .style(base),
@@ -295,10 +182,119 @@ fn draw_tree(f: &mut Frame, app: &mut App, area: Rect) {
     f.render_widget(Paragraph::new(lines), inner);
 }
 
-fn draw_editor(f: &mut Frame, app: &mut App, area: Rect) {
+fn draw_scene(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
+    let label = app.pomo.label();
+    let block = pane_block(&label, app.focus == Focus::Clearing, t);
+    let inner = block.inner(area);
+    app.rect_scene = inner;
+    f.render_widget(block, area);
+
+    let grid = scene::render(app.pomo.phase, app.pomo.progress(), app.frame);
+    let night = app.pomo.phase == Phase::Break;
+
+    let lines: Vec<Line> = grid
+        .iter()
+        .map(|row| {
+            Line::from(
+                row.iter()
+                    .map(|&(ch, ink)| {
+                        let col = match ink {
+                            Ink::Sky => t.border,
+                            Ink::Star => {
+                                if night {
+                                    t.moon
+                                } else {
+                                    t.dim
+                                }
+                            }
+                            Ink::Sun => t.sun,
+                            Ink::Moon => t.moon,
+                            Ink::Tree => t.foliage,
+                            Ink::Trunk => t.bark,
+                            Ink::Rabbit => t.text,
+                            Ink::Flower => t.bloom,
+                            Ink::Ground => t.turf,
+                        };
+                        Span::styled(ch.to_string(), Style::default().fg(col))
+                    })
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .collect();
+
+    f.render_widget(Paragraph::new(lines), inner);
+}
+
+fn draw_music(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
+    let block = pane_block("♪", app.focus == Focus::Music, t);
+    let inner = block.inner(area);
+    app.rect_music = inner;
+    f.render_widget(block, area);
+    let w = inner.width as usize;
+
+    let lines: Vec<Line> = match &app.music.state {
+        MusicState::NoToken => vec![
+            Line::from(Span::styled("no account linked", Style::default().fg(t.dim))),
+            Line::from(Span::styled(
+                "grimoire music-auth",
+                Style::default().fg(t.border),
+            )),
+        ],
+        MusicState::Offline => vec![
+            Line::from(Span::styled(
+                "player offline",
+                Style::default().fg(t.dim),
+            )),
+            Line::from(Span::styled(
+                "start it to connect",
+                Style::default().fg(t.border),
+            )),
+        ],
+        MusicState::Idle => vec![
+            Line::from(Span::styled("connected", Style::default().fg(t.dim))),
+            Line::from(Span::styled(
+                "nothing playing",
+                Style::default().fg(t.border),
+            )),
+        ],
+        MusicState::Playing(tr) => {
+            let glyph = if tr.playing { "▶" } else { "❚❚" };
+            let head = format!("{glyph} {}", tr.title);
+            let frac = if tr.duration > 0.0 {
+                (tr.progress / tr.duration).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            let barw = w.saturating_sub(7).max(4);
+            let filled = (frac * barw as f64).round() as usize;
+            let mins = |s: f64| format!("{:.0}:{:02.0}", (s / 60.0).floor(), s % 60.0);
+
+            vec![
+                Line::from(Span::styled(
+                    truncate(&head, w),
+                    Style::default().fg(if tr.playing { t.accent } else { t.dim }),
+                )),
+                // Different weights, not just different colours, so the bar
+                // still reads on a monochrome terminal.
+                Line::from(vec![
+                    Span::styled("━".repeat(filled.min(barw)), Style::default().fg(t.accent)),
+                    Span::styled(
+                        "─".repeat(barw.saturating_sub(filled)),
+                        Style::default().fg(t.border),
+                    ),
+                    Span::styled(format!(" {}", mins(tr.progress)), Style::default().fg(t.dim)),
+                ]),
+            ]
+        }
+    };
+
+    f.render_widget(Paragraph::new(lines), inner);
+}
+
+fn draw_editor(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
     let focused = app.focus == Focus::Editor;
     let title = app.open_title();
-    let block = pane_block(&title, focused).padding(Padding::new(2, 2, 0, 0));
+    let block = pane_block(&title, focused, t).padding(Padding::new(2, 2, 0, 0));
     let inner = block.inner(area);
     app.rect_editor = inner;
     f.render_widget(block, area);
@@ -311,7 +307,7 @@ fn draw_editor(f: &mut Frame, app: &mut App, area: Rect) {
             Line::from(""),
             Line::from(Span::styled(
                 "Select a scene on the left and press Enter.",
-                Style::default().fg(DIM),
+                Style::default().fg(t.dim),
             )),
         ];
         f.render_widget(Paragraph::new(hint), inner);
@@ -325,17 +321,12 @@ fn draw_editor(f: &mut Frame, app: &mut App, area: Rect) {
         .iter()
         .skip(app.editor.scroll)
         .take(app.edit_height)
-        .map(|&r| {
-            Line::from(Span::styled(
-                app.editor.row_text(r),
-                Style::default().fg(TEXT),
-            ))
-        })
+        .map(|&r| Line::from(Span::styled(app.editor.row_text(r), Style::default().fg(t.text))))
         .collect();
 
     f.render_widget(Paragraph::new(visible), inner);
 
-    if focused {
+    if focused && matches!(app.overlay, Overlay::None) {
         let (r, col) = app.editor.cursor_vis(&rows);
         if r >= app.editor.scroll && r < app.editor.scroll + app.edit_height {
             let x = inner.x + col.min(app.edit_width.saturating_sub(1)) as u16;
@@ -345,7 +336,7 @@ fn draw_editor(f: &mut Frame, app: &mut App, area: Rect) {
     }
 }
 
-fn draw_status(f: &mut Frame, app: &App, area: Rect) {
+fn draw_status(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
     let total = app.project.total_words();
     let target = app.project.meta.target_words.max(1);
     let filled = (total * 10 / target).min(10);
@@ -354,18 +345,18 @@ fn draw_status(f: &mut Frame, app: &App, area: Rect) {
 
     let mut spans = vec![
         Span::raw(" "),
-        Span::styled(thousands(total), Style::default().fg(TEXT)),
+        Span::styled(thousands(total), Style::default().fg(t.text)),
         Span::styled(
             format!(" / {} ", thousands(target)),
-            Style::default().fg(DIM),
+            Style::default().fg(t.dim),
         ),
-        Span::styled(bar, Style::default().fg(ACCENT)),
+        Span::styled(bar, Style::default().fg(t.accent)),
         Span::styled(
             format!("  today {}", thousands(today)),
             Style::default().fg(if today >= app.project.meta.daily_target {
-                ACCENT
+                t.accent
             } else {
-                DIM
+                t.dim
             }),
         ),
     ];
@@ -374,13 +365,13 @@ fn draw_status(f: &mut Frame, app: &App, area: Rect) {
     if dirty > 0 {
         spans.push(Span::styled(
             format!("  ● {dirty} unsaved"),
-            Style::default().fg(Color::Rgb(200, 120, 100)),
+            Style::default().fg(t.warn),
         ));
     }
     if !app.msg.is_empty() {
         spans.push(Span::styled(
             format!("  {}", app.msg),
-            Style::default().fg(ACCENT),
+            Style::default().fg(t.accent),
         ));
     }
 
@@ -390,9 +381,109 @@ fn draw_status(f: &mut Frame, app: &App, area: Rect) {
         .saturating_sub(used)
         .saturating_sub(hints.chars().count());
     spans.push(Span::raw(" ".repeat(pad)));
-    spans.push(Span::styled(hints.clone(), Style::default().fg(DIM)));
+    spans.push(Span::styled(hints, Style::default().fg(t.dim)));
 
     f.render_widget(Paragraph::new(Line::from(spans)), area);
+}
+
+// ── overlays ─────────────────────────────────────────────────────────
+
+fn centred(area: Rect, w: u16, h: u16) -> Rect {
+    let w = w.min(area.width);
+    let h = h.min(area.height);
+    Rect {
+        x: area.x + (area.width - w) / 2,
+        y: area.y + (area.height - h) / 2,
+        width: w,
+        height: h,
+    }
+}
+
+fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
+    match &app.overlay {
+        Overlay::None => {}
+        Overlay::Themes { sel, .. } => {
+            let names = app.theme_names();
+            let box_area = centred(area, 40, names.len() as u16 + 4);
+            f.render_widget(Clear, box_area);
+            let block = pane_block("THEME", true, t);
+            let inner = block.inner(box_area);
+            f.render_widget(block, box_area);
+
+            let mut lines: Vec<Line> = names
+                .iter()
+                .enumerate()
+                .map(|(i, n)| {
+                    let on = i == *sel;
+                    Line::from(vec![
+                        Span::styled(
+                            if on { " ● " } else { " • " },
+                            Style::default().fg(if on { t.accent } else { t.dim }),
+                        ),
+                        Span::styled(
+                            n.clone(),
+                            Style::default().fg(if on { t.accent } else { t.text }),
+                        ),
+                    ])
+                    .style(if on {
+                        Style::default().bg(t.sel)
+                    } else {
+                        Style::default()
+                    })
+                })
+                .collect();
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                " j/k preview   ↵ apply   esc cancel",
+                Style::default().fg(t.dim),
+            )));
+            f.render_widget(Paragraph::new(lines), inner);
+        }
+        Overlay::Custom { field, buf } => {
+            let box_area = centred(area, 46, theme::ROLES.len() as u16 + 4);
+            f.render_widget(Clear, box_area);
+            let block = pane_block("CUSTOM THEME", true, t);
+            let inner = block.inner(box_area);
+            f.render_widget(block, box_area);
+
+            let mut lines: Vec<Line> = theme::ROLES
+                .iter()
+                .enumerate()
+                .map(|(i, role)| {
+                    let on = i == *field;
+                    let col = app.theme.role(i);
+                    let shown = if on && !buf.is_empty() {
+                        format!("#{buf}")
+                    } else {
+                        theme::hex_of(col)
+                    };
+                    Line::from(vec![
+                        Span::styled(
+                            if on { " ▸ " } else { "   " },
+                            Style::default().fg(t.accent),
+                        ),
+                        Span::styled(format!("{role:<10}"), Style::default().fg(t.text)),
+                        Span::styled("██ ", Style::default().fg(col)),
+                        Span::styled(
+                            shown,
+                            Style::default().fg(if on { t.accent } else { t.dim }),
+                        ),
+                    ])
+                    .style(if on {
+                        Style::default().bg(t.sel)
+                    } else {
+                        Style::default()
+                    })
+                })
+                .collect();
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                " type hex · ↵ next · esc save & close",
+                Style::default().fg(t.dim),
+            )));
+            f.render_widget(Paragraph::new(lines), inner);
+        }
+    }
 }
 
 fn truncate(s: &str, w: usize) -> String {

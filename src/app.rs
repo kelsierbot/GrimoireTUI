@@ -9,6 +9,7 @@ use crate::editor::Editor;
 use crate::music::{self, Music};
 use crate::project::{Kind, Project};
 use crate::scene::Pomodoro;
+use crate::theme::{self, Theme};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Focus {
@@ -48,6 +49,18 @@ pub struct App {
     pub rect_editor: Rect,
     pub rect_scene: Rect,
     pub rect_music: Rect,
+    pub theme: Theme,
+    pub overlay: Overlay,
+}
+
+/// Modal state. Only one can be up at a time.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Overlay {
+    None,
+    /// Browsing presets. `restore` is put back if you press Esc.
+    Themes { sel: usize, restore: Theme },
+    /// Editing the custom theme swatch by swatch.
+    Custom { field: usize, buf: String },
 }
 
 fn hit(r: Rect, x: u16, y: u16) -> bool {
@@ -101,6 +114,8 @@ impl App {
             rect_editor: Rect::default(),
             rect_scene: Rect::default(),
             rect_music: Rect::default(),
+            theme: theme::load(),
+            overlay: Overlay::None,
         })
         .map(|mut app: App| {
             if let Some(i) = first_scene {
@@ -181,6 +196,7 @@ impl App {
 
     pub fn on_tree_key(&mut self, key: Key) {
         match key {
+            Key::Char('t') => self.open_theme_picker(),
             Key::Up => self.sel = self.sel.saturating_sub(1),
             Key::Down => {
                 if self.sel + 1 < self.visible.len() {
@@ -376,6 +392,110 @@ impl App {
         }
     }
 
+    // ---- themes ------------------------------------------------------
+
+    /// Preset names plus the custom slot, in picker order.
+    pub fn theme_names(&self) -> Vec<String> {
+        let mut v: Vec<String> = theme::presets().into_iter().map(|t| t.name).collect();
+        v.push("Custom…".into());
+        v
+    }
+
+    pub fn open_theme_picker(&mut self) {
+        let names = self.theme_names();
+        let sel = names
+            .iter()
+            .position(|n| *n == self.theme.name)
+            .unwrap_or(names.len() - 1);
+        self.overlay = Overlay::Themes {
+            sel,
+            restore: self.theme.clone(),
+        };
+    }
+
+    /// Show the theme at `i` immediately, so moving the cursor previews it.
+    fn preview(&mut self, i: usize) {
+        let presets = theme::presets();
+        if i < presets.len() {
+            self.theme = presets[i].clone();
+        } else if self.theme.name != "Custom" {
+            // Entering the custom slot starts from whatever you were just on.
+            self.theme.name = "Custom".into();
+        }
+    }
+
+    pub fn on_overlay_key(&mut self, key: Key) {
+        match &mut self.overlay {
+            Overlay::None => {}
+
+            Overlay::Themes { sel, restore } => {
+                let n = theme::presets().len() + 1;
+                match key {
+                    Key::Down | Key::Char('j') => {
+                        let i = (*sel + 1) % n;
+                        *sel = i;
+                        self.preview(i);
+                    }
+                    Key::Up | Key::Char('k') => {
+                        let i = (*sel + n - 1) % n;
+                        *sel = i;
+                        self.preview(i);
+                    }
+                    Key::Enter => {
+                        let i = *sel;
+                        if i == n - 1 {
+                            self.theme.name = "Custom".into();
+                            self.overlay = Overlay::Custom {
+                                field: 0,
+                                buf: String::new(),
+                            };
+                        } else {
+                            let _ = theme::save(&self.theme);
+                            self.msg = format!("theme: {}", self.theme.name);
+                            self.overlay = Overlay::None;
+                        }
+                    }
+                    Key::Esc => {
+                        self.theme = restore.clone();
+                        self.overlay = Overlay::None;
+                    }
+                    _ => {}
+                }
+            }
+
+            Overlay::Custom { field, buf } => match key {
+                Key::Down | Key::Enter => {
+                    commit(&mut self.theme, *field, buf);
+                    *field = (*field + 1) % theme::ROLES.len();
+                    buf.clear();
+                }
+                Key::Up => {
+                    commit(&mut self.theme, *field, buf);
+                    *field = (*field + theme::ROLES.len() - 1) % theme::ROLES.len();
+                    buf.clear();
+                }
+                Key::Backspace => {
+                    buf.pop();
+                }
+                Key::Char(c) if c.is_ascii_hexdigit() && buf.len() < 6 => {
+                    buf.push(c.to_ascii_lowercase());
+                    // Six digits is a complete colour — apply it live.
+                    if buf.len() == 6 {
+                        commit(&mut self.theme, *field, buf);
+                    }
+                }
+                Key::Esc => {
+                    commit(&mut self.theme, *field, buf);
+                    self.theme.name = "Custom".into();
+                    let _ = theme::save(&self.theme);
+                    self.msg = "theme: Custom saved".into();
+                    self.overlay = Overlay::None;
+                }
+                _ => {},
+            },
+        }
+    }
+
     /// Status-bar hints for whichever pane has focus.
     pub fn hints(&self) -> String {
         let m = self.mod_label();
@@ -439,4 +559,12 @@ fn load_baseline(project: &Project) -> Result<usize> {
 fn write_baseline(dir: &Path, path: &Path, today: &str, total: usize) {
     let _ = fs::create_dir_all(dir);
     let _ = fs::write(path, format!("date = \"{today}\"\nbaseline = {total}\n"));
+}
+
+/// Apply a typed hex buffer to a role, ignoring anything unparseable.
+fn commit(t: &mut Theme, field: usize, buf: &str) {
+    if let Some(c) = theme::parse_hex(buf) {
+        t.set_role(field, c);
+        t.name = "Custom".into();
+    }
 }
