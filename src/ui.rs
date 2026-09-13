@@ -419,6 +419,45 @@ fn centred(area: Rect, w: u16, h: u16) -> Rect {
 fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
     match &app.overlay {
         Overlay::None => {}
+
+        Overlay::Menu { sel } => {
+            let items = App::MENU;
+            let box_area = centred(area, 42, items.len() as u16 + 4);
+            f.render_widget(Clear, box_area);
+            let block = pane_block("GRIMOIRE", true, t);
+            let inner = block.inner(box_area);
+            f.render_widget(block, box_area);
+
+            let mut lines: Vec<Line> = items
+                .iter()
+                .enumerate()
+                .map(|(i, label)| {
+                    let on = i == *sel;
+                    Line::from(vec![
+                        Span::styled(
+                            if on { " ▸ " } else { "   " },
+                            Style::default().fg(if on { t.accent } else { t.dim }),
+                        ),
+                        Span::styled(
+                            *label,
+                            Style::default().fg(if on { t.accent } else { t.text }),
+                        ),
+                    ])
+                    .style(if on {
+                        Style::default().bg(t.sel)
+                    } else {
+                        Style::default()
+                    })
+                })
+                .collect();
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                " j/k move   ↵ choose   esc close",
+                Style::default().fg(t.dim),
+            )));
+            f.render_widget(Paragraph::new(lines), inner);
+        }
+
         Overlay::Themes { sel, .. } => {
             let names = app.theme_names();
             let box_area = centred(area, 40, names.len() as u16 + 4);

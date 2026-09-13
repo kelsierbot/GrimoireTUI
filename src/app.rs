@@ -6,6 +6,7 @@ use std::fs;
 use std::path::Path;
 
 use crate::editor::Editor;
+use crate::manuscript;
 use crate::music::{self, Music};
 use crate::project::{Kind, Project};
 use crate::scene::Pomodoro;
@@ -57,6 +58,8 @@ pub struct App {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Overlay {
     None,
+    /// The main menu — the discoverable way to reach everything.
+    Menu { sel: usize },
     /// Browsing presets. `restore` is put back if you press Esc.
     Themes { sel: usize, restore: Theme },
     /// Editing the custom theme swatch by swatch.
@@ -438,6 +441,63 @@ impl App {
         v
     }
 
+    pub const MENU: [&'static str; 4] = [
+        "Update project map  (project.md)",
+        "Compile manuscript",
+        "Themes…",
+        "Close",
+    ];
+
+    pub fn open_menu(&mut self) {
+        self.overlay = Overlay::Menu { sel: 0 };
+    }
+
+    fn run_menu(&mut self, i: usize) {
+        match i {
+            0 => {
+                self.flush_public();
+                match manuscript::write_project_file(&self.project) {
+                    Ok(p) => {
+                        self.msg = format!(
+                            "project map written to {}",
+                            p.file_name().unwrap_or_default().to_string_lossy()
+                        )
+                    }
+                    Err(e) => self.msg = format!("could not write project.md: {e}"),
+                }
+                self.overlay = Overlay::None;
+            }
+            1 => {
+                self.flush_public();
+                match manuscript::compile(&self.project) {
+                    Ok(c) => {
+                        let skipped = if c.skipped > 0 {
+                            format!(", {} skipped", c.skipped)
+                        } else {
+                            String::new()
+                        };
+                        self.msg = format!(
+                            "compiled {} ch / {} scenes / {} words{skipped} -> {}",
+                            c.chapters,
+                            c.scenes,
+                            c.words,
+                            c.path.file_name().unwrap_or_default().to_string_lossy()
+                        );
+                    }
+                    Err(e) => self.msg = format!("compile failed: {e}"),
+                }
+                self.overlay = Overlay::None;
+            }
+            2 => self.open_theme_picker(),
+            _ => self.overlay = Overlay::None,
+        }
+    }
+
+    /// Push unsaved editor text into the tree so generated files see it.
+    fn flush_public(&mut self) {
+        self.flush();
+    }
+
     pub fn open_theme_picker(&mut self) {
         let names = self.theme_names();
         let sel = names
@@ -464,6 +524,20 @@ impl App {
     pub fn on_overlay_key(&mut self, key: Key) {
         match &mut self.overlay {
             Overlay::None => {}
+
+            Overlay::Menu { sel } => {
+                let n = App::MENU.len();
+                match key {
+                    Key::Down | Key::Char('j') => *sel = (*sel + 1) % n,
+                    Key::Up | Key::Char('k') => *sel = (*sel + n - 1) % n,
+                    Key::Enter | Key::Char(' ') => {
+                        let i = *sel;
+                        self.run_menu(i);
+                    }
+                    Key::Esc => self.overlay = Overlay::None,
+                    _ => {}
+                }
+            }
 
             Overlay::Themes { sel, restore } => {
                 let n = theme::presets().len() + 1;
@@ -537,8 +611,8 @@ impl App {
     pub fn hints(&self) -> String {
         let m = self.mod_label();
         match self.focus {
-            Focus::Tree => format!("Tab pane  ↵ fold  F9 theme  {m}S save  {m}Q quit "),
-            Focus::Editor => format!("Tab pane  Esc tree  F9 theme  {m}S save  {m}Q quit "),
+            Focus::Tree => format!("Tab pane  ↵ fold  F1 menu  F9 theme  {m}S save  {m}Q quit "),
+            Focus::Editor => format!("Tab pane  Esc tree  F1 menu  {m}S save  {m}Q quit "),
             Focus::Clearing => format!("Tab pane  ↵ start/pause  r reset  F9 theme  {m}Q quit "),
             Focus::Music => format!("Tab pane  ↵ play/pause  ←→ track  F9 theme  {m}Q quit "),
         }

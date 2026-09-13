@@ -2,6 +2,7 @@
 
 mod app;
 mod editor;
+mod manuscript;
 mod music;
 mod project;
 mod scene;
@@ -28,6 +29,33 @@ fn main() -> Result<()> {
     let mut args = std::env::args().skip(1);
     let first = args.next();
 
+    if matches!(first.as_deref(), Some("compile") | Some("index")) {
+        let want = first.clone().unwrap();
+        let (root, _) = resolve_project(args.next().map(PathBuf::from))?;
+        let project = Project::load(&root).context("loading project")?;
+        if want == "index" {
+            let p = manuscript::write_project_file(&project)?;
+            println!("Project map written to {}", pretty(&p));
+        } else {
+            let c = manuscript::compile(&project)?;
+            println!("Compiled {}", pretty(&c.path));
+            println!(
+                "  {} chapters · {} scenes · {} words{}",
+                c.chapters,
+                c.scenes,
+                c.words,
+                if c.skipped > 0 {
+                    format!(" · {} skipped (compile: false)", c.skipped)
+                } else {
+                    String::new()
+                }
+            );
+            println!("\nFor DOCX or PDF:");
+            println!("  pandoc \"{}\" -o manuscript.docx", c.path.display());
+        }
+        return Ok(());
+    }
+
     if first.as_deref() == Some("music-setup") {
         return music::setup();
     }
@@ -48,6 +76,8 @@ fn main() -> Result<()> {
         println!("  grimoire                    open your current manuscript");
         println!("  grimoire <dir>              open a specific one");
         println!("  grimoire new <dir>          start a new one");
+        println!("  grimoire index              refresh project.md, the project map");
+        println!("  grimoire compile            assemble the manuscript");
         println!("  grimoire music-setup        install + connect YouTube Music");
         println!("  grimoire music-auth         re-pair only");
         println!();
@@ -297,6 +327,11 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
 
         if !matches!(app.overlay, Overlay::None) {
             app.on_overlay_key(key);
+            continue;
+        }
+
+        if key == Key::F(1) {
+            app.open_menu();
             continue;
         }
 

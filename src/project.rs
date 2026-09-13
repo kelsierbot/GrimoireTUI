@@ -54,6 +54,11 @@ pub struct Node {
     pub expanded: bool,
     pub children: Vec<usize>,
     pub in_manuscript: bool,
+    /// Scrivener's "include in compile". `compile: false` in frontmatter keeps
+    /// a scene in the tree but out of the finished manuscript.
+    pub compile: bool,
+    /// Lives under front-matter/ — compiled first, never counted in the draft.
+    pub front_matter: bool,
     /// Raw frontmatter block, without the `---` fences. Round-tripped untouched.
     pub front: Option<String>,
     pub body: String,
@@ -93,9 +98,53 @@ impl Project {
             roots: Vec::new(),
         };
 
+        // Front matter sits beside the draft, not inside it — Scrivener's
+        // arrangement, and the reason it compiles without inflating wordcount.
+        let fm = root.join("front-matter");
+        if fm.is_dir() {
+            let div = p.push(Node {
+                kind: Kind::Divider,
+                title: "FRONT MATTER".into(),
+                path: fm.clone(),
+                depth: 0,
+                expanded: true,
+                children: Vec::new(),
+                in_manuscript: false,
+                compile: true,
+                front_matter: true,
+                front: None,
+                body: String::new(),
+                dirty: false,
+                pov: None,
+                status: None,
+            });
+            p.roots.push(div);
+            let idxs = p.scan(&fm, 0, false, true)?;
+            p.roots.extend(idxs);
+        }
+
         let manuscript = root.join("manuscript");
         if manuscript.is_dir() {
-            let idxs = p.scan(&manuscript, 0, true)?;
+            if fm.is_dir() {
+                let div = p.push(Node {
+                    kind: Kind::Divider,
+                    title: "MANUSCRIPT".into(),
+                    path: manuscript.clone(),
+                    depth: 0,
+                    expanded: true,
+                    children: Vec::new(),
+                    in_manuscript: true,
+                    compile: true,
+                    front_matter: false,
+                    front: None,
+                    body: String::new(),
+                    dirty: false,
+                    pov: None,
+                    status: None,
+                });
+                p.roots.push(div);
+            }
+            let idxs = p.scan(&manuscript, 0, true, false)?;
             p.roots.extend(idxs);
         }
 
@@ -109,6 +158,8 @@ impl Project {
                 expanded: true,
                 children: Vec::new(),
                 in_manuscript: false,
+                compile: false,
+                front_matter: false,
                 front: None,
                 body: String::new(),
                 dirty: false,
@@ -116,7 +167,7 @@ impl Project {
                 status: None,
             });
             p.roots.push(div);
-            let idxs = p.scan(&notes, 0, false)?;
+            let idxs = p.scan(&notes, 0, false, false)?;
             p.roots.extend(idxs);
         }
 
@@ -128,7 +179,13 @@ impl Project {
         self.nodes.len() - 1
     }
 
-    fn scan(&mut self, dir: &Path, depth: usize, in_manuscript: bool) -> Result<Vec<usize>> {
+    fn scan(
+        &mut self,
+        dir: &Path,
+        depth: usize,
+        in_manuscript: bool,
+        front_matter: bool,
+    ) -> Result<Vec<usize>> {
         let mut entries: Vec<_> = fs::read_dir(dir)
             .with_context(|| format!("reading {}", dir.display()))?
             .filter_map(|e| e.ok())
@@ -154,13 +211,15 @@ impl Project {
                     expanded: true,
                     children: Vec::new(),
                     in_manuscript,
+                    compile: true,
+                    front_matter,
                     front: None,
                     body: String::new(),
                     dirty: false,
                     pov: None,
                     status: None,
                 });
-                let kids = self.scan(&path, depth + 1, in_manuscript)?;
+                let kids = self.scan(&path, depth + 1, in_manuscript, front_matter)?;
                 self.nodes[idx].children = kids;
                 out.push(idx);
             } else if path.extension().and_then(|s| s.to_str()) == Some("md") {
@@ -169,6 +228,11 @@ impl Project {
                 let (front, body) = split_frontmatter(&raw);
                 let pov = front.as_deref().and_then(|f| front_get(f, "pov"));
                 let status = front.as_deref().and_then(|f| front_get(f, "status"));
+                let compile = front
+                    .as_deref()
+                    .and_then(|f| front_get(f, "compile"))
+                    .map(|v| !matches!(v.to_lowercase().as_str(), "false" | "no" | "0"))
+                    .unwrap_or(true);
                 let title = display_title(&path, front.as_deref());
                 let idx = self.push(Node {
                     kind: Kind::Scene,
@@ -178,6 +242,8 @@ impl Project {
                     expanded: false,
                     children: Vec::new(),
                     in_manuscript,
+                    compile,
+                    front_matter,
                     front,
                     body,
                     dirty: false,
