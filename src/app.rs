@@ -84,16 +84,38 @@ pub enum Overlay {
         label: String,
         buf: String,
     },
-    /// The music player: what's playing, the queue, and search.
+    /// The music player: what's playing, the queue, playlists, and search.
     Player {
-        /// Which tab: the queue, or search results.
-        search: bool,
+        tab: Tab,
         sel: usize,
         /// Keep the selection on the playing track until you move it yourself.
         follow: bool,
+        /// Typed into search, and into the playlist finder.
         query: String,
+        find: String,
         typing: bool,
     },
+}
+
+/// The player's three lists, in Tab order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Tab {
+    Queue,
+    Playlists,
+    Search,
+}
+
+impl Tab {
+    pub fn next(self) -> Tab {
+        match self {
+            Tab::Queue => Tab::Playlists,
+            Tab::Playlists => Tab::Search,
+            Tab::Search => Tab::Queue,
+        }
+    }
+    pub fn prev(self) -> Tab {
+        self.next().next()
+    }
 }
 
 fn hit(r: Rect, x: u16, y: u16) -> bool {
@@ -621,10 +643,11 @@ impl App {
 
     pub fn open_player(&mut self) {
         self.overlay = Overlay::Player {
-            search: false,
+            tab: Tab::Queue,
             sel: 0,
             follow: true,
             query: String::new(),
+            find: String::new(),
             typing: false,
         };
         self.music.note = None;
@@ -635,10 +658,10 @@ impl App {
     /// While the player is open, keep the queue fresh and the selection on
     /// the playing track (until you move it yourself).
     pub fn tick_player(&mut self) {
-        let Overlay::Player { search, sel, follow, .. } = &mut self.overlay else {
+        let Overlay::Player { tab, sel, follow, .. } = &mut self.overlay else {
             return;
         };
-        if !*search && *follow {
+        if *tab == Tab::Queue && *follow {
             if let Some(i) = self.music.queue.iter().position(|it| it.current) {
                 *sel = i;
             }
@@ -833,20 +856,35 @@ impl App {
                 _ => {},
             },
 
-            Overlay::Player { search, sel, follow, query, typing } => {
+            Overlay::Player { tab, sel, follow, query, find, typing } => {
                 use music::Cmd;
-                let len = if *search { self.music.results.len() } else { self.music.queue.len() };
+                let len = match tab {
+                    Tab::Queue => self.music.queue.len(),
+                    Tab::Playlists => self.music.playlists.len(),
+                    Tab::Search => self.music.results.len(),
+                };
                 if *typing {
+                    // The playlist tab types into its finder; the others, into search.
+                    let on_playlists = *tab == Tab::Playlists;
+                    let buf = if on_playlists { find } else { query };
                     match key {
-                        Key::Char(c) if !c.is_control() && query.chars().count() < 80 => query.push(c),
+                        Key::Char(c) if !c.is_control() && buf.chars().count() < 80 => buf.push(c),
                         Key::Backspace => {
-                            query.pop();
+                            buf.pop();
                         }
                         Key::Enter => {
                             *typing = false;
                             *sel = 0;
-                            let q = query.trim().to_string();
-                            if !q.is_empty() {
+                            let q = buf.trim().to_string();
+                            if on_playlists {
+                                self.music.playlists.clear();
+                                self.music.note = Some(if q.is_empty() {
+                                    "fetching your playlists…".into()
+                                } else {
+                                    format!("searching playlists for “{q}”…")
+                                });
+                                self.music.send(Cmd::Playlists((!q.is_empty()).then_some(q)));
+                            } else if !q.is_empty() {
                                 self.music.results.clear();
                                 self.music.note = Some(format!("searching for “{q}”…"));
                                 self.music.send(Cmd::Search(q));
@@ -858,14 +896,29 @@ impl App {
                     return;
                 }
                 match key {
+                    // From a playlist search, Esc goes back to your own first.
+                    Key::Esc if *tab == Tab::Playlists && !find.is_empty() => {
+                        find.clear();
+                        *sel = 0;
+                        self.music.note = Some("fetching your playlists…".into());
+                        self.music.send(Cmd::Playlists(None));
+                    }
                     Key::Esc | Key::F(7) => self.overlay = Overlay::None,
                     Key::Tab | Key::BackTab => {
-                        *search = !*search;
+                        *tab = if key == Key::Tab { tab.next() } else { tab.prev() };
                         *sel = 0;
-                        *follow = !*search;
+                        *follow = *tab == Tab::Queue;
+                        if *tab == Tab::Playlists && self.music.playlists.is_empty() {
+                            self.music.note = Some("fetching your playlists…".into());
+                            self.music.send(Cmd::Playlists(None));
+                        }
                     }
                     Key::Char('/') => {
-                        *search = true;
+                        if *tab != Tab::Playlists {
+                            *tab = Tab::Search;
+                            *sel = 0;
+                        }
+                        *follow = false;
                         *typing = true;
                     }
                     Key::Down | Key::Char('j') => {
@@ -884,21 +937,48 @@ impl App {
                         *sel = sel.saturating_sub(10);
                         *follow = false;
                     }
-                    Key::Enter => {
-                        if *search {
+                    Key::Enter => match *tab {
+                        Tab::Queue => {
+                            if let Some(it) = self.music.queue.get(*sel) {
+                                *follow = true;
+                                self.music.send(Cmd::JumpTo(it.pos));
+                            }
+                        }
+                        Tab::Search => {
                             if let Some(it) = self.music.results.get(*sel) {
                                 self.music.note = Some(format!("playing {}", it.title));
                                 self.music.send(Cmd::Enqueue { id: it.id.clone(), now: true });
                             }
-                        } else if let Some(it) = self.music.queue.get(*sel) {
-                            *follow = true;
-                            self.music.send(Cmd::JumpTo(it.pos));
+                        }
+                        Tab::Playlists => {
+                            if let Some(it) = self.music.playlists.get(*sel) {
+                                self.music.note = Some(format!("loading {}…", it.title));
+                                self.music.send(Cmd::Playlist {
+                                    id: it.id.clone(),
+                                    title: it.title.clone(),
+                                    now: true,
+                                });
+                                // Over to the queue, to watch it fill.
+                                *tab = Tab::Queue;
+                                *sel = 0;
+                                *follow = true;
+                            }
+                        }
+                    },
+                    Key::Char('a') if *tab == Tab::Search => {
+                        if let Some(it) = self.music.results.get(*sel) {
+                            self.music.note = Some(format!("up next: {}", it.title));
+                            self.music.send(Cmd::Enqueue { id: it.id.clone(), now: false });
                         }
                     }
-                    Key::Char('a') if *search => {
-                        if let Some(it) = self.music.results.get(*sel) {
-                            self.music.note = Some(format!("added {} to the end of the queue", it.title));
-                            self.music.send(Cmd::Enqueue { id: it.id.clone(), now: false });
+                    Key::Char('a') if *tab == Tab::Playlists => {
+                        if let Some(it) = self.music.playlists.get(*sel) {
+                            self.music.note = Some(format!("queueing {} after this song…", it.title));
+                            self.music.send(Cmd::Playlist {
+                                id: it.id.clone(),
+                                title: it.title.clone(),
+                                now: false,
+                            });
                         }
                     }
                     Key::Char(' ') => self.music.send(Cmd::PlayPause),

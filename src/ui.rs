@@ -208,12 +208,8 @@ fn draw_scene(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
             } else {
                 truncate(&title, 22)
             };
-            let viz = &app.viz;
-            let note = viz.note(playing);
-            (
-                head,
-                scene::render_spectrum(&viz.levels, &viz.peaks, viz.beat, frac, note.as_deref()),
-            )
+            let note = app.viz.note(playing);
+            (head, scene::render_spectrum(&app.viz, frac, note.as_deref()))
         }
         Mode::Growth => {
             let today = app.project.total_words().saturating_sub(app.baseline);
@@ -237,12 +233,19 @@ fn draw_scene(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
         }
     };
 
-    let block = pane_block(&label, app.focus == Focus::Clearing, t);
+    let focused = app.focus == Focus::Clearing;
+    let mut block = pane_block(&label, focused, t);
+    // On a beat the frame flashes bloom, and fades back as the beat does.
+    if app.pane_mode == Mode::Spectrum && app.viz.beat > 0.0 {
+        let base = if focused { t.accent } else { t.border };
+        block = block.border_style(Style::default().fg(blend(base, t.bloom, app.viz.beat)));
+    }
     let inner = block.inner(area);
     app.rect_scene = inner;
     f.render_widget(block, area);
 
     let night = app.pomo.phase == Phase::Break && app.pane_mode == Mode::Clearing;
+    let lit = |v: u8| v as f32 / 255.0;
 
     let lines: Vec<Line> = grid
         .iter()
@@ -266,6 +269,13 @@ fn draw_scene(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
                             Ink::Rabbit => t.text,
                             Ink::Flower => t.bloom,
                             Ink::Ground => t.turf,
+                            Ink::Bar { h, glow } => blend(bar_colour(t, h), t.text, lit(glow) * 0.6),
+                            Ink::Pond { h, depth } => {
+                                blend(bar_colour(t, h), t.border, 0.45 + 0.2 * depth as f32)
+                            }
+                            Ink::Cap { heat } => blend(t.dim, t.moon, lit(heat)),
+                            Ink::Spark { life } => blend(t.dim, blend(t.sun, t.text, 0.35), lit(life)),
+                            Ink::Played { glow } => blend(t.accent, t.bloom, lit(glow)),
                         };
                         Span::styled(ch.to_string(), Style::default().fg(col))
                     })
@@ -275,6 +285,36 @@ fn draw_scene(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
         .collect();
 
     f.render_widget(Paragraph::new(lines), inner);
+}
+
+/// Mix two truecolour colours, `f` of the way from `a` to `b`. Anything that
+/// isn't RGB just switches over halfway.
+fn blend(a: ratatui::style::Color, b: ratatui::style::Color, f: f32) -> ratatui::style::Color {
+    use ratatui::style::Color;
+    let f = f.clamp(0.0, 1.0);
+    match (a, b) {
+        (Color::Rgb(r1, g1, b1), Color::Rgb(r2, g2, b2)) => {
+            let mix = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * f).round() as u8;
+            Color::Rgb(mix(r1, r2), mix(g1, g2), mix(b1, b2))
+        }
+        _ if f < 0.5 => a,
+        _ => b,
+    }
+}
+
+/// A spectrum bar's colour at height `h`, 0 at the roots to 255 at the tip:
+/// the theme's foliage, up through its accent and sun, to bloom at the very
+/// top. Drawn from the theme, so every palette gets its own.
+fn bar_colour(t: &Theme, h: u8) -> ratatui::style::Color {
+    let x = h as f32 / 255.0;
+    let stops = [(0.0, t.foliage), (0.4, t.accent), (0.75, t.sun), (1.0, t.bloom)];
+    for w in stops.windows(2) {
+        let ((a, from), (b, to)) = (w[0], w[1]);
+        if x <= b {
+            return blend(from, to, (x - a) / (b - a));
+        }
+    }
+    t.bloom
 }
 
 fn draw_music(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
@@ -511,7 +551,7 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             f.render_widget(Paragraph::new(lines), inner);
         }
 
-        Overlay::Player { search, sel, query, typing, .. } => {
+        Overlay::Player { tab, sel, query, find, typing, .. } => {
             let box_area = centred(area, area.width.saturating_sub(4).min(100), area.height.saturating_sub(2).min(30));
             f.render_widget(Clear, box_area);
             let title = format!("♪ {}", app.music.source.label().to_uppercase());
@@ -555,43 +595,64 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             }
             lines.push(Line::from(""));
 
-            // Tabs, and the search box when on search.
+            // Tabs, and what the list below is showing.
+            use crate::app::Tab;
             let on = accent.add_modifier(ratatui::style::Modifier::BOLD | ratatui::style::Modifier::UNDERLINED);
+            let style = |which: Tab| if *tab == which { on } else { dim };
             lines.push(Line::from(vec![
                 Span::raw(" "),
-                Span::styled(format!("QUEUE · {}", app.music.queue.len()), if *search { dim } else { on }),
+                Span::styled(format!("QUEUE · {}", app.music.queue.len()), style(Tab::Queue)),
                 Span::raw("    "),
-                Span::styled("SEARCH", if *search { on } else { dim }),
+                Span::styled("PLAYLISTS", style(Tab::Playlists)),
+                Span::raw("    "),
+                Span::styled("SEARCH", style(Tab::Search)),
                 Span::styled("    tab switches", dim),
             ]));
-            if *search {
-                lines.push(if *typing {
-                    Line::from(vec![
-                        Span::styled(" find ▸ ", accent),
-                        Span::styled(query.clone(), Style::default().fg(t.text)),
-                        Span::styled("█", accent),
-                    ])
+            let prompt = |label: &str, buf: &str| {
+                Line::from(vec![
+                    Span::styled(format!(" {label} ▸ "), accent),
+                    Span::styled(buf.to_string(), Style::default().fg(t.text)),
+                    Span::styled("█", accent),
+                ])
+            };
+            match tab {
+                Tab::Search => lines.push(if *typing {
+                    prompt("find", query)
                 } else if query.is_empty() {
                     Line::from(Span::styled(" press / and type a song or an artist", dim))
                 } else {
                     Line::from(Span::styled(format!(" results for “{query}” · / to search again"), dim))
-                });
+                }),
+                Tab::Playlists => lines.push(if *typing {
+                    prompt("playlists", find)
+                } else if find.is_empty() {
+                    Line::from(Span::styled(" your library · / searches every playlist on YouTube Music", dim))
+                } else {
+                    Line::from(Span::styled(format!(" playlists matching “{find}” · esc for yours"), dim))
+                }),
+                Tab::Queue => {}
             }
             lines.push(Line::from(""));
 
             // The list, scrolled to keep the selection in view.
             let footer = 3;
             let room = (inner.height as usize).saturating_sub(lines.len() + footer).max(1);
-            let items = if *search { &app.music.results } else { &app.music.queue };
-            if items.is_empty() && !*search {
+            let items = match tab {
+                Tab::Queue => &app.music.queue,
+                Tab::Playlists => &app.music.playlists,
+                Tab::Search => &app.music.results,
+            };
+            if items.is_empty() && *tab == Tab::Queue {
                 lines.push(Line::from(Span::styled(
-                    " the queue is empty. Start a playlist in the app, or search with /",
+                    " the queue is empty. Tab over to your playlists, or search with /",
                     dim,
                 )));
             }
             let start = sel.saturating_sub(room / 2).min(items.len().saturating_sub(room));
+            // Playlists show a song count where tracks show a length.
+            let len_w = if *tab == Tab::Playlists { 11 } else { 6 };
             let artist_w = (iw / 4).clamp(8, 28);
-            let title_w = iw.saturating_sub(artist_w + 14);
+            let title_w = iw.saturating_sub(artist_w + 8 + len_w);
             for (i, it) in items.iter().enumerate().skip(start).take(room) {
                 let who = if it.video { format!("{} · video", it.artist) } else { it.artist.clone() };
                 let row = Line::from(vec![
@@ -601,7 +662,7 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
                         Style::default().fg(if it.current { t.accent } else { t.text }),
                     ),
                     Span::styled(format!(" {:<artist_w$}", truncate(&who, artist_w)), dim),
-                    Span::styled(format!("{:>6}", it.length), dim),
+                    Span::styled(format!("{:>len_w$}", it.length), dim),
                 ]);
                 lines.push(if i == *sel { row.style(Style::default().bg(t.sel)) } else { row });
             }
@@ -611,12 +672,12 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             }
             lines.push(Line::from(Span::styled(format!(" {}", app.music.note.clone().unwrap_or_default()), accent)));
             let controls = " space pause  ←→ seek 10s  [ ] prev/next  s shuffle  r repeat  +/- volume  l like  esc close";
-            let keys = if *search {
-                [" / search   ↵ play now   a add to queue   ↑↓ choose   tab queue", controls]
-            } else {
-                [" ↵ play this one   ↑↓ choose   / search   tab search", controls]
+            let keys = match tab {
+                Tab::Queue => " ↵ play this one   ↑↓ choose   / search   tab playlists",
+                Tab::Playlists => " ↵ play playlist   a play it next   / find playlists   ↑↓ choose   tab search",
+                Tab::Search => " / search   ↵ play now   a play next   ↑↓ choose   tab queue",
             };
-            lines.extend(keys.map(|k| Line::from(Span::styled(k, dim))));
+            lines.extend([keys, controls].map(|k| Line::from(Span::styled(k, dim))));
             f.render_widget(Paragraph::new(lines), inner);
         }
 

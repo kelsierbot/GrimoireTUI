@@ -99,7 +99,7 @@ heard of.
 | `F9` · `t` | themes |
 | `←` `→` | in the clearing pane: switch view |
 | `F4` `F5` `F6` | previous · play-pause · next |
-| `F7` | the music player — queue, search, and every control (also `F1`, or `Enter` on the music pane) |
+| `F7` | the music player — queue, your playlists, search, and every control (also `F1`, or `Enter` on the music pane) |
 
 Vertical movement in the editor is **visual, not logical** — Down moves one
 screen row inside a wrapped paragraph rather than jumping the whole paragraph,
@@ -193,21 +193,25 @@ Four sources, chosen from the menu (`F1` → Music source) and remembered.
 ### The player
 
 `F7` opens it from anywhere. The top shows what's playing with a real progress
-bar; below it are two tabs, switched with `Tab`:
+bar; below it are three tabs, switched with `Tab`:
 
 - **Queue** — everything queued, following the playing track. `↑↓` to browse,
-  `Enter` to jump to any song. Start a playlist or album in the app once and the
-  whole thing is browsable here.
-- **Search** — `/`, type, `Enter`. `Enter` on a result plays it now; `a` adds it
-  to the end of the queue. Songs and videos only.
+  `Enter` to jump to any song.
+- **Playlists** — your YouTube Music library. `Enter` replaces the queue with a
+  playlist and starts it; `a` queues the whole thing after the current song.
+  `/` searches every public playlist on YouTube Music; `Esc` brings yours back.
+- **Search** — `/`, type, `Enter`. `Enter` on a result plays it now; `a` plays
+  it next. Songs and videos only.
 
 Everywhere in the player: `space` pause · `←` `→` seek 10 s · `[` `]` previous /
 next · `s` shuffle · `r` repeat · `+` `-` volume · `l` like · `Esc` close.
 
-One honest limit: th-ch's API has no way to *list* your library playlists, and
-it can only queue single tracks, so playlists are started in the app and then
-browsed here. Queue browsing also works for Jellyfin and Plex; Spotify gets the
-controls but doesn't share its queue.
+How playlists work, since the API Server has no "play playlist" call: Grimoire
+reads the songs from YouTube Music's public web listing — so the playlist has
+to be public or unlisted, and a private one tells you so — then queues them in
+the app one at a time, first song first so the music starts straight away.
+Playlists past 300 songs are cut there. Queue browsing also works for Jellyfin
+and Plex; Spotify gets the controls but doesn't share its queue.
 
 The split matters. There is no official YouTube Music API, and anything that
 extracts stream URLs both violates the terms and side-steps the subscription

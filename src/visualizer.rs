@@ -19,30 +19,72 @@ const BARS: usize = crate::scene::W;
 const LOW_HZ: f32 = 40.0;
 const HIGH_HZ: f32 = 12_000.0;
 /// Bars span this many dB below the loudest recent band.
-const RANGE_DB: f32 = 54.0;
+const RANGE_DB: f32 = 44.0;
+/// Bends the bar heights so loud bands stand out from the rest. A busy mix
+/// keeps nearly every band within 20 dB of the loudest, so on a straight scale
+/// the bottom half of the pane is a solid slab and only the tips move. At 2.0
+/// the rows fill at roughly 26, 19, 13, 8 and 4 dB below the loudest band.
+const CONTRAST: f32 = 2.0;
+/// How fast the top of the pane eases down after a loud moment, in dB per
+/// second, so a quiet passage fills the pane again soon after.
+const GAIN_RELEASE: f32 = 10.0;
 /// Music carries most of its energy in the bass; tilting the highs up gives
 /// every bar a fair share of the pane.
 const TILT_DB_PER_OCTAVE: f32 = 3.0;
-/// Fall speeds in full pane-heights per second, and how long a peak cap waits.
-const FALL: f32 = 1.8;
-const PEAK_FALL: f32 = 0.45;
+/// Bars and caps fall under gravity, in pane-heights per second squared, so
+/// they drop slowly at first and then quickly. Caps hold a moment before.
+const GRAVITY: f32 = 7.0;
+const PEAK_GRAVITY: f32 = 1.2;
 const PEAK_HOLD: f32 = 0.35;
+/// Sparks: a bar that leaps this far in one frame throws one off, and every
+/// beat throws them from the tallest bars. They fly up, arc over and fade.
+const SPARK_JUMP: f32 = 0.35;
+const SPARK_GRAVITY: f32 = 2.2;
+const MAX_SPARKS: usize = 36;
 /// How long "playing" may stay silent before the pane explains why.
 const SILENT_HINT_AFTER: f32 = 3.0;
 /// macOS mutes the tap, rather than failing, until the terminal is allowed.
 const SILENT_HINT: &str = "hearing only silence. add your terminal to Privacy & Security › \
     Screen & System Audio Recording › System Audio Recording Only";
 
+/// A spark thrown off the top of a bar. Position is in fractions of the bar
+/// area — `x` across, `y` up — so it draws at any size.
+#[derive(Debug, Clone, Copy)]
+pub struct Spark {
+    pub x: f32,
+    pub y: f32,
+    /// What's left of its life, 1.0 new to 0.0 gone.
+    pub life: f32,
+    vx: f32,
+    vy: f32,
+    ttl: f32,
+}
+
+impl Spark {
+    /// A spark placed by hand, for drawing tests.
+    #[cfg(test)]
+    pub fn at(x: f32, y: f32) -> Spark {
+        Spark { x, y, life: 1.0, vx: 0.0, vy: 0.0, ttl: 1.0 }
+    }
+}
+
 /// Turns windows of samples into bar heights. No audio hardware involved, so
 /// it can be tested with synthetic signals.
 pub struct Analyzer {
     pub levels: Vec<f32>,
     pub peaks: Vec<f32>,
+    /// Seconds each peak cap still holds before it starts to fall.
+    pub hold: Vec<f32>,
     /// 1.0 on a beat, fading to 0.0 over a quarter of a second.
     pub beat: f32,
     /// Seconds of unbroken digital silence.
     pub silent_for: f32,
-    hold: Vec<f32>,
+    pub sparks: Vec<Spark>,
+    /// Seconds analysed so far; the pond's ripple runs on it.
+    pub clock: f32,
+    /// How fast each bar, and each cap, is falling right now.
+    fall: Vec<f32>,
+    peak_fall: Vec<f32>,
     window: Vec<f32>,
     re: Vec<f32>,
     im: Vec<f32>,
@@ -50,6 +92,7 @@ pub struct Analyzer {
     prev_bass: f32,
     flux_avg: f32,
     since_beat: f32,
+    seed: u32,
 }
 
 impl Analyzer {
@@ -60,9 +103,13 @@ impl Analyzer {
         Analyzer {
             levels: vec![0.0; bars],
             peaks: vec![0.0; bars],
+            hold: vec![0.0; bars],
             beat: 0.0,
             silent_for: 0.0,
-            hold: vec![0.0; bars],
+            sparks: Vec::new(),
+            clock: 0.0,
+            fall: vec![0.0; bars],
+            peak_fall: vec![0.0; bars],
             window: hann,
             re: vec![0.0; FFT_LEN],
             im: vec![0.0; FFT_LEN],
@@ -70,6 +117,7 @@ impl Analyzer {
             prev_bass: 0.0,
             flux_avg: 0.0,
             since_beat: 1.0,
+            seed: 0x9e37_79b9,
         }
     }
 
@@ -77,18 +125,32 @@ impl Analyzer {
     /// and advance the bars by `dt` seconds.
     pub fn update(&mut self, samples: &[f32], rate: f32, dt: f32) {
         let targets = self.targets(samples, rate, dt);
+        self.clock += dt;
 
-        // Bars jump up at once and fall back smoothly; caps linger, then drift.
+        // Bars jump up at once and fall back under gravity; caps hold, then
+        // fall the same way, only slower.
+        let mut leapt = Vec::new();
         for (i, &t) in targets.iter().enumerate() {
             let l = &mut self.levels[i];
-            *l = if t > *l { t } else { (*l - FALL * dt).max(t) };
+            if t >= *l {
+                if t - *l > SPARK_JUMP {
+                    leapt.push(i);
+                }
+                *l = t;
+                self.fall[i] = 0.0;
+            } else {
+                self.fall[i] += GRAVITY * dt;
+                *l = (*l - self.fall[i] * dt).max(t);
+            }
             if *l >= self.peaks[i] {
                 self.peaks[i] = *l;
                 self.hold[i] = PEAK_HOLD;
+                self.peak_fall[i] = 0.0;
             } else if self.hold[i] > 0.0 {
                 self.hold[i] -= dt;
             } else {
-                self.peaks[i] = (self.peaks[i] - PEAK_FALL * dt).max(*l);
+                self.peak_fall[i] += PEAK_GRAVITY * dt;
+                self.peaks[i] = (self.peaks[i] - self.peak_fall[i] * dt).max(*l);
             }
         }
 
@@ -101,10 +163,56 @@ impl Analyzer {
         if flux > (self.flux_avg * 2.5).max(0.12) && self.since_beat > 0.25 {
             self.beat = 1.0;
             self.since_beat = 0.0;
+            // The three tallest bars go up in sparks.
+            let mut tall: Vec<usize> = (0..self.levels.len()).collect();
+            tall.sort_by(|&a, &b| self.levels[b].total_cmp(&self.levels[a]));
+            for &i in tall.iter().take(3) {
+                self.spark(i);
+                self.spark(i);
+            }
         } else {
             self.beat = (self.beat - 4.0 * dt).max(0.0);
         }
         self.flux_avg += (flux - self.flux_avg) * (dt / 0.5).min(1.0);
+        for i in leapt {
+            self.spark(i);
+        }
+
+        for s in &mut self.sparks {
+            s.vy -= SPARK_GRAVITY * dt;
+            s.x += s.vx * dt;
+            s.y += s.vy * dt;
+            s.life -= dt / s.ttl;
+        }
+        self.sparks
+            .retain(|s| s.life > 0.0 && s.y > 0.0 && (0.0..1.0).contains(&s.x));
+    }
+
+    /// Throw a spark up off the top of bar `i`.
+    fn spark(&mut self, i: usize) {
+        if self.sparks.len() >= MAX_SPARKS {
+            return;
+        }
+        let bars = self.levels.len() as f32;
+        let (a, b, c) = (self.rand(), self.rand(), self.rand());
+        self.sparks.push(Spark {
+            x: (i as f32 + 0.5) / bars,
+            y: self.levels[i].max(0.02),
+            life: 1.0,
+            vx: (a - 0.5) * 0.3,
+            vy: 0.9 + b * 0.9,
+            ttl: 0.7 + c * 0.6,
+        });
+    }
+
+    /// xorshift: plenty for scattering sparks, and repeatable in tests.
+    fn rand(&mut self) -> f32 {
+        let mut x = self.seed;
+        x ^= x << 13;
+        x ^= x >> 17;
+        x ^= x << 5;
+        self.seed = x;
+        (x >> 8) as f32 / (1u32 << 24) as f32
     }
 
     /// Where each bar wants to be this frame, 0..1.
@@ -145,11 +253,14 @@ impl Analyzer {
             .collect();
 
         // Auto-gain: the top of the pane follows the loudest recent band,
-        // easing down 6 dB a second, but never so low that hiss fills it.
+        // easing down GAIN_RELEASE dB a second, but never so low that hiss
+        // fills it.
         let loudest = db.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-        self.top_db = loudest.max(self.top_db - 6.0 * dt).max(-40.0);
+        self.top_db = loudest.max(self.top_db - GAIN_RELEASE * dt).max(-40.0);
         let floor = self.top_db - RANGE_DB;
-        db.iter().map(|d| ((d - floor) / RANGE_DB).clamp(0.0, 1.0)).collect()
+        db.iter()
+            .map(|d| ((d - floor) / RANGE_DB).clamp(0.0, 1.0).powf(CONTRAST))
+            .collect()
     }
 }
 
@@ -469,5 +580,31 @@ mod tests {
             end += hop;
         }
         assert!((6..=9).contains(&beats), "8 kicks should give about 8 beats, got {beats}");
+    }
+
+    #[test]
+    fn beats_throw_sparks_that_burn_out() {
+        let len = (RATE * 2.0) as usize;
+        let signal: Vec<f32> = (0..len)
+            .map(|i| {
+                let t = i as f32 / RATE;
+                if t % 0.5 < 0.08 { 0.8 * (2.0 * PI * 60.0 * t).sin() } else { 0.0 }
+            })
+            .collect();
+        let hop = (RATE * DT) as usize;
+        let mut a = Analyzer::new(BARS);
+        let mut most = 0;
+        let mut end = FFT_LEN;
+        while end <= len {
+            a.update(&signal[end - FFT_LEN..end], RATE, DT);
+            most = most.max(a.sparks.len());
+            assert!(a.sparks.iter().all(|s| (0.0..1.0).contains(&s.x) && s.life > 0.0));
+            end += hop;
+        }
+        assert!(most >= 3, "kicks should throw sparks, saw at most {most}");
+        for _ in 0..90 {
+            a.update(&vec![0.0; FFT_LEN], RATE, DT);
+        }
+        assert!(a.sparks.is_empty(), "three seconds of silence should leave none");
     }
 }
