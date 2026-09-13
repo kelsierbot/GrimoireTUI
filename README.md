@@ -106,10 +106,15 @@ Apple Terminal cannot send it at all. Ctrl always works.
 
 ## Themes
 
-`F9` anywhere, or `t` from the tree. Eight presets — Grimoire, Gruvbox Dark,
-Nord, Dracula, Solarized Dark, Catppuccin Mocha, Tokyo Night, Everforest —
-and `j`/`k` **previews each one live** as you move, so you pick by looking
-rather than by name. `Enter` keeps it, `Esc` puts back what you had.
+`F9` anywhere, or `t` from the tree. Nine presets — Grimoire, Gruvbox Dark,
+Nord, Dracula, Solarized Dark, Catppuccin Mocha, Tokyo Night, Everforest and
+**Lost Forest** — and `j`/`k` **previews each one live** as you move, so you
+pick by looking rather than by name. `Enter` keeps it, `Esc` puts back what
+you had.
+
+Lost Forest is the one written for this app rather than borrowed: greens all
+the way down, cyan standing in for cold light through the canopy, and a rust
+warning colour so alerts can't disappear into the foliage.
 
 The last entry is **Custom…**, which opens a swatch editor: twelve named roles
 (accent, text, dim, border, selection, warning, then the six the forest uses),

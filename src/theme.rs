@@ -1,6 +1,6 @@
 //! Colour themes.
 //!
-//! Eight presets drawn from the palettes people already run in their
+//! Nine presets drawn from the palettes people already run in their
 //! terminals, plus a custom slot. A theme is a flat set of named roles — no
 //! inheritance, no derivation — so the custom editor can just be a list of
 //! swatches you type hex into.
@@ -114,7 +114,7 @@ macro_rules! theme {
     };
 }
 
-/// The eight presets. Order is the picker order.
+/// The nine presets. Order is the picker order.
 pub fn presets() -> Vec<Theme> {
     let mut v = vec![
         //       accent    text      dim       border    sel       warn      sun       moon      foliage   bark      bloom     turf
@@ -134,6 +134,11 @@ pub fn presets() -> Vec<Theme> {
          theme!("", 0x7aa2f7, 0xc0caf5, 0x565f89, 0x292e42, 0x33467c, 0xf7768e, 0xe0af68, 0x7dcfff, 0x9ece6a, 0xa07a52, 0xbb9af7, 0x445a3c)),
         ("Everforest",
          theme!("", 0xdbbc7f, 0xd3c6aa, 0x859289, 0x3d484d, 0x475258, 0xe67e80, 0xe69875, 0x7fbbb3, 0xa7c080, 0x9c7a5c, 0xd699b6, 0x4a5a48)),
+        // Deep woods: greens all the way down, cyan as the cold light coming
+        // through the canopy, and a rust warning so alerts can't disappear
+        // into the foliage.
+        ("Lost Forest",
+         theme!("", 0x5ed7c0, 0xcfdcc9, 0x6f8574, 0x2c3a30, 0x33463a, 0xd1745e, 0xd9c87e, 0xa8d8d0, 0x5a8f5e, 0x6b5644, 0xa98cc0, 0x3b5340)),
     ];
     v.iter_mut().for_each(|(n, t)| t.name = (*n).to_string());
     v.into_iter().map(|(_, t)| t).collect()
@@ -206,7 +211,7 @@ mod tests {
     #[test]
     fn every_preset_is_named_and_distinct() {
         let p = presets();
-        assert_eq!(p.len(), 8);
+        assert_eq!(p.len(), 9);
         assert!(p.iter().all(|t| !t.name.is_empty()));
         for i in 0..p.len() {
             for j in i + 1..p.len() {
@@ -214,6 +219,35 @@ mod tests {
                 assert_ne!(p[i].accent, p[j].accent, "{} vs {}", p[i].name, p[j].name);
             }
         }
+    }
+
+    /// Lost Forest should actually be green with a cyan accent, not just named
+    /// that way — cheap guard against a careless palette edit.
+    #[test]
+    fn lost_forest_is_green_with_a_cyan_accent() {
+        let t = presets()
+            .into_iter()
+            .find(|t| t.name == "Lost Forest")
+            .expect("Lost Forest missing");
+
+        let chan = |c: Color| match c {
+            Color::Rgb(r, g, b) => (r as i32, g as i32, b as i32),
+            _ => panic!("themes must be truecolor"),
+        };
+
+        // Accent reads cyan: blue and green both well clear of red.
+        let (r, g, b) = chan(t.accent);
+        assert!(g > r + 40 && b > r + 40, "accent {:?} is not cyan", t.accent);
+
+        // The woodland roles are green-dominant.
+        for (name, c) in [("foliage", t.foliage), ("turf", t.turf), ("dim", t.dim)] {
+            let (r, g, b) = chan(c);
+            assert!(g > r && g > b, "{name} {c:?} should be green-dominant");
+        }
+
+        // Warning has to stay warm or it vanishes into the trees.
+        let (r, g, b) = chan(t.warn);
+        assert!(r > g && r > b, "warning {:?} should be warm", t.warn);
     }
 
     #[test]
