@@ -7,7 +7,9 @@ use ratatui::widgets::{Block, Borders, Padding, Paragraph};
 use ratatui::Frame;
 
 use crate::app::{App, Focus};
+use crate::music::State as MusicState;
 use crate::project::Kind;
+use crate::scene::{self, Ink, Phase};
 
 const ACCENT: Color = Color::Rgb(214, 173, 96);
 const DIM: Color = Color::Rgb(108, 108, 122);
@@ -15,17 +17,156 @@ const SEL_BG: Color = Color::Rgb(48, 48, 60);
 const BORDER: Color = Color::Rgb(70, 70, 84);
 const TEXT: Color = Color::Rgb(222, 220, 212);
 
-pub const TREE_WIDTH: u16 = 26;
+/// Wide enough that the scene's 28 columns fit inside the border.
+pub const LEFT_W: u16 = (scene::W + 2) as u16;
+
+const SCENE_H: u16 = (scene::H + 2) as u16;
+const MUSIC_H: u16 = 4;
+const MIN_TREE: u16 = 6;
+
+const SUN: Color = Color::Rgb(232, 182, 92);
+const MOON: Color = Color::Rgb(172, 182, 212);
+const FOLIAGE: Color = Color::Rgb(92, 120, 96);
+const BARK: Color = Color::Rgb(112, 92, 72);
+const BLOOM: Color = Color::Rgb(198, 138, 158);
+const TURF: Color = Color::Rgb(70, 82, 66);
 
 pub fn draw(f: &mut Frame, app: &mut App) {
     let [main, status] =
         Layout::vertical([Constraint::Min(3), Constraint::Length(1)]).areas(f.area());
-    let [tree_area, edit_area] =
-        Layout::horizontal([Constraint::Length(TREE_WIDTH), Constraint::Min(20)]).areas(main);
+    let [left, edit_area] =
+        Layout::horizontal([Constraint::Length(LEFT_W), Constraint::Min(24)]).areas(main);
+
+    // Give up the ornaments before the tree gets unusable.
+    let (tree_area, scene_area, music_area) = if left.height >= SCENE_H + MUSIC_H + MIN_TREE {
+        let [t, s, m] = Layout::vertical([
+            Constraint::Min(MIN_TREE),
+            Constraint::Length(SCENE_H),
+            Constraint::Length(MUSIC_H),
+        ])
+        .areas(left);
+        (t, s, m)
+    } else if left.height >= MUSIC_H + MIN_TREE {
+        let [t, m] =
+            Layout::vertical([Constraint::Min(MIN_TREE), Constraint::Length(MUSIC_H)]).areas(left);
+        (t, Rect::default(), m)
+    } else {
+        (left, Rect::default(), Rect::default())
+    };
 
     draw_tree(f, app, tree_area);
+    if scene_area.height > 0 {
+        draw_scene(f, app, scene_area);
+    }
+    if music_area.height > 0 {
+        draw_music(f, app, music_area);
+    }
     draw_editor(f, app, edit_area);
     draw_status(f, app, status);
+}
+
+fn draw_scene(f: &mut Frame, app: &App, area: Rect) {
+    let label = app.pomo.label();
+    let block = pane_block(&label, app.pomo.running());
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    let grid = scene::render(app.pomo.phase, app.pomo.progress(), app.frame);
+    let night = app.pomo.phase == Phase::Break;
+
+    let lines: Vec<Line> = grid
+        .iter()
+        .map(|row| {
+            Line::from(
+                row.iter()
+                    .map(|&(ch, ink)| {
+                        let col = match ink {
+                            Ink::Sky => BORDER,
+                            Ink::Star => {
+                                if night {
+                                    MOON
+                                } else {
+                                    DIM
+                                }
+                            }
+                            Ink::Sun => SUN,
+                            Ink::Moon => MOON,
+                            Ink::Tree => FOLIAGE,
+                            Ink::Trunk => BARK,
+                            Ink::Rabbit => TEXT,
+                            Ink::Flower => BLOOM,
+                            Ink::Ground => TURF,
+                        };
+                        Span::styled(ch.to_string(), Style::default().fg(col))
+                    })
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .collect();
+
+    f.render_widget(Paragraph::new(lines), inner);
+}
+
+fn draw_music(f: &mut Frame, app: &App, area: Rect) {
+    let block = pane_block("♪", false);
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+    let w = inner.width as usize;
+
+    let lines: Vec<Line> = match &app.music.state {
+        MusicState::NoToken => vec![
+            Line::from(Span::styled("no account linked", Style::default().fg(DIM))),
+            Line::from(Span::styled(
+                "grimoire music-auth",
+                Style::default().fg(BORDER),
+            )),
+        ],
+        MusicState::Offline => vec![
+            Line::from(Span::styled("YTMDesktop offline", Style::default().fg(DIM))),
+            Line::from(Span::styled(
+                "start it to connect",
+                Style::default().fg(BORDER),
+            )),
+        ],
+        MusicState::Idle => vec![
+            Line::from(Span::styled("connected", Style::default().fg(DIM))),
+            Line::from(Span::styled("nothing playing", Style::default().fg(BORDER))),
+        ],
+        MusicState::Playing(t) => {
+            let glyph = if t.playing { "▶" } else { "❚❚" };
+            let head = format!("{glyph} {}", t.title);
+            let frac = if t.duration > 0.0 {
+                (t.progress / t.duration).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            let barw = w.saturating_sub(7).max(4);
+            let filled = (frac * barw as f64).round() as usize;
+            let mins = |s: f64| format!("{:.0}:{:02.0}", (s / 60.0).floor(), s % 60.0);
+
+            vec![
+                Line::from(Span::styled(
+                    truncate(&head, w),
+                    Style::default().fg(if t.playing { ACCENT } else { DIM }),
+                )),
+                // Different weights, not just different colours, so the bar
+                // still reads on a monochrome terminal.
+                Line::from(vec![
+                    Span::styled("━".repeat(filled.min(barw)), Style::default().fg(ACCENT)),
+                    Span::styled(
+                        "─".repeat(barw.saturating_sub(filled)),
+                        Style::default().fg(BORDER),
+                    ),
+                    Span::styled(
+                        format!(" {}", mins(t.progress)),
+                        Style::default().fg(DIM),
+                    ),
+                ]),
+            ]
+        }
+    };
+
+    f.render_widget(Paragraph::new(lines), inner);
 }
 
 fn pane_block(title: &str, focused: bool) -> Block<'_> {

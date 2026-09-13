@@ -83,11 +83,62 @@ never heard of.
 | `Ctrl-S` | save all changed scenes |
 | `Ctrl-Q` | quit (twice if unsaved) |
 | `Esc` | leave editor, back to tree |
+| `F2` / `F3` | start or pause the timer / reset it |
+| `F4` `F5` `F6` | previous · play-pause · next |
+
+Function keys work from either pane, so they can never eat a keystroke while
+you're writing.
 
 In the editor: type. Arrows, Home/End, PageUp/PageDown, Backspace, Delete.
 Vertical movement is **visual** — Down moves one screen row inside a wrapped
 paragraph rather than jumping a whole paragraph, which is the only behaviour
 that feels right for prose.
+
+## The clearing
+
+Below the manuscript tree is a forest, and the forest is the timer.
+
+```
+┌ focus · 18:04 ─────────────┐
+│  ·                         │
+│         ☀        ·         │
+│    ▲      ▲       ▲        │
+│   ▲▲▲    ▲▲▲     ▲▲▲    ▲  │
+│  ▲▲▲▲▲  ▲▲▲▲▲   ▲▲▲▲▲  ▲▲▲ │
+│    ┃      ┃       ┃     ┃  │
+│   (\_/)            (\_/)   │
+│   (•ᴥ•)    ❀  ✿    (•ᴥ•)   │
+│▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔│
+└────────────────────────────┘
+```
+
+The sun's **position is the clock** — it crosses the sky over a 25 minute focus
+session, so you read the time remaining off the light instead of watching a
+countdown. Break time is night: the moon rises, the flowers close, and fireflies
+come out between the rabbits. The rabbits flick their ears on mutually-prime
+cycles so they never move in lockstep.
+
+`F2` starts and pauses. `F3` resets.
+
+## Music
+
+There is no official YouTube Music API, and anything that extracts stream URLs
+both violates the terms and side-steps the subscription you already pay for. So
+Grimoire never plays audio.
+
+Instead it drives [YTMDesktop](https://github.com/ytmdesktop/ytmdesktop)'s
+Companion Server, which is already signed into your real account. Your
+playlists, your Premium, your playback — Grimoire just presses the buttons.
+
+```sh
+brew install --cask ytmdesktop-youtube-music
+# enable Settings → Integrations → Companion Server, then:
+grimoire music-auth
+```
+
+Pairing prints a code you approve inside YTMDesktop; the token lands in
+`~/.config/grimoire/music.toml`. With no token configured the pane stays inert
+and never touches the network.
 
 ## Status
 

@@ -2,7 +2,9 @@
 
 mod app;
 mod editor;
+mod music;
 mod project;
+mod scene;
 mod ui;
 
 use anyhow::{Context, Result};
@@ -13,8 +15,32 @@ use std::time::Duration;
 use app::{App, Focus, Key};
 use project::Project;
 
+/// How often we wake to repaint. Also the animation clock.
+const TICK: Duration = Duration::from_millis(250);
+
 fn main() -> Result<()> {
-    let root = match std::env::args().nth(1) {
+    let mut args = std::env::args().skip(1);
+    let first = args.next();
+
+    if first.as_deref() == Some("music-auth") {
+        let cfg = music::Config::load();
+        let host = args.next().unwrap_or(cfg.host);
+        let port = args
+            .next()
+            .and_then(|p| p.parse().ok())
+            .unwrap_or(cfg.port);
+        return music::authenticate(&host, port);
+    }
+
+    if matches!(first.as_deref(), Some("-h") | Some("--help")) {
+        println!("grimoire — a terminal writing desk for novels\n");
+        println!("usage:");
+        println!("  grimoire <project-dir>      open a manuscript");
+        println!("  grimoire music-auth         pair with YTMDesktop");
+        return Ok(());
+    }
+
+    let root = match first {
         Some(p) => PathBuf::from(p),
         None => std::env::current_dir()?,
     };
@@ -39,9 +65,18 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
     let mut confirm_quit = false;
 
     loop {
+        app.music.drain();
+        if app.pomo.tick() {
+            app.msg = match app.pomo.phase {
+                scene::Phase::Break => "break — go and look at something far away".into(),
+                _ => "back to it".into(),
+            };
+        }
+
         terminal.draw(|f| ui::draw(f, app))?;
 
-        if !event::poll(Duration::from_millis(250))? {
+        if !event::poll(TICK)? {
+            app.frame = app.frame.wrapping_add(1);
             continue;
         }
         let Event::Key(k) = event::read()? else {
@@ -92,8 +127,15 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
             KeyCode::PageDown => Key::PageDown,
             KeyCode::Esc => Key::Esc,
             KeyCode::Tab | KeyCode::BackTab => Key::Tab,
+            KeyCode::F(n) => Key::F(n),
             _ => Key::Other,
         };
+
+        // Timer and music work from either pane, so they can't eat keystrokes.
+        if let Key::F(n) = key {
+            app.on_function_key(n);
+            continue;
+        }
 
         if key == Key::Tab {
             app.toggle_focus();
@@ -102,7 +144,6 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
 
         match app.focus {
             Focus::Tree => {
-                // vim-ish aliases, only where they can't collide with typing
                 key = match key {
                     Key::Char('j') => Key::Down,
                     Key::Char('k') => Key::Up,

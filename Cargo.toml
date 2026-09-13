@@ -21,8 +21,10 @@ anyhow = "1.0.104"
 chrono = "0.4.45"
 ratatui = "0.30.2"
 serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
 toml = "1.1.6"
 unicode-width = "0.2.2"
+ureq = { version = "3.4.1", features = ["json"] }
 
 [profile.release]
 opt-level = 3

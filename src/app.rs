@@ -5,7 +5,9 @@ use std::fs;
 use std::path::Path;
 
 use crate::editor::Editor;
+use crate::music::{self, Music};
 use crate::project::{Kind, Project};
+use crate::scene::Pomodoro;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Focus {
@@ -27,6 +29,10 @@ pub struct App {
     pub quit: bool,
     pub edit_width: usize,
     pub edit_height: usize,
+    pub pomo: Pomodoro,
+    pub music: Music,
+    /// Animation counter, bumped once per event-loop tick.
+    pub frame: u64,
 }
 
 impl App {
@@ -53,7 +59,26 @@ impl App {
             quit: false,
             edit_width: 60,
             edit_height: 20,
+            pomo: Pomodoro::default(),
+            music: Music::spawn(music::Config::load()),
+            frame: 0,
         })
+    }
+
+    /// Function keys drive the timer and the music, from either pane, so they
+    /// never collide with typing.
+    pub fn on_function_key(&mut self, n: u8) {
+        match n {
+            2 => self.pomo.toggle(),
+            3 => {
+                self.pomo.reset();
+                self.msg = "timer reset".into();
+            }
+            4 => self.music.send(music::Cmd::Prev),
+            5 => self.music.send(music::Cmd::PlayPause),
+            6 => self.music.send(music::Cmd::Next),
+            _ => {}
+        }
     }
 
     pub fn refresh_visible(&mut self) {
@@ -205,6 +230,7 @@ pub enum Key {
     PageDown,
     Esc,
     Tab,
+    F(u8),
     Other,
 }
 
