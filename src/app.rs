@@ -9,7 +9,7 @@ use crate::editor::Editor;
 use crate::manuscript;
 use crate::music::{self, Music};
 use crate::project::{Kind, Project};
-use crate::scene::Pomodoro;
+use crate::scene::{Mode, Pomodoro};
 use crate::theme::{self, Theme};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,6 +35,8 @@ pub struct App {
     pub edit_width: usize,
     pub edit_height: usize,
     pub pomo: Pomodoro,
+    /// What the small pane under the tree is showing. ←/→ cycles it.
+    pub pane_mode: Mode,
     pub music: Music,
     /// Animation counter, bumped once per event-loop tick.
     pub frame: u64,
@@ -108,6 +110,7 @@ impl App {
             edit_width: 60,
             edit_height: 20,
             pomo: Pomodoro::default(),
+            pane_mode: Mode::Clearing,
             music: Music::spawn(music::Config::load()),
             frame: 0,
             super_keys: false,
@@ -318,6 +321,8 @@ impl App {
 
     pub fn on_clearing_key(&mut self, key: Key) {
         match key {
+            Key::Right | Key::Char('l') => self.pane_mode = self.pane_mode.next(),
+            Key::Left | Key::Char('h') => self.pane_mode = self.pane_mode.prev(),
             Key::Enter | Key::Char(' ') => self.pomo.toggle(),
             Key::Char('r') => {
                 self.pomo.reset();
@@ -613,7 +618,7 @@ impl App {
         match self.focus {
             Focus::Tree => format!("Tab pane  ↵ fold  F1 menu  F9 theme  {m}S save  {m}Q quit "),
             Focus::Editor => format!("Tab pane  Esc tree  F1 menu  {m}S save  {m}Q quit "),
-            Focus::Clearing => format!("Tab pane  ↵ start/pause  r reset  F9 theme  {m}Q quit "),
+            Focus::Clearing => format!("Tab pane  ←→ view  ↵ start/pause  r reset  {m}Q quit "),
             Focus::Music => format!("Tab pane  ↵ play/pause  ←→ track  F9 theme  {m}Q quit "),
         }
     }

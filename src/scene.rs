@@ -322,3 +322,207 @@ mod tests {
         assert!(!p.running());
     }
 }
+
+// ── other things the pane can show ───────────────────────────────────
+
+/// What the small pane under the tree is displaying. Left/Right cycles it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mode {
+    Clearing,
+    Waveform,
+    Growth,
+}
+
+impl Mode {
+    pub fn next(self) -> Mode {
+        match self {
+            Mode::Clearing => Mode::Waveform,
+            Mode::Waveform => Mode::Growth,
+            Mode::Growth => Mode::Clearing,
+        }
+    }
+    pub fn prev(self) -> Mode {
+        self.next().next()
+    }
+}
+
+fn hash(s: &str) -> u64 {
+    // FNV-1a. Only needs to be stable and well-spread, not cryptographic.
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in s.as_bytes() {
+        h ^= *b as u64;
+        h = h.wrapping_mul(0x0100_0000_01b3);
+    }
+    h
+}
+
+/// A waveform for the playing track.
+///
+/// Honest about what this is: the API gives track metadata and position, never
+/// audio samples, so the *shape* is a stable fingerprint derived from the
+/// title — the same song always draws the same wave — while the playhead and
+/// the fill are real playback position. It is a progress bar with a face, not
+/// a spectrum analyser, and pretending otherwise would be a lie in pixels.
+pub fn render_waveform(title: &str, frac: f64, playing: bool, frame: u64) -> Vec<Vec<Cell>> {
+    let mut g = vec![vec![(' ', Ink::Sky); W]; H];
+    if title.is_empty() {
+        let msg = "nothing playing";
+        let x0 = (W - msg.len()) / 2;
+        for (i, c) in msg.chars().enumerate() {
+            g[H / 2][x0 + i] = (c, Ink::Star);
+        }
+        return g;
+    }
+
+    let seed = hash(title);
+    let head = ((frac.clamp(0.0, 1.0)) * (W - 1) as f64).round() as usize;
+    let rows = H - 1;
+
+    for x in 0..W {
+        // Two mixed frequencies keep it from looking like a sawtooth.
+        let a = ((seed >> (x % 48)) & 0x7) as f64 / 7.0;
+        let b = (((seed.rotate_left(x as u32 * 3)) >> 5) & 0x7) as f64 / 7.0;
+        let mut v = (a * 0.65 + b * 0.35).clamp(0.05, 1.0);
+
+        // Only the playhead breathes, and only while actually playing.
+        if playing && x == head {
+            v = (v + 0.25 * (((frame / 2) % 4) as f64 / 3.0)).min(1.0);
+        }
+        let h = ((v * rows as f64).round() as usize).max(1);
+
+        for y in 0..rows {
+            if y >= rows - h {
+                let ink = if x < head {
+                    Ink::Sun
+                } else if x == head {
+                    Ink::Moon
+                } else {
+                    Ink::Tree
+                };
+                g[y][x] = ('█', ink);
+            }
+        }
+    }
+    for x in 0..W {
+        g[H - 1][x] = ('▔', Ink::Ground);
+    }
+    g
+}
+
+/// A plant that grows with the words you write today.
+///
+/// Reactive in the way that matters for a writing app: the stem climbs and
+/// leaves unfurl as the session count rises toward the daily target, so the
+/// pane answers "how is today going" without a number.
+pub fn render_growth(today: usize, target: usize, frame: u64) -> Vec<Vec<Cell>> {
+    let mut g = vec![vec![(' ', Ink::Sky); W]; H];
+    let frac = if target == 0 {
+        0.0
+    } else {
+        (today as f64 / target as f64).clamp(0.0, 1.0)
+    };
+
+    let soil = H - 1;
+    let max_stem = soil - 1;
+    let stem = ((frac * max_stem as f64).round() as usize).min(max_stem);
+    let cx = W / 2;
+
+    if stem == 0 {
+        // A seed, waiting.
+        g[soil - 1][cx] = ('.', Ink::Trunk);
+    }
+
+    for i in 0..stem {
+        let y = soil - 1 - i;
+        // A gentle sway, slow enough to read as alive rather than jittery.
+        let sway = if (frame / 12 + i as u64) % 7 == 0 { 1 } else { 0 };
+        let x = cx + sway;
+        if x < W {
+            g[y][x] = ('│', Ink::Tree);
+        }
+        // Leaves alternate sides every other segment.
+        if i > 0 && i % 2 == 0 {
+            let (lx, ch) = if (i / 2) % 2 == 0 {
+                (x.saturating_sub(1), '❧')
+            } else {
+                ((x + 1).min(W - 1), '❦')
+            };
+            g[y][lx] = (ch, Ink::Tree);
+        }
+    }
+
+    // A bloom once the day's target is met.
+    if frac >= 1.0 && stem > 0 {
+        let y = soil - 1 - (stem - 1);
+        g[y.saturating_sub(1).min(H - 1)][cx] = ('✿', Ink::Flower);
+    }
+
+    for x in 0..W {
+        g[soil][x] = ('▔', Ink::Ground);
+    }
+    g
+}
+
+#[cfg(test)]
+mod mode_tests {
+    use super::*;
+
+    #[test]
+    fn modes_cycle_both_ways() {
+        let m = Mode::Clearing;
+        assert_eq!(m.next().next().next(), m);
+        assert_eq!(m.next().prev(), m);
+        assert_eq!(Mode::Waveform.prev(), Mode::Clearing);
+    }
+
+    #[test]
+    fn waveform_is_stable_per_track_but_fills_with_progress() {
+        let a = render_waveform("Weightless", 0.0, false, 0);
+        let b = render_waveform("Weightless", 0.0, false, 0);
+        assert_eq!(a, b, "the same track must always draw the same wave");
+
+        let c = render_waveform("Something Else", 0.0, false, 0);
+        assert_ne!(a, c, "different tracks should look different");
+
+        let played = |f: f64| {
+            render_waveform("Weightless", f, false, 0)
+                .iter()
+                .flatten()
+                .filter(|(_, i)| *i == Ink::Sun)
+                .count()
+        };
+        assert!(played(0.9) > played(0.1), "more of the wave fills as it plays");
+    }
+
+    #[test]
+    fn growth_tracks_the_daily_count() {
+        let stem = |t: usize| {
+            render_growth(t, 1000, 0)
+                .iter()
+                .flatten()
+                .filter(|(c, _)| *c == '│')
+                .count()
+        };
+        assert_eq!(stem(0), 0, "nothing written, nothing grown");
+        assert!(stem(500) > 0);
+        assert!(stem(1000) > stem(500), "the plant keeps climbing");
+
+        let bloomed = render_growth(1200, 1000, 0)
+            .iter()
+            .flatten()
+            .any(|(c, _)| *c == '✿');
+        assert!(bloomed, "hitting the target should flower");
+    }
+
+    #[test]
+    fn every_mode_renders_the_advertised_grid() {
+        for g in [
+            render_waveform("x", 0.5, true, 3),
+            render_waveform("", 0.0, false, 0),
+            render_growth(300, 1000, 5),
+        ] {
+            assert_eq!(g.len(), H);
+            assert!(g.iter().all(|r| r.len() == W));
+        }
+    }
+}

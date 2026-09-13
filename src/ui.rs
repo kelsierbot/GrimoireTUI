@@ -9,7 +9,7 @@ use ratatui::widgets::{Block, Borders, Clear, Padding, Paragraph};
 use crate::app::{App, Focus, Overlay};
 use crate::music::State as MusicState;
 use crate::project::Kind;
-use crate::scene::{self, Ink, Phase};
+use crate::scene::{self, Ink, Mode, Phase};
 use crate::theme::{self, Theme};
 
 /// Wide enough that the scene's 28 columns fit inside the border.
@@ -183,14 +183,52 @@ fn draw_tree(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
 }
 
 fn draw_scene(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
-    let label = app.pomo.label();
+    // The pane's title says which of the three views you're on, so ←/→ is
+    // discoverable without a legend.
+    let (label, grid) = match app.pane_mode {
+        Mode::Clearing => (
+            app.pomo.label(),
+            scene::render(app.pomo.phase, app.pomo.progress(), app.frame),
+        ),
+        Mode::Waveform => {
+            let (title, frac, playing) = match &app.music.state {
+                MusicState::Playing(tr) => (
+                    tr.title.clone(),
+                    if tr.duration > 0.0 {
+                        tr.progress / tr.duration
+                    } else {
+                        0.0
+                    },
+                    tr.playing,
+                ),
+                _ => (String::new(), 0.0, false),
+            };
+            let head = if title.is_empty() {
+                "waveform".to_string()
+            } else {
+                truncate(&title, 22)
+            };
+            (
+                head,
+                scene::render_waveform(&title, frac, playing, app.frame),
+            )
+        }
+        Mode::Growth => {
+            let today = app.project.total_words().saturating_sub(app.baseline);
+            let target = app.project.meta.daily_target.max(1);
+            (
+                format!("today · {today} / {target}"),
+                scene::render_growth(today, target, app.frame),
+            )
+        }
+    };
+
     let block = pane_block(&label, app.focus == Focus::Clearing, t);
     let inner = block.inner(area);
     app.rect_scene = inner;
     f.render_widget(block, area);
 
-    let grid = scene::render(app.pomo.phase, app.pomo.progress(), app.frame);
-    let night = app.pomo.phase == Phase::Break;
+    let night = app.pomo.phase == Phase::Break && app.pane_mode == Mode::Clearing;
 
     let lines: Vec<Line> = grid
         .iter()

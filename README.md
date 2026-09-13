@@ -95,6 +95,7 @@ heard of.
 | `Esc` | leave the editor |
 | `F2` `F3` | start or pause the timer · reset |
 | `F9` · `t` | themes |
+| `←` `→` | in the clearing pane: switch view |
 | `F4` `F5` `F6` | previous · play-pause · next |
 
 Vertical movement in the editor is **visual, not logical** — Down moves one
@@ -163,6 +164,10 @@ Below the manuscript tree is a forest, and the forest is the timer.
 │▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔│
 └────────────────────────────┘
 ```
+
+`←`/`→` cycles the pane through three views: **the clearing**, a **waveform**
+for the playing track, and **growth** — a plant that climbs as your session
+word count rises toward the daily target.
 
 The sun's **position is the clock**. It crosses the sky over a twenty-five
 minute session, so you read the time remaining off the light instead of
