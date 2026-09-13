@@ -17,6 +17,7 @@
 //!
 //!   https://github.com/th-ch/youtube-music
 
+use crate::library::{self, Jukebox};
 use anyhow::{Context, Result, anyhow};
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
@@ -221,7 +222,19 @@ impl Music {
                 .clone()
                 .map(|t| Box::new(Ytm::new(&cfg, t)) as Box<dyn Backend>),
             Source::Spotify => Some(Box::new(Spotify) as Box<dyn Backend>),
-            Source::Jellyfin | Source::Plex => None,
+            Source::Jellyfin => (!cfg.server.is_empty() && !cfg.api_key.is_empty()).then(|| {
+                Box::new(Local::new(Box::new(library::Jellyfin {
+                    server: cfg.server.clone(),
+                    token: cfg.api_key.clone(),
+                    user_id: cfg.user_id.clone(),
+                }))) as Box<dyn Backend>
+            }),
+            Source::Plex => (!cfg.server.is_empty() && !cfg.api_key.is_empty()).then(|| {
+                Box::new(Local::new(Box::new(library::Plex {
+                    server: cfg.server.clone(),
+                    token: cfg.api_key.clone(),
+                }))) as Box<dyn Backend>
+            }),
         };
 
         let Some(mut backend) = backend else {
@@ -459,6 +472,74 @@ impl Backend for Spotify {
     }
 }
 
+// ── Jellyfin / Plex: your own server, played here ────────────────────
+
+struct Local {
+    player: Jukebox,
+    /// A dead server shouldn't be hammered every 1.5s — but it also shouldn't
+    /// stay dead forever once it comes back, so back off and retry.
+    failed: Option<String>,
+    retry_at: Option<std::time::Instant>,
+}
+
+const RETRY_AFTER: Duration = Duration::from_secs(30);
+
+impl Local {
+    fn new(catalog: Box<dyn library::Catalog>) -> Local {
+        Local {
+            player: Jukebox::new(catalog),
+            failed: None,
+            retry_at: None,
+        }
+    }
+}
+
+impl Backend for Local {
+    fn state(&mut self) -> Result<State> {
+        if let Some(why) = self.failed.clone() {
+            match self.retry_at {
+                Some(at) if std::time::Instant::now() >= at => {
+                    // Time to try again. Clear the latch and fall through.
+                    self.failed = None;
+                    self.retry_at = None;
+                }
+                _ => return Err(anyhow!("{why}")),
+            }
+        }
+        if self.player.queue_len() == 0 {
+            if let Err(e) = self.player.ensure_queue() {
+                self.failed = Some(e.to_string());
+                self.retry_at = Some(std::time::Instant::now() + RETRY_AFTER);
+                return Err(e);
+            }
+        }
+        self.player.advance_if_finished();
+
+        let Some(track) = self.player.current().cloned() else {
+            return Ok(State::Idle);
+        };
+        if !self.player.started() {
+            return Ok(State::Idle);
+        }
+        let (pos, playing, _) = self.player.progress();
+        Ok(State::Playing(Track {
+            title: track.title,
+            artist: track.artist,
+            progress: pos,
+            duration: track.duration,
+            playing,
+        }))
+    }
+
+    fn command(&mut self, c: Cmd) -> Result<()> {
+        match c {
+            Cmd::PlayPause => self.player.toggle(),
+            Cmd::Next => self.player.step(1),
+            Cmd::Prev => self.player.step(-1),
+        }
+    }
+}
+
 /// Pair with the desktop client. With the default AUTH_AT_FIRST strategy the
 /// app shows a prompt you accept; the token it returns is stored locally.
 pub fn authenticate(host: &str, port: u16) -> Result<()> {
@@ -540,6 +621,34 @@ fn port_open(host: &str, port: u16) -> bool {
         return false;
     };
     addrs.any(|a| TcpStream::connect_timeout(&a, Duration::from_millis(400)).is_ok())
+}
+
+fn prompt(label: &str, default: &str) -> String {
+    use std::io::{Write, stdin, stdout};
+    if default.is_empty() {
+        print!("  {label}: ");
+    } else {
+        print!("  {label} [{default}]: ");
+    }
+    let _ = stdout().flush();
+    let mut s = String::new();
+    let _ = stdin().read_line(&mut s);
+    let s = s.trim().to_string();
+    if s.is_empty() { default.to_string() } else { s }
+}
+
+/// Read without echoing. Falls back to a visible prompt if the terminal
+/// won't cooperate — better than refusing to run.
+fn prompt_secret(label: &str) -> String {
+    use std::process::Command;
+    let out = Command::new("sh")
+        .arg("-c")
+        .arg(format!("printf '  {label}: ' >&2; stty -echo 2>/dev/null; read -r v; stty echo 2>/dev/null; printf '\\n' >&2; printf '%s' \"$v\""))
+        .output();
+    match out {
+        Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).trim().to_string(),
+        _ => prompt(label, ""),
+    }
 }
 
 fn ask(prompt: &str) -> bool {
@@ -724,6 +833,95 @@ fn download_and_install() -> Result<()> {
     Ok(())
 }
 
+
+/// Set up whichever source you name. `grimoire music-setup jellyfin`, etc.
+pub fn setup_for(source: Source) -> Result<()> {
+    match source {
+        Source::YouTubeMusic => setup(),
+        Source::Spotify => {
+            let mut cfg = Config::load();
+            cfg.source = Source::Spotify;
+            cfg.save()?;
+            println!("Spotify needs no setup — Grimoire drives the desktop app directly.");
+            println!();
+            if cfg!(target_os = "macos") {
+                println!("  Just have Spotify open. Nothing to sign into.");
+            } else {
+                println!("  Needs `playerctl` installed; Spotify exposes MPRIS through it.");
+            }
+            Ok(())
+        }
+        Source::Jellyfin => setup_jellyfin(),
+        Source::Plex => setup_plex(),
+    }
+}
+
+fn setup_jellyfin() -> Result<()> {
+    let mut cfg = Config::load();
+    println!("Connecting Grimoire to Jellyfin.\n");
+    println!("  Grimoire plays these tracks itself — your files, your server,");
+    println!("  nothing else needs to be running.\n");
+
+    let server = prompt("Server URL", if cfg.server.is_empty() { "http://localhost:8096" } else { &cfg.server });
+    let user = prompt("Username", "");
+    let pass = prompt_secret("Password");
+
+    println!("\n  Signing in…");
+    let (token, uid) = crate::library::Jellyfin::login(&server, &user, &pass)?;
+
+    cfg.source = Source::Jellyfin;
+    cfg.server = server;
+    cfg.api_key = token;
+    cfg.user_id = uid;
+    cfg.save()?;
+
+    println!("  Signed in. Checking the library…");
+    let cat = crate::library::Jellyfin {
+        server: cfg.server.clone(),
+        token: cfg.api_key.clone(),
+        user_id: cfg.user_id.clone(),
+    };
+    use crate::library::Catalog;
+    let tracks = cat.fetch(20)?;
+    println!("  Found {} track(s).", tracks.len());
+    if let Some(t) = tracks.first() {
+        println!("  For example: {} — {}", t.title, t.artist);
+    }
+    println!("\nDone. F5 plays, F4/F6 move through the queue.");
+    Ok(())
+}
+
+fn setup_plex() -> Result<()> {
+    let mut cfg = Config::load();
+    println!("Connecting Grimoire to Plex.\n");
+    println!("  Grimoire plays these tracks itself — your files, your server.\n");
+    println!("  Plex has no password login for apps. Get a token by opening any");
+    println!("  item in the Plex web app, choosing Get Info → View XML, and");
+    println!("  copying the X-Plex-Token value from the address bar.\n");
+
+    let server = prompt("Server URL", if cfg.server.is_empty() { "http://localhost:32400" } else { &cfg.server });
+    let token = prompt("X-Plex-Token", "");
+
+    cfg.source = Source::Plex;
+    cfg.server = server;
+    cfg.api_key = token;
+    cfg.user_id = String::new();
+    cfg.save()?;
+
+    println!("\n  Checking the library…");
+    let cat = crate::library::Plex {
+        server: cfg.server.clone(),
+        token: cfg.api_key.clone(),
+    };
+    use crate::library::Catalog;
+    let tracks = cat.fetch(20)?;
+    println!("  Found {} track(s).", tracks.len());
+    if let Some(t) = tracks.first() {
+        println!("  For example: {} — {}", t.title, t.artist);
+    }
+    println!("\nDone. F5 plays, F4/F6 move through the queue.");
+    Ok(())
+}
 
 /// One command instead of five. Installs the client if needed, enables the
 /// API Server plugin, starts it, and pairs.

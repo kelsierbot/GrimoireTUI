@@ -176,31 +176,36 @@ close, and fireflies come out between the rabbits.
 
 ## Music
 
-There is no official YouTube Music API, and anything that extracts stream URLs
-both violates the terms and side-steps the subscription you already pay for.
-**So Grimoire never plays audio.** It drives
-[th-ch/youtube-music](https://github.com/th-ch/youtube-music) — a desktop
-client already signed into your real account. Your playlists, your Premium,
-your playback; Grimoire just presses the buttons.
+Four sources, chosen from the menu (`F1` → Music source) and remembered.
 
-```sh
-grimoire music-setup
-```
+| Source | How it works | Setup |
+|---|---|---|
+| **YouTube Music** | drives [th-ch/youtube-music](https://github.com/th-ch/youtube-music)'s API Server | `grimoire music-setup youtube-music` |
+| **Spotify** | drives the desktop app — AppleScript on macOS, MPRIS on Linux | nothing to do |
+| **Jellyfin** | **Grimoire plays it** — your files, your server | `grimoire music-setup jellyfin` |
+| **Plex** | **Grimoire plays it** — your files, your server | `grimoire music-setup plex` |
 
-One command. It finds the client or offers to download it, enables the API
-Server plugin, starts it, and pairs. Nothing else to do but sign in and press
-play.
+The split matters. There is no official YouTube Music API, and anything that
+extracts stream URLs both violates the terms and side-steps the subscription
+you already pay for — so for YouTube Music and Spotify, Grimoire never touches
+audio. It presses buttons on a player you already run.
 
-Worth knowing what it handles for you on macOS: that build is **ad-hoc signed
-rather than notarised**, so macOS quarantines it and refuses to launch — the
-step everyone gets stuck on. Setup clears the quarantine flag and re-signs the
-app locally. It also binds the API server to `127.0.0.1` rather than the
-plugin's default `0.0.0.0`, because there is no reason to expose your music
-controls to the whole network. The client's config is backed up before it is
-touched.
+Jellyfin and Plex are the opposite case: your own files on your own hardware,
+no terms to violate and no subscription to bypass. So Grimoire plays those
+itself and nothing else has to be running.
 
-`grimoire music-auth` re-pairs on its own if you ever need it. With no token
-configured the pane stays inert and never touches the network.
+**Spotify needs no setup at all.** Its Web API would mean OAuth, a registered
+application and a refresh-token dance for the privilege of pressing pause. Both
+platforms already expose the running player locally, so there is nothing to
+sign into and no token to store. On Linux it wants `playerctl`.
+
+**Jellyfin** signs in with the same username and password you use for the web
+UI — no hunting through the dashboard for an API key. **Plex** needs an
+`X-Plex-Token`, and the setup flow tells you where to find it.
+
+Audio playback is a default cargo feature. On Linux it needs ALSA headers
+(`libasound2-dev`); build with `--no-default-features` to drop it and keep the
+remote-control sources.
 
 ## Status
 

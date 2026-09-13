@@ -2,6 +2,7 @@
 
 mod app;
 mod editor;
+mod library;
 mod manuscript;
 mod music;
 mod project;
@@ -57,7 +58,15 @@ fn main() -> Result<()> {
     }
 
     if first.as_deref() == Some("music-setup") {
-        return music::setup();
+        return match args.next().as_deref() {
+            None => music::setup_for(music::Config::load().source),
+            Some(name) => match music::Source::parse(name) {
+                Some(s) => music::setup_for(s),
+                None => anyhow::bail!(
+                    "unknown source '{name}'\n\n  youtube-music · spotify · jellyfin · plex"
+                ),
+            },
+        };
     }
 
     if first.as_deref() == Some("music-auth") {
@@ -78,7 +87,8 @@ fn main() -> Result<()> {
         println!("  grimoire new <dir>          start a new one");
         println!("  grimoire index              refresh project.md, the project map");
         println!("  grimoire compile            assemble the manuscript");
-        println!("  grimoire music-setup        install + connect YouTube Music");
+        println!("  grimoire music-setup <src>  connect music: youtube-music |");
+        println!("                              spotify | jellyfin | plex");
         println!("  grimoire music-auth         re-pair only");
         println!();
         println!("With no arguments grimoire opens the current directory if it is a");

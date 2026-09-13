@@ -20,6 +20,7 @@ path = "src/main.rs"
 anyhow = "1.0.104"
 chrono = "0.4.45"
 ratatui = "0.30.2"
+rodio = { version = "0.22.2", default-features = false, features = ["playback", "symphonia-mp3", "symphonia-flac", "symphonia-vorbis", "symphonia-wav"], optional = true }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 toml = "1.1.6"
@@ -30,3 +31,10 @@ ureq = { version = "3.4.1", features = ["json"] }
 opt-level = 3
 lto = true
 strip = true
+
+[features]
+# Audio playback, used by the Jellyfin and Plex sources. Default on; on Linux
+# it needs ALSA headers (libasound2-dev). Build with --no-default-features to
+# omit it and keep the other sources.
+default = ["audio"]
+audio = ["dep:rodio"]
