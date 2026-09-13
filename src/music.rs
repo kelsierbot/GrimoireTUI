@@ -26,22 +26,81 @@ use std::time::Duration;
 pub const APP_ID: &str = "grimoiretui";
 pub const DEFAULT_PORT: u16 = 26538;
 
+/// Where the music comes from. The first two are remote controls for a player
+/// you already run; the last two are your own server, which Grimoire can
+/// actually play from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Source {
+    YouTubeMusic,
+    Spotify,
+    Jellyfin,
+    Plex,
+}
+
+impl Source {
+    pub const ALL: [Source; 4] = [
+        Source::YouTubeMusic,
+        Source::Spotify,
+        Source::Jellyfin,
+        Source::Plex,
+    ];
+
+    pub fn slug(self) -> &'static str {
+        match self {
+            Source::YouTubeMusic => "youtube-music",
+            Source::Spotify => "spotify",
+            Source::Jellyfin => "jellyfin",
+            Source::Plex => "plex",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Source::YouTubeMusic => "YouTube Music",
+            Source::Spotify => "Spotify",
+            Source::Jellyfin => "Jellyfin",
+            Source::Plex => "Plex",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Source> {
+        Source::ALL
+            .into_iter()
+            .find(|x| x.slug() == s.trim().to_lowercase())
+    }
+
+    /// True when Grimoire plays the audio itself rather than driving another app.
+    pub fn plays_audio(self) -> bool {
+        matches!(self, Source::Jellyfin | Source::Plex)
+    }
+}
+
 const POLL: Duration = Duration::from_millis(1500);
 const HTTP_TIMEOUT: Duration = Duration::from_millis(1200);
 
 #[derive(Debug, Clone)]
 pub struct Config {
+    pub source: Source,
+    /// YouTube Music: where its API Server listens.
     pub host: String,
     pub port: u16,
     pub token: Option<String>,
+    /// Jellyfin / Plex: your own server.
+    pub server: String,
+    pub api_key: String,
+    pub user_id: String,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
+            source: Source::YouTubeMusic,
             host: "127.0.0.1".into(),
             port: DEFAULT_PORT,
             token: None,
+            server: String::new(),
+            api_key: String::new(),
+            user_id: String::new(),
         }
     }
 }
@@ -64,6 +123,11 @@ impl Config {
             };
             let v = v.trim().trim_matches('"').to_string();
             match k.trim() {
+                "source" => {
+                    if let Some(x) = Source::parse(&v) {
+                        cfg.source = x;
+                    }
+                }
                 "token" if !v.is_empty() => cfg.token = Some(v),
                 "host" if !v.is_empty() => cfg.host = v,
                 "port" => {
@@ -71,6 +135,9 @@ impl Config {
                         cfg.port = p;
                     }
                 }
+                "server" => cfg.server = v,
+                "api_key" => cfg.api_key = v,
+                "user_id" => cfg.user_id = v,
                 _ => {}
             }
         }
@@ -83,10 +150,15 @@ impl Config {
             std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
         }
         let body = format!(
-            "host = \"{}\"\nport = {}\ntoken = \"{}\"\n",
+            "source = \"{}\"\nhost = \"{}\"\nport = {}\ntoken = \"{}\"\n\
+             server = \"{}\"\napi_key = \"{}\"\nuser_id = \"{}\"\n",
+            self.source.slug(),
             self.host,
             self.port,
-            self.token.as_deref().unwrap_or("")
+            self.token.as_deref().unwrap_or(""),
+            self.server,
+            self.api_key,
+            self.user_id,
         );
         std::fs::write(&path, body).with_context(|| format!("writing {}", path.display()))?;
         Ok(())
@@ -124,28 +196,38 @@ pub enum Cmd {
     Prev,
 }
 
-impl Cmd {
-    fn path(self) -> &'static str {
-        match self {
-            Cmd::PlayPause => "/api/v1/toggle-play",
-            Cmd::Next => "/api/v1/next",
-            Cmd::Prev => "/api/v1/previous",
-        }
-    }
-}
-
 pub struct Music {
     pub state: State,
+    pub source: Source,
     rx: Option<Receiver<State>>,
     tx: Option<Sender<Cmd>>,
 }
 
+/// One music source. Whether it is a remote control or a real player is an
+/// implementation detail above this line.
+trait Backend: Send {
+    fn state(&mut self) -> Result<State>;
+    fn command(&mut self, c: Cmd) -> Result<()>;
+}
+
 impl Music {
-    /// Spawns the poller. With no token we stay inert and never touch the network.
+    /// Spawns the poller. Unconfigured sources stay inert and never touch the
+    /// network or shell out.
     pub fn spawn(cfg: Config) -> Music {
-        let Some(token) = cfg.token.clone() else {
+        let source = cfg.source;
+        let backend: Option<Box<dyn Backend>> = match source {
+            Source::YouTubeMusic => cfg
+                .token
+                .clone()
+                .map(|t| Box::new(Ytm::new(&cfg, t)) as Box<dyn Backend>),
+            Source::Spotify => Some(Box::new(Spotify) as Box<dyn Backend>),
+            Source::Jellyfin | Source::Plex => None,
+        };
+
+        let Some(mut backend) = backend else {
             return Music {
                 state: State::NoToken,
+                source,
                 rx: None,
                 tx: None,
             };
@@ -153,31 +235,20 @@ impl Music {
 
         let (state_tx, state_rx) = mpsc::channel::<State>();
         let (cmd_tx, cmd_rx) = mpsc::channel::<Cmd>();
-        let base = cfg.base();
 
         thread::spawn(move || {
-            let agent = ureq::Agent::config_builder()
-                .timeout_global(Some(HTTP_TIMEOUT))
-                .build()
-                .new_agent();
-            let bearer = format!("Bearer {token}");
-
             loop {
                 // Commands first, so a keypress feels immediate.
                 loop {
                     match cmd_rx.try_recv() {
                         Ok(c) => {
-                            let _ = agent
-                                .post(format!("{base}{}", c.path()))
-                                .header("Authorization", &bearer)
-                                .send_empty();
+                            let _ = backend.command(c);
                         }
                         Err(TryRecvError::Empty) => break,
                         Err(TryRecvError::Disconnected) => return,
                     }
                 }
-
-                let next = fetch_state(&agent, &base, &bearer).unwrap_or(State::Offline);
+                let next = backend.state().unwrap_or(State::Offline);
                 if state_tx.send(next).is_err() {
                     return;
                 }
@@ -187,6 +258,7 @@ impl Music {
 
         Music {
             state: State::Offline,
+            source,
             rx: Some(state_rx),
             tx: Some(cmd_tx),
         }
@@ -208,30 +280,183 @@ impl Music {
     }
 }
 
-fn fetch_state(agent: &ureq::Agent, base: &str, bearer: &str) -> Result<State> {
-    let mut res = agent
-        .get(format!("{base}/api/v1/song"))
-        .header("Authorization", bearer)
-        .call()?;
+// ── YouTube Music: th-ch API Server ──────────────────────────────────
 
-    // Nothing loaded: the plugin answers 204, or a body with no title.
-    if res.status() == 204 {
-        return Ok(State::Idle);
+struct Ytm {
+    agent: ureq::Agent,
+    base: String,
+    bearer: String,
+}
+
+impl Ytm {
+    fn new(cfg: &Config, token: String) -> Ytm {
+        Ytm {
+            agent: ureq::Agent::config_builder()
+                .timeout_global(Some(HTTP_TIMEOUT))
+                .build()
+                .new_agent(),
+            base: cfg.base(),
+            bearer: format!("Bearer {token}"),
+        }
     }
-    let v: serde_json::Value = res.body_mut().read_json()?;
-    let title = v["title"].as_str().unwrap_or("").to_string();
-    if title.is_empty() {
-        return Ok(State::Idle);
+}
+
+impl Backend for Ytm {
+    fn state(&mut self) -> Result<State> {
+        let mut res = self
+            .agent
+            .get(format!("{}/api/v1/song", self.base))
+            .header("Authorization", &self.bearer)
+            .call()?;
+
+        // Nothing loaded: the plugin answers 204, or a body with no title.
+        if res.status() == 204 {
+            return Ok(State::Idle);
+        }
+        let v: serde_json::Value = res.body_mut().read_json()?;
+        let title = v["title"].as_str().unwrap_or("").to_string();
+        if title.is_empty() {
+            return Ok(State::Idle);
+        }
+        Ok(State::Playing(Track {
+            title,
+            artist: v["artist"].as_str().unwrap_or("").to_string(),
+            progress: v["elapsedSeconds"].as_f64().unwrap_or(0.0),
+            duration: v["songDuration"].as_f64().unwrap_or(0.0),
+            playing: !v["isPaused"].as_bool().unwrap_or(false),
+        }))
     }
 
-    Ok(State::Playing(Track {
-        title,
-        artist: v["artist"].as_str().unwrap_or("").to_string(),
-        progress: v["elapsedSeconds"].as_f64().unwrap_or(0.0),
-        duration: v["songDuration"].as_f64().unwrap_or(0.0),
-        // isPaused is optional; absent means playing.
-        playing: !v["isPaused"].as_bool().unwrap_or(false),
-    }))
+    fn command(&mut self, c: Cmd) -> Result<()> {
+        let path = match c {
+            Cmd::PlayPause => "/api/v1/toggle-play",
+            Cmd::Next => "/api/v1/next",
+            Cmd::Prev => "/api/v1/previous",
+        };
+        self.agent
+            .post(format!("{}{path}", self.base))
+            .header("Authorization", &self.bearer)
+            .send_empty()?;
+        Ok(())
+    }
+}
+
+// ── Spotify: drive the desktop app, no account setup at all ──────────
+//
+// Spotify's Web API would mean OAuth, a registered application, a redirect
+// URL and a refresh-token dance — for the privilege of pressing pause. Both
+// platforms already expose the running player locally: AppleScript on macOS,
+// MPRIS over D-Bus on Linux. Nothing to sign in to, nothing to store.
+
+struct Spotify;
+
+impl Spotify {
+    #[cfg(target_os = "macos")]
+    fn read(&self) -> Result<State> {
+        // One osascript call for the whole state — five would mean five
+        // process spawns every poll.
+        let script = r#"
+            if application "Spotify" is running then
+              tell application "Spotify"
+                try
+                  return (player state as string) & "|" & (name of current track) & "|" & ¬
+                         (artist of current track) & "|" & ((duration of current track) / 1000) & "|" & (player position)
+                on error
+                  return "stopped|||0|0"
+                end try
+              end tell
+            else
+              return "notrunning"
+            end if"#;
+        let out = std::process::Command::new("osascript")
+            .arg("-e")
+            .arg(script)
+            .output()?;
+        let raw = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if raw == "notrunning" || raw.is_empty() {
+            return Ok(State::Offline);
+        }
+        let f: Vec<&str> = raw.split('|').collect();
+        if f.len() < 5 || f[1].is_empty() {
+            return Ok(State::Idle);
+        }
+        Ok(State::Playing(Track {
+            title: f[1].to_string(),
+            artist: f[2].to_string(),
+            duration: f[3].parse().unwrap_or(0.0),
+            progress: f[4].parse().unwrap_or(0.0),
+            playing: f[0] == "playing",
+        }))
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    fn read(&self) -> Result<State> {
+        // playerctl speaks MPRIS, which every Linux Spotify build exposes.
+        let out = std::process::Command::new("playerctl")
+            .args([
+                "-p",
+                "spotify",
+                "metadata",
+                "--format",
+                "{{status}}|{{title}}|{{artist}}|{{mpris:length}}|{{position}}",
+            ])
+            .output()?;
+        if !out.status.success() {
+            return Ok(State::Offline);
+        }
+        let raw = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        let f: Vec<&str> = raw.split('|').collect();
+        if f.len() < 5 || f[1].is_empty() {
+            return Ok(State::Idle);
+        }
+        // MPRIS reports both of these in microseconds.
+        let us = |s: &str| s.parse::<f64>().unwrap_or(0.0) / 1_000_000.0;
+        Ok(State::Playing(Track {
+            title: f[1].to_string(),
+            artist: f[2].to_string(),
+            duration: us(f[3]),
+            progress: us(f[4]),
+            playing: f[0].eq_ignore_ascii_case("playing"),
+        }))
+    }
+
+    #[cfg(target_os = "macos")]
+    fn press(&self, c: Cmd) -> Result<()> {
+        let verb = match c {
+            Cmd::PlayPause => "playpause",
+            Cmd::Next => "next track",
+            Cmd::Prev => "previous track",
+        };
+        let _ = std::process::Command::new("osascript")
+            .arg("-e")
+            .arg(format!(
+                "if application \"Spotify\" is running then tell application \"Spotify\" to {verb}"
+            ))
+            .output()?;
+        Ok(())
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    fn press(&self, c: Cmd) -> Result<()> {
+        let verb = match c {
+            Cmd::PlayPause => "play-pause",
+            Cmd::Next => "next",
+            Cmd::Prev => "previous",
+        };
+        let _ = std::process::Command::new("playerctl")
+            .args(["-p", "spotify", verb])
+            .output()?;
+        Ok(())
+    }
+}
+
+impl Backend for Spotify {
+    fn state(&mut self) -> Result<State> {
+        self.read()
+    }
+    fn command(&mut self, c: Cmd) -> Result<()> {
+        self.press(c)
+    }
 }
 
 /// Pair with the desktop client. With the default AUTH_AT_FIRST strategy the
@@ -265,9 +490,11 @@ pub fn authenticate(host: &str, port: u16) -> Result<()> {
         .ok_or_else(|| anyhow!("no accessToken in response: {v}"))?;
 
     Config {
+        source: Source::YouTubeMusic,
         host: host.to_string(),
         port,
         token: Some(token.to_string()),
+        ..Config::load()
     }
     .save()?;
 

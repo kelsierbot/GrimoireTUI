@@ -64,6 +64,8 @@ pub enum Overlay {
     Menu { sel: usize },
     /// Browsing presets. `restore` is put back if you press Esc.
     Themes { sel: usize, restore: Theme },
+    /// Choosing where music comes from.
+    Sources { sel: usize },
     /// Editing the custom theme swatch by swatch.
     Custom { field: usize, buf: String },
 }
@@ -446,9 +448,10 @@ impl App {
         v
     }
 
-    pub const MENU: [&'static str; 4] = [
+    pub const MENU: [&'static str; 5] = [
         "Update project map  (project.md)",
         "Compile manuscript",
+        "Music source…",
         "Themes…",
         "Close",
     ];
@@ -493,7 +496,12 @@ impl App {
                 }
                 self.overlay = Overlay::None;
             }
-            2 => self.open_theme_picker(),
+            2 => {
+                let cur = self.music.source;
+                let sel = music::Source::ALL.iter().position(|s| *s == cur).unwrap_or(0);
+                self.overlay = Overlay::Sources { sel };
+            }
+            3 => self.open_theme_picker(),
             _ => self.overlay = Overlay::None,
         }
     }
@@ -538,6 +546,26 @@ impl App {
                     Key::Enter | Key::Char(' ') => {
                         let i = *sel;
                         self.run_menu(i);
+                    }
+                    Key::Esc => self.overlay = Overlay::None,
+                    _ => {}
+                }
+            }
+
+            Overlay::Sources { sel } => {
+                let n = music::Source::ALL.len();
+                match key {
+                    Key::Down | Key::Char('j') => *sel = (*sel + 1) % n,
+                    Key::Up | Key::Char('k') => *sel = (*sel + n - 1) % n,
+                    Key::Enter | Key::Char(' ') => {
+                        let chosen = music::Source::ALL[*sel];
+                        let mut cfg = music::Config::load();
+                        cfg.source = chosen;
+                        let _ = cfg.save();
+                        // Restart the poller against the new source.
+                        self.music = Music::spawn(cfg);
+                        self.msg = format!("music: {}", chosen.label());
+                        self.overlay = Overlay::None;
                     }
                     Key::Esc => self.overlay = Overlay::None,
                     _ => {}

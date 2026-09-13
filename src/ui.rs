@@ -264,7 +264,8 @@ fn draw_scene(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
 }
 
 fn draw_music(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
-    let block = pane_block("♪", app.focus == Focus::Music, t);
+    let title = format!("♪ {}", app.music.source.label());
+    let block = pane_block(&title, app.focus == Focus::Music, t);
     let inner = block.inner(area);
     app.rect_music = inner;
     f.render_widget(block, area);
@@ -272,7 +273,7 @@ fn draw_music(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
 
     let lines: Vec<Line> = match &app.music.state {
         MusicState::NoToken => vec![
-            Line::from(Span::styled("no account linked", Style::default().fg(t.dim))),
+            Line::from(Span::styled("not set up", Style::default().fg(t.dim))),
             Line::from(Span::styled(
                 "grimoire music-setup",
                 Style::default().fg(t.border),
@@ -280,11 +281,11 @@ fn draw_music(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
         ],
         MusicState::Offline => vec![
             Line::from(Span::styled(
-                "player offline",
+                format!("{} not running", app.music.source.label()),
                 Style::default().fg(t.dim),
             )),
             Line::from(Span::styled(
-                "start it to connect",
+                "F1 to switch source",
                 Style::default().fg(t.border),
             )),
         ],
@@ -480,6 +481,50 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
                             *label,
                             Style::default().fg(if on { t.accent } else { t.text }),
                         ),
+                    ])
+                    .style(if on {
+                        Style::default().bg(t.sel)
+                    } else {
+                        Style::default()
+                    })
+                })
+                .collect();
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                " j/k move   ↵ choose   esc close",
+                Style::default().fg(t.dim),
+            )));
+            f.render_widget(Paragraph::new(lines), inner);
+        }
+
+        Overlay::Sources { sel } => {
+            let all = crate::music::Source::ALL;
+            let box_area = centred(area, 52, all.len() as u16 + 5);
+            f.render_widget(Clear, box_area);
+            let block = pane_block("MUSIC SOURCE", true, t);
+            let inner = block.inner(box_area);
+            f.render_widget(block, box_area);
+
+            let mut lines: Vec<Line> = all
+                .iter()
+                .enumerate()
+                .map(|(i, src)| {
+                    let on = i == *sel;
+                    let note = if src.plays_audio() {
+                        "your server · plays here"
+                    } else {
+                        "remote control"
+                    };
+                    Line::from(vec![
+                        Span::styled(
+                            if on { " ● " } else { " • " },
+                            Style::default().fg(if on { t.accent } else { t.dim }),
+                        ),
+                        Span::styled(
+                            format!("{:<15}", src.label()),
+                            Style::default().fg(if on { t.accent } else { t.text }),
+                        ),
+                        Span::styled(note, Style::default().fg(t.dim)),
                     ])
                     .style(if on {
                         Style::default().bg(t.sel)
