@@ -215,7 +215,9 @@ impl App {
                     }
                 }
             }
-            Key::Enter => {
+            // Space is a second Enter here — folding is the most repeated
+            // action in the tree and the thumb is already there.
+            Key::Enter | Key::Char(' ') => {
                 let idx = self.visible[self.sel];
                 match self.project.nodes[idx].kind {
                     Kind::Container => {

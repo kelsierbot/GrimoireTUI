@@ -86,7 +86,7 @@ heard of.
 |---|---|
 | `Tab` / `Shift-Tab` | cycle panes — tree, editor, clearing, music |
 | `↑ ↓` · `j k` | move in the tree |
-| `Enter` | fold or unfold a container · open a scene |
+| `Enter` · `Space` | fold or unfold a container · open a scene |
 | `→` `l` / `←` `h` | expand / collapse, or jump to parent |
 | `Ctrl-S` | save all changed scenes |
 | `Ctrl-Q` | quit — twice if unsaved |
