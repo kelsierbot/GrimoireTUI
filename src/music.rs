@@ -20,9 +20,9 @@
 use crate::library::{self, Jukebox};
 use anyhow::{Context, Result, anyhow};
 use std::path::PathBuf;
-use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 pub const APP_ID: &str = "grimoiretui";
 pub const DEFAULT_PORT: u16 = 26538;
@@ -190,17 +190,62 @@ pub enum State {
     Playing(Track),
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Cmd {
     PlayPause,
     Next,
     Prev,
+    /// Seconds forward, or back if negative.
+    Seek(i32),
+    Shuffle,
+    Repeat,
+    /// Nudge the volume by this many percent.
+    Volume(i32),
+    Like,
+    /// Play the track at this position in the queue.
+    JumpTo(usize),
+    /// Queue a track by id: straight after this one and play it (`now`), or at the end.
+    Enqueue { id: String, now: bool },
+    /// Ask for the queue; answered by a fresh `Music::queue`.
+    FetchQueue,
+    /// Search; answered by `Music::results`.
+    Search(String),
+}
+
+/// A row in the queue or in search results.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Item {
+    pub title: String,
+    pub artist: String,
+    /// "4:18", or empty when the source doesn't say.
+    pub length: String,
+    /// What to hand back to play or queue it (a YouTube video id).
+    pub id: String,
+    /// Position in the source's own queue, for jumping to it.
+    pub pos: usize,
+    /// The track playing now.
+    pub current: bool,
+    /// A music video rather than a song.
+    pub video: bool,
+}
+
+/// What the poller thread sends back.
+enum Update {
+    State(State),
+    Queue(Vec<Item>),
+    Results(Vec<Item>),
+    Note(String),
 }
 
 pub struct Music {
     pub state: State,
     pub source: Source,
-    rx: Option<Receiver<State>>,
+    /// The last queue fetched, and the last search's results.
+    pub queue: Vec<Item>,
+    pub results: Vec<Item>,
+    /// A short line for the player: "searching…", or why something failed.
+    pub note: Option<String>,
+    rx: Option<Receiver<Update>>,
     tx: Option<Sender<Cmd>>,
 }
 
@@ -209,6 +254,13 @@ pub struct Music {
 trait Backend: Send {
     fn state(&mut self) -> Result<State>;
     fn command(&mut self, c: Cmd) -> Result<()>;
+    /// The play queue, for sources that can share it.
+    fn queue(&mut self) -> Result<Vec<Item>> {
+        Err(anyhow!("this source doesn't share its queue"))
+    }
+    fn search(&mut self, _query: &str) -> Result<Vec<Item>> {
+        Err(anyhow!("search works with YouTube Music"))
+    }
 }
 
 impl Music {
@@ -241,47 +293,90 @@ impl Music {
             return Music {
                 state: State::NoToken,
                 source,
+                queue: Vec::new(),
+                results: Vec::new(),
+                note: None,
                 rx: None,
                 tx: None,
             };
         };
 
-        let (state_tx, state_rx) = mpsc::channel::<State>();
+        let (up_tx, up_rx) = mpsc::channel::<Update>();
         let (cmd_tx, cmd_rx) = mpsc::channel::<Cmd>();
 
         thread::spawn(move || {
             loop {
-                // Commands first, so a keypress feels immediate.
-                loop {
-                    match cmd_rx.try_recv() {
-                        Ok(c) => {
-                            let _ = backend.command(c);
-                        }
-                        Err(TryRecvError::Empty) => break,
-                        Err(TryRecvError::Disconnected) => return,
-                    }
-                }
                 let next = backend.state().unwrap_or(State::Offline);
-                if state_tx.send(next).is_err() {
+                if up_tx.send(Update::State(next)).is_err() {
                     return;
                 }
-                thread::sleep(POLL);
+                // Wait out the poll interval, but act on a command the moment
+                // it arrives, and re-poll straight after one that changes
+                // playback so the pane catches up with the keypress.
+                let deadline = Instant::now() + POLL;
+                loop {
+                    let wait = deadline.saturating_duration_since(Instant::now());
+                    let c = match cmd_rx.recv_timeout(wait) {
+                        Ok(c) => c,
+                        Err(RecvTimeoutError::Timeout) => break,
+                        Err(RecvTimeoutError::Disconnected) => return,
+                    };
+                    let repoll = !matches!(c, Cmd::FetchQueue | Cmd::Search(_));
+                    let reply = match c {
+                        Cmd::FetchQueue => Some(backend.queue().map(Update::Queue)),
+                        Cmd::Search(q) => Some(backend.search(&q).map(Update::Results)),
+                        // These reshape the queue, so send the new one along.
+                        c @ (Cmd::JumpTo(_) | Cmd::Enqueue { .. }) => Some(
+                            backend
+                                .command(c)
+                                .and_then(|_| backend.queue())
+                                .map(Update::Queue),
+                        ),
+                        c => {
+                            let _ = backend.command(c);
+                            None
+                        }
+                    };
+                    let sent = match reply {
+                        Some(Ok(u)) => up_tx.send(u),
+                        Some(Err(e)) => up_tx.send(Update::Note(e.to_string())),
+                        None => Ok(()),
+                    };
+                    if sent.is_err() {
+                        return;
+                    }
+                    if repoll {
+                        break;
+                    }
+                }
             }
         });
 
         Music {
             state: State::Offline,
             source,
-            rx: Some(state_rx),
+            queue: Vec::new(),
+            results: Vec::new(),
+            note: None,
+            rx: Some(up_rx),
             tx: Some(cmd_tx),
         }
     }
 
     /// Drain whatever the poller has sent since the last frame.
     pub fn drain(&mut self) {
-        if let Some(rx) = &self.rx {
-            while let Ok(s) = rx.try_recv() {
-                self.state = s;
+        let Some(rx) = &self.rx else {
+            return;
+        };
+        while let Ok(u) = rx.try_recv() {
+            match u {
+                Update::State(s) => self.state = s,
+                Update::Queue(q) => self.queue = q,
+                Update::Results(r) => {
+                    self.note = r.is_empty().then(|| "nothing playable found".to_string());
+                    self.results = r;
+                }
+                Update::Note(n) => self.note = Some(n),
             }
         }
     }
@@ -297,20 +392,54 @@ impl Music {
 
 struct Ytm {
     agent: ureq::Agent,
+    /// Search goes out to YouTube from inside the app, so it gets longer.
+    slow: ureq::Agent,
     base: String,
     bearer: String,
 }
 
+/// Large queues run to megabytes of renderer JSON.
+const BODY_LIMIT: u64 = 64 << 20;
+
 impl Ytm {
     fn new(cfg: &Config, token: String) -> Ytm {
+        let agent = |t| ureq::Agent::config_builder().timeout_global(Some(t)).build().new_agent();
         Ytm {
-            agent: ureq::Agent::config_builder()
-                .timeout_global(Some(HTTP_TIMEOUT))
-                .build()
-                .new_agent(),
+            agent: agent(HTTP_TIMEOUT),
+            slow: agent(Duration::from_secs(12)),
             base: cfg.base(),
             bearer: format!("Bearer {token}"),
         }
+    }
+
+    fn url(&self, path: &str) -> String {
+        format!("{}/api/v1{path}", self.base)
+    }
+
+    fn get(&self, path: &str) -> Result<ureq::http::Response<ureq::Body>> {
+        Ok(self.agent.get(self.url(path)).header("Authorization", &self.bearer).call()?)
+    }
+
+    fn post(&self, path: &str, body: Option<serde_json::Value>) -> Result<()> {
+        let req = self.agent.post(self.url(path)).header("Authorization", &self.bearer);
+        match body {
+            Some(b) => req.send_json(b)?,
+            None => req.send_empty()?,
+        };
+        Ok(())
+    }
+
+    fn patch(&self, path: &str, body: serde_json::Value) -> Result<()> {
+        self.agent
+            .patch(self.url(path))
+            .header("Authorization", &self.bearer)
+            .send_json(body)?;
+        Ok(())
+    }
+
+    fn read(res: &mut ureq::http::Response<ureq::Body>) -> Result<serde_json::Value> {
+        let s = res.body_mut().with_config().limit(BODY_LIMIT).read_to_string()?;
+        Ok(serde_json::from_str(&s)?)
     }
 }
 
@@ -341,16 +470,238 @@ impl Backend for Ytm {
     }
 
     fn command(&mut self, c: Cmd) -> Result<()> {
-        let path = match c {
-            Cmd::PlayPause => "/api/v1/toggle-play",
-            Cmd::Next => "/api/v1/next",
-            Cmd::Prev => "/api/v1/previous",
-        };
-        self.agent
-            .post(format!("{}{path}", self.base))
+        use serde_json::json;
+        match c {
+            Cmd::PlayPause => self.post("/toggle-play", None),
+            Cmd::Next => self.post("/next", None),
+            Cmd::Prev => self.post("/previous", None),
+            Cmd::Seek(s) if s >= 0 => self.post("/go-forward", Some(json!({ "seconds": s }))),
+            Cmd::Seek(s) => self.post("/go-back", Some(json!({ "seconds": -s }))),
+            Cmd::Shuffle => self.post("/shuffle", None),
+            Cmd::Repeat => self.post("/switch-repeat", Some(json!({ "iteration": 1 }))),
+            Cmd::Volume(d) => {
+                let now = Ytm::read(&mut self.get("/volume")?)?["state"].as_f64().unwrap_or(50.0) as i32;
+                self.post("/volume", Some(json!({ "volume": (now + d).clamp(0, 100) })))
+            }
+            Cmd::Like => self.post("/like", None),
+            Cmd::JumpTo(i) => self.patch("/queue", json!({ "index": i })),
+            Cmd::Enqueue { id, now } => {
+                let at = if now { "INSERT_AFTER_CURRENT_VIDEO" } else { "INSERT_AT_END" };
+                self.post("/queue", Some(json!({ "videoId": id, "insertPosition": at })))?;
+                if now {
+                    // The app adds it asynchronously. Wait until it lands just
+                    // after the playing track, then jump to it.
+                    for _ in 0..12 {
+                        thread::sleep(Duration::from_millis(250));
+                        let q = self.queue()?;
+                        let Some(cur) = q.iter().position(|it| it.current) else {
+                            continue;
+                        };
+                        if let Some(next) = q.get(cur + 1).filter(|it| it.id == id) {
+                            return self.patch("/queue", json!({ "index": next.pos }));
+                        }
+                    }
+                }
+                Ok(())
+            }
+            Cmd::FetchQueue | Cmd::Search(_) => Ok(()),
+        }
+    }
+
+    fn queue(&mut self) -> Result<Vec<Item>> {
+        let mut res = self.get("/queue")?;
+        if res.status() == 204 {
+            return Ok(Vec::new());
+        }
+        Ok(parse_queue(&Ytm::read(&mut res)?))
+    }
+
+    fn search(&mut self, query: &str) -> Result<Vec<Item>> {
+        let mut res = self
+            .slow
+            .post(self.url("/search"))
             .header("Authorization", &self.bearer)
-            .send_empty()?;
-        Ok(())
+            .send_json(serde_json::json!({ "query": query }))?;
+        Ok(parse_search(&Ytm::read(&mut res)?))
+    }
+}
+
+/// Text of a YouTube `{ "runs": [{ "text": … }] }` block.
+fn runs(v: &serde_json::Value) -> String {
+    v["runs"]
+        .as_array()
+        .map(|a| a.iter().filter_map(|r| r["text"].as_str()).collect())
+        .unwrap_or_default()
+}
+
+/// The first `videoId` anywhere under `v`.
+fn first_video_id(v: &serde_json::Value) -> Option<String> {
+    match v {
+        serde_json::Value::Object(m) => m
+            .get("videoId")
+            .and_then(|x| x.as_str())
+            .map(str::to_string)
+            .or_else(|| m.values().find_map(first_video_id)),
+        serde_json::Value::Array(a) => a.iter().find_map(first_video_id),
+        _ => None,
+    }
+}
+
+/// The app's queue, as it sends it: renderer objects, some wrapped. Positions
+/// are kept as the app numbers them, since that's what jumping takes.
+fn parse_queue(v: &serde_json::Value) -> Vec<Item> {
+    let Some(items) = v["items"].as_array() else {
+        return Vec::new();
+    };
+    items
+        .iter()
+        .enumerate()
+        .filter_map(|(pos, it)| {
+            let r = it.get("playlistPanelVideoRenderer").or_else(|| {
+                it.pointer("/playlistPanelVideoWrapperRenderer/primaryRenderer/playlistPanelVideoRenderer")
+            })?;
+            Some(Item {
+                title: runs(&r["title"]),
+                artist: runs(&r["shortBylineText"]),
+                length: runs(&r["lengthText"]),
+                id: r["videoId"].as_str().unwrap_or_default().to_string(),
+                pos,
+                current: r["selected"].as_bool().unwrap_or(false),
+                video: false,
+            })
+        })
+        .collect()
+}
+
+/// Songs and videos from a search, top result first. Albums, playlists,
+/// artists and podcasts are left out: the API can only queue single tracks.
+fn parse_search(v: &serde_json::Value) -> Vec<Item> {
+    let none = Vec::new();
+    let sections = v
+        .pointer("/contents/tabbedSearchResultsRenderer/tabs/0/tabRenderer/content/sectionListRenderer/contents")
+        .and_then(|s| s.as_array())
+        .unwrap_or(&none);
+    let mut out: Vec<Item> = Vec::new();
+    for s in sections {
+        if let Some(card) = s.get("musicCardShelfRenderer") {
+            let top = playable(runs(&card["title"]), &runs(&card["subtitle"]));
+            if let (Some(item), Some(id)) = (top, first_video_id(&card["buttons"])) {
+                out.push(Item { id, ..item });
+            }
+            out.extend(card["contents"].as_array().into_iter().flatten().filter_map(list_item));
+        }
+        let rows = s
+            .pointer("/itemSectionRenderer/contents")
+            .or_else(|| s.pointer("/musicShelfRenderer/contents"));
+        out.extend(rows.and_then(|r| r.as_array()).into_iter().flatten().filter_map(list_item));
+    }
+    let mut seen = std::collections::HashSet::new();
+    out.retain(|it| seen.insert(it.id.clone()));
+    for (i, it) in out.iter_mut().enumerate() {
+        it.pos = i;
+    }
+    out
+}
+
+fn list_item(it: &serde_json::Value) -> Option<Item> {
+    let r = it.get("musicResponsiveListItemRenderer")?;
+    let id = r.pointer("/playlistItemData/videoId")?.as_str()?.to_string();
+    let cols: Vec<String> = r["flexColumns"]
+        .as_array()?
+        .iter()
+        .map(|c| runs(&c["musicResponsiveListItemFlexColumnRenderer"]["text"]))
+        .collect();
+    let item = playable(cols.first()?.clone(), cols.get(1).map_or("", String::as_str))?;
+    Some(Item { id, ..item })
+}
+
+/// A title and a byline like "Song • Fleetwood Mac • 4:18", if it names a
+/// song or a video. Untyped rows (on the top-result card) are videos.
+fn playable(title: String, byline: &str) -> Option<Item> {
+    let parts: Vec<&str> = byline.split('•').map(str::trim).filter(|p| !p.is_empty()).collect();
+    let kind = *parts.first()?;
+    let (video, artist, rest) = match kind {
+        "Song" => (false, parts.get(1).copied(), 2),
+        "Video" => (true, parts.get(1).copied(), 2),
+        "Episode" | "Podcast" | "Album" | "Single" | "EP" | "Playlist" | "Artist" | "Profile" => {
+            return None;
+        }
+        _ => (true, Some(kind), 1),
+    };
+    let is_length = |p: &&&str| {
+        p.contains(':') && p.split(':').all(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()))
+    };
+    Some(Item {
+        title,
+        artist: artist.unwrap_or_default().to_string(),
+        length: parts.iter().skip(rest).find(is_length).map_or(String::new(), |s| s.to_string()),
+        id: String::new(),
+        pos: 0,
+        current: false,
+        video,
+    })
+}
+
+#[cfg(test)]
+mod ytm_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn row(title: &str, byline: &str, id: Option<&str>) -> serde_json::Value {
+        let col = |t: &str| json!({ "musicResponsiveListItemFlexColumnRenderer": { "text": { "runs": [{ "text": t }] } } });
+        let mut r = json!({ "flexColumns": [col(title), col(byline)] });
+        if let Some(id) = id {
+            r["playlistItemData"] = json!({ "videoId": id });
+        }
+        json!({ "musicResponsiveListItemRenderer": r })
+    }
+
+    #[test]
+    fn search_keeps_songs_and_videos_and_drops_the_rest() {
+        let section = |r| json!({ "itemSectionRenderer": { "contents": [r] } });
+        let card = json!({ "musicCardShelfRenderer": {
+            "title": { "runs": [{ "text": "Dreams (2004 Remaster)" }] },
+            "subtitle": { "runs": [{ "text": "Song" }, { "text": " • " }, { "text": "Fleetwood Mac" }, { "text": " • " }, { "text": "4:18" }] },
+            "buttons": [{ "buttonRenderer": { "command": { "watchEndpoint": { "videoId": "swJOIjjW69U" } } } }],
+            "contents": [{ "messageRenderer": {} }, row("Dreams", "FLEETWOOD MAC • 92M views • 4:24", Some("Y3ywicffOj4"))]
+        }});
+        let v = json!({ "contents": { "tabbedSearchResultsRenderer": { "tabs": [{ "tabRenderer": { "content": { "sectionListRenderer": { "contents": [
+            card,
+            section(row("Dreams", "Song • Fleetwood Mac", Some("m8i5WiWCN-c"))),
+            section(row("Rumours", "Album • Fleetwood Mac • 1977", None)),
+            section(row("A talk about Dreams", "Episode • Jul 1, 2024", Some("BcuU763NTo4"))),
+            section(row("Dreams", "Song • Fleetwood Mac", Some("m8i5WiWCN-c"))),
+        ]}}}}]}}});
+
+        let r = parse_search(&v);
+        let ids: Vec<&str> = r.iter().map(|i| i.id.as_str()).collect();
+        assert_eq!(ids, ["swJOIjjW69U", "Y3ywicffOj4", "m8i5WiWCN-c"], "top result first; no album, episode or repeat");
+        assert_eq!((r[0].artist.as_str(), r[0].length.as_str()), ("Fleetwood Mac", "4:18"));
+        assert!(!r[0].video && r[1].video, "the untyped card row is a video");
+        assert_eq!((r[1].artist.as_str(), r[1].length.as_str()), ("FLEETWOOD MAC", "4:24"));
+        assert_eq!(r[2].pos, 2);
+    }
+
+    #[test]
+    fn queue_reads_both_renderer_shapes_and_marks_the_playing_track() {
+        let track = |t: &str, sel: bool| json!({
+            "title": { "runs": [{ "text": t }] },
+            "shortBylineText": { "runs": [{ "text": "Fleetwood Mac" }] },
+            "lengthText": { "runs": [{ "text": "3:44" }] },
+            "videoId": format!("id-{t}"),
+            "selected": sel,
+        });
+        let v = json!({ "items": [
+            { "playlistPanelVideoRenderer": track("Dreams", false) },
+            { "playlistPanelVideoWrapperRenderer": { "primaryRenderer": { "playlistPanelVideoRenderer": track("Go Your Own Way", true) } } },
+            { "automixPreviewVideoRenderer": {} },
+            { "playlistPanelVideoRenderer": track("Landslide", false) },
+        ]});
+        let q = parse_queue(&v);
+        assert_eq!(q.len(), 3);
+        assert_eq!(q[1].title, "Go Your Own Way");
+        assert!(q[1].current && !q[0].current);
+        assert_eq!(q[2].pos, 3, "positions stay the app's own, for jumping");
     }
 }
 
@@ -436,9 +787,14 @@ impl Spotify {
     #[cfg(target_os = "macos")]
     fn press(&self, c: Cmd) -> Result<()> {
         let verb = match c {
-            Cmd::PlayPause => "playpause",
-            Cmd::Next => "next track",
-            Cmd::Prev => "previous track",
+            Cmd::PlayPause => "playpause".to_string(),
+            Cmd::Next => "next track".to_string(),
+            Cmd::Prev => "previous track".to_string(),
+            Cmd::Seek(s) => format!("set player position to (player position + {s})"),
+            Cmd::Shuffle => "set shuffling to not shuffling".to_string(),
+            Cmd::Repeat => "set repeating to not repeating".to_string(),
+            Cmd::Volume(d) => format!("set sound volume to (sound volume + {d})"),
+            _ => return Ok(()),
         };
         let _ = std::process::Command::new("osascript")
             .arg("-e")
@@ -451,13 +807,19 @@ impl Spotify {
 
     #[cfg(not(target_os = "macos"))]
     fn press(&self, c: Cmd) -> Result<()> {
-        let verb = match c {
-            Cmd::PlayPause => "play-pause",
-            Cmd::Next => "next",
-            Cmd::Prev => "previous",
+        let sign = |n: i32| if n >= 0 { "+" } else { "-" };
+        let args: Vec<String> = match c {
+            Cmd::PlayPause => vec!["play-pause".into()],
+            Cmd::Next => vec!["next".into()],
+            Cmd::Prev => vec!["previous".into()],
+            Cmd::Seek(s) => vec!["position".into(), format!("{}{}", s.abs(), sign(s))],
+            Cmd::Shuffle => vec!["shuffle".into(), "Toggle".into()],
+            Cmd::Volume(d) => vec!["volume".into(), format!("{:.2}{}", d.abs() as f64 / 100.0, sign(d))],
+            _ => return Ok(()),
         };
         let _ = std::process::Command::new("playerctl")
-            .args(["-p", "spotify", verb])
+            .args(["-p", "spotify"])
+            .args(&args)
             .output()?;
         Ok(())
     }
@@ -536,7 +898,33 @@ impl Backend for Local {
             Cmd::PlayPause => self.player.toggle(),
             Cmd::Next => self.player.step(1),
             Cmd::Prev => self.player.step(-1),
+            Cmd::JumpTo(i) => self.player.play_at(i),
+            _ => Ok(()),
         }
+    }
+
+    fn queue(&mut self) -> Result<Vec<Item>> {
+        let at = self.player.index();
+        let started = self.player.started();
+        Ok(self
+            .player
+            .tracks()
+            .iter()
+            .enumerate()
+            .map(|(pos, t)| Item {
+                title: t.title.clone(),
+                artist: t.artist.clone(),
+                length: if t.duration > 0.0 {
+                    format!("{}:{:02}", t.duration as u64 / 60, t.duration as u64 % 60)
+                } else {
+                    String::new()
+                },
+                id: String::new(),
+                pos,
+                current: started && pos == at,
+                video: false,
+            })
+            .collect())
     }
 }
 

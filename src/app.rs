@@ -44,6 +44,8 @@ pub struct App {
     /// The garden's last step and when it last grew, so new growth can glint.
     pub growth_step: Option<usize>,
     pub growth_changed: Option<std::time::Instant>,
+    /// When the player last asked for the queue, so it stays current while open.
+    pub player_fetched: Option<std::time::Instant>,
     /// Animation counter, bumped once per event-loop tick.
     pub frame: u64,
     /// True when the terminal can actually report Cmd/Super — which needs the
@@ -81,6 +83,16 @@ pub enum Overlay {
         dir: PathBuf,
         label: String,
         buf: String,
+    },
+    /// The music player: what's playing, the queue, and search.
+    Player {
+        /// Which tab: the queue, or search results.
+        search: bool,
+        sel: usize,
+        /// Keep the selection on the playing track until you move it yourself.
+        follow: bool,
+        query: String,
+        typing: bool,
     },
 }
 
@@ -131,6 +143,7 @@ impl App {
             viz: Visualizer::new(),
             growth_step: None,
             growth_changed: None,
+            player_fetched: None,
             frame: 0,
             super_keys: false,
             scene_visible: true,
@@ -166,6 +179,7 @@ impl App {
             4 => self.music.send(music::Cmd::Prev),
             5 => self.music.send(music::Cmd::PlayPause),
             6 => self.music.send(music::Cmd::Next),
+            7 => self.open_player(),
             _ => {}
         }
     }
@@ -478,7 +492,8 @@ impl App {
 
     pub fn on_music_key(&mut self, key: Key) {
         match key {
-            Key::Enter | Key::Char(' ') => self.music.send(music::Cmd::PlayPause),
+            Key::Enter => self.open_player(),
+            Key::Char(' ') => self.music.send(music::Cmd::PlayPause),
             Key::Right | Key::Char('l') | Key::Char('n') => self.music.send(music::Cmd::Next),
             Key::Left | Key::Char('h') | Key::Char('p') => self.music.send(music::Cmd::Prev),
             Key::Esc => self.focus = Focus::Tree,
@@ -589,11 +604,12 @@ impl App {
         v
     }
 
-    pub const MENU: [&'static str; 7] = [
+    pub const MENU: [&'static str; 8] = [
         "New scene…          (n)",
         "New folder…         (N)",
         "Update project map  (project.md)",
         "Compile manuscript",
+        "Music player…       (F7)",
         "Music source…",
         "Themes…",
         "Close",
@@ -601,6 +617,39 @@ impl App {
 
     pub fn open_menu(&mut self) {
         self.overlay = Overlay::Menu { sel: 0 };
+    }
+
+    pub fn open_player(&mut self) {
+        self.overlay = Overlay::Player {
+            search: false,
+            sel: 0,
+            follow: true,
+            query: String::new(),
+            typing: false,
+        };
+        self.music.note = None;
+        self.music.send(music::Cmd::FetchQueue);
+        self.player_fetched = Some(std::time::Instant::now());
+    }
+
+    /// While the player is open, keep the queue fresh and the selection on
+    /// the playing track (until you move it yourself).
+    pub fn tick_player(&mut self) {
+        let Overlay::Player { search, sel, follow, .. } = &mut self.overlay else {
+            return;
+        };
+        if !*search && *follow {
+            if let Some(i) = self.music.queue.iter().position(|it| it.current) {
+                *sel = i;
+            }
+        }
+        if self
+            .player_fetched
+            .is_none_or(|t| t.elapsed() > std::time::Duration::from_secs(4))
+        {
+            self.music.send(music::Cmd::FetchQueue);
+            self.player_fetched = Some(std::time::Instant::now());
+        }
     }
 
     fn run_menu(&mut self, i: usize) {
@@ -641,12 +690,13 @@ impl App {
                 }
                 self.overlay = Overlay::None;
             }
-            4 => {
+            4 => self.open_player(),
+            5 => {
                 let cur = self.music.source;
                 let sel = music::Source::ALL.iter().position(|s| *s == cur).unwrap_or(0);
                 self.overlay = Overlay::Sources { sel };
             }
-            5 => self.open_theme_picker(),
+            6 => self.open_theme_picker(),
             _ => self.overlay = Overlay::None,
         }
     }
@@ -783,6 +833,92 @@ impl App {
                 _ => {},
             },
 
+            Overlay::Player { search, sel, follow, query, typing } => {
+                use music::Cmd;
+                let len = if *search { self.music.results.len() } else { self.music.queue.len() };
+                if *typing {
+                    match key {
+                        Key::Char(c) if !c.is_control() && query.chars().count() < 80 => query.push(c),
+                        Key::Backspace => {
+                            query.pop();
+                        }
+                        Key::Enter => {
+                            *typing = false;
+                            *sel = 0;
+                            let q = query.trim().to_string();
+                            if !q.is_empty() {
+                                self.music.results.clear();
+                                self.music.note = Some(format!("searching for “{q}”…"));
+                                self.music.send(Cmd::Search(q));
+                            }
+                        }
+                        Key::Esc => *typing = false,
+                        _ => {}
+                    }
+                    return;
+                }
+                match key {
+                    Key::Esc | Key::F(7) => self.overlay = Overlay::None,
+                    Key::Tab | Key::BackTab => {
+                        *search = !*search;
+                        *sel = 0;
+                        *follow = !*search;
+                    }
+                    Key::Char('/') => {
+                        *search = true;
+                        *typing = true;
+                    }
+                    Key::Down | Key::Char('j') => {
+                        *sel = (*sel + 1).min(len.saturating_sub(1));
+                        *follow = false;
+                    }
+                    Key::Up | Key::Char('k') => {
+                        *sel = sel.saturating_sub(1);
+                        *follow = false;
+                    }
+                    Key::PageDown => {
+                        *sel = (*sel + 10).min(len.saturating_sub(1));
+                        *follow = false;
+                    }
+                    Key::PageUp => {
+                        *sel = sel.saturating_sub(10);
+                        *follow = false;
+                    }
+                    Key::Enter => {
+                        if *search {
+                            if let Some(it) = self.music.results.get(*sel) {
+                                self.music.note = Some(format!("playing {}", it.title));
+                                self.music.send(Cmd::Enqueue { id: it.id.clone(), now: true });
+                            }
+                        } else if let Some(it) = self.music.queue.get(*sel) {
+                            *follow = true;
+                            self.music.send(Cmd::JumpTo(it.pos));
+                        }
+                    }
+                    Key::Char('a') if *search => {
+                        if let Some(it) = self.music.results.get(*sel) {
+                            self.music.note = Some(format!("added {} to the end of the queue", it.title));
+                            self.music.send(Cmd::Enqueue { id: it.id.clone(), now: false });
+                        }
+                    }
+                    Key::Char(' ') => self.music.send(Cmd::PlayPause),
+                    Key::Right => self.music.send(Cmd::Seek(10)),
+                    Key::Left => self.music.send(Cmd::Seek(-10)),
+                    Key::Char(']') | Key::Char('n') => self.music.send(Cmd::Next),
+                    Key::Char('[') | Key::Char('p') => self.music.send(Cmd::Prev),
+                    Key::Char('s') => self.music.send(Cmd::Shuffle),
+                    Key::Char('r') => self.music.send(Cmd::Repeat),
+                    Key::Char('+') | Key::Char('=') => self.music.send(Cmd::Volume(10)),
+                    Key::Char('-') => self.music.send(Cmd::Volume(-10)),
+                    Key::Char('l') => {
+                        self.music.note = Some("liked".into());
+                        self.music.send(Cmd::Like);
+                    }
+                    Key::F(n) => self.on_function_key(n),
+                    _ => {}
+                }
+            }
+
             Overlay::Create { folder, dir, buf, .. } => match key {
                 Key::Char(c) if !c.is_control() && buf.chars().count() < 60 => buf.push(c),
                 Key::Backspace => {
@@ -806,7 +942,7 @@ impl App {
             Focus::Tree => format!("Tab pane  ↵ fold  n scene  N folder  F1 menu  {m}S save  {m}Q quit "),
             Focus::Editor => format!("Tab pane  Esc tree  F1 menu  {m}S save  {m}Q quit "),
             Focus::Clearing => format!("Tab pane  ←→ view  ↵ start/pause  r reset  {m}Q quit "),
-            Focus::Music => format!("Tab pane  ↵ play/pause  ←→ track  F9 theme  {m}Q quit "),
+            Focus::Music => format!("Tab pane  ↵ open player  space pause  ←→ track  {m}Q quit "),
         }
     }
 }

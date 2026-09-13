@@ -226,6 +226,25 @@ impl Jukebox {
         self.queue.get(self.idx)
     }
 
+    /// The whole queue, for browsing, and where we are in it.
+    pub fn tracks(&self) -> &[TrackRef] {
+        &self.queue
+    }
+
+    pub fn index(&self) -> usize {
+        self.idx
+    }
+
+    /// Jump straight to a track in the queue.
+    pub fn play_at(&mut self, i: usize) -> Result<()> {
+        self.ensure_queue()?;
+        if i >= self.queue.len() {
+            return Ok(());
+        }
+        self.idx = i;
+        self.load(i)
+    }
+
     /// Load a queue if we don't have one. Cheap to call repeatedly.
     pub fn ensure_queue(&mut self) -> Result<()> {
         if self.queue.is_empty() {

@@ -278,7 +278,7 @@ fn draw_scene(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
 }
 
 fn draw_music(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
-    let title = format!("♪ {}", app.music.source.label());
+    let title = format!("♪ {} · F7", app.music.source.label());
     let block = pane_block(&title, app.focus == Focus::Music, t);
     let inner = block.inner(area);
     app.rect_music = inner;
@@ -508,6 +508,115 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
                 " j/k move   ↵ choose   esc close",
                 Style::default().fg(t.dim),
             )));
+            f.render_widget(Paragraph::new(lines), inner);
+        }
+
+        Overlay::Player { search, sel, query, typing, .. } => {
+            let box_area = centred(area, area.width.saturating_sub(4).min(100), area.height.saturating_sub(2).min(30));
+            f.render_widget(Clear, box_area);
+            let title = format!("♪ {}", app.music.source.label().to_uppercase());
+            let block = pane_block(&title, true, t);
+            let inner = block.inner(box_area);
+            f.render_widget(block, box_area);
+            let iw = inner.width as usize;
+            let dim = Style::default().fg(t.dim);
+            let accent = Style::default().fg(t.accent);
+            let mins = |s: f64| format!("{:.0}:{:02.0}", (s / 60.0).floor(), s % 60.0);
+            let mut lines: Vec<Line> = Vec::new();
+
+            // Now playing, with a real progress bar.
+            match &app.music.state {
+                MusicState::Playing(tr) => {
+                    lines.push(Line::from(vec![
+                        Span::styled(if tr.playing { " ▶ " } else { " ❚❚ " }, accent),
+                        Span::styled(truncate(&tr.title, iw.saturating_sub(26).max(8)), Style::default().fg(t.text)),
+                        Span::styled(format!("  {}", truncate(&tr.artist, 22)), dim),
+                    ]));
+                    let times = format!(" {} / {}", mins(tr.progress), mins(tr.duration));
+                    let barw = iw.saturating_sub(times.chars().count() + 1).max(4);
+                    let frac = if tr.duration > 0.0 { (tr.progress / tr.duration).clamp(0.0, 1.0) } else { 0.0 };
+                    let filled = ((frac * barw as f64).round() as usize).min(barw);
+                    lines.push(Line::from(vec![
+                        Span::raw(" "),
+                        Span::styled("━".repeat(filled), accent),
+                        Span::styled("─".repeat(barw - filled), Style::default().fg(t.border)),
+                        Span::styled(times, dim),
+                    ]));
+                }
+                other => {
+                    let why = match other {
+                        MusicState::NoToken => "not set up yet: F1 › Music source, then run grimoire music-setup".to_string(),
+                        MusicState::Offline => format!("{} isn't running. Open it and this fills in.", app.music.source.label()),
+                        _ => "nothing playing. Pick something below.".to_string(),
+                    };
+                    lines.push(Line::from(Span::styled(format!(" {why}"), dim)));
+                    lines.push(Line::from(""));
+                }
+            }
+            lines.push(Line::from(""));
+
+            // Tabs, and the search box when on search.
+            let on = accent.add_modifier(ratatui::style::Modifier::BOLD | ratatui::style::Modifier::UNDERLINED);
+            lines.push(Line::from(vec![
+                Span::raw(" "),
+                Span::styled(format!("QUEUE · {}", app.music.queue.len()), if *search { dim } else { on }),
+                Span::raw("    "),
+                Span::styled("SEARCH", if *search { on } else { dim }),
+                Span::styled("    tab switches", dim),
+            ]));
+            if *search {
+                lines.push(if *typing {
+                    Line::from(vec![
+                        Span::styled(" find ▸ ", accent),
+                        Span::styled(query.clone(), Style::default().fg(t.text)),
+                        Span::styled("█", accent),
+                    ])
+                } else if query.is_empty() {
+                    Line::from(Span::styled(" press / and type a song or an artist", dim))
+                } else {
+                    Line::from(Span::styled(format!(" results for “{query}” · / to search again"), dim))
+                });
+            }
+            lines.push(Line::from(""));
+
+            // The list, scrolled to keep the selection in view.
+            let footer = 3;
+            let room = (inner.height as usize).saturating_sub(lines.len() + footer).max(1);
+            let items = if *search { &app.music.results } else { &app.music.queue };
+            if items.is_empty() && !*search {
+                lines.push(Line::from(Span::styled(
+                    " the queue is empty. Start a playlist in the app, or search with /",
+                    dim,
+                )));
+            }
+            let start = sel.saturating_sub(room / 2).min(items.len().saturating_sub(room));
+            let artist_w = (iw / 4).clamp(8, 28);
+            let title_w = iw.saturating_sub(artist_w + 14);
+            for (i, it) in items.iter().enumerate().skip(start).take(room) {
+                let who = if it.video { format!("{} · video", it.artist) } else { it.artist.clone() };
+                let row = Line::from(vec![
+                    Span::styled(format!(" {}{:>3} ", if it.current { "▶" } else { " " }, i + 1), if it.current { accent } else { dim }),
+                    Span::styled(
+                        format!("{:<title_w$}", truncate(&it.title, title_w)),
+                        Style::default().fg(if it.current { t.accent } else { t.text }),
+                    ),
+                    Span::styled(format!(" {:<artist_w$}", truncate(&who, artist_w)), dim),
+                    Span::styled(format!("{:>6}", it.length), dim),
+                ]);
+                lines.push(if i == *sel { row.style(Style::default().bg(t.sel)) } else { row });
+            }
+
+            while lines.len() < (inner.height as usize).saturating_sub(footer) {
+                lines.push(Line::from(""));
+            }
+            lines.push(Line::from(Span::styled(format!(" {}", app.music.note.clone().unwrap_or_default()), accent)));
+            let controls = " space pause  ←→ seek 10s  [ ] prev/next  s shuffle  r repeat  +/- volume  l like  esc close";
+            let keys = if *search {
+                [" / search   ↵ play now   a add to queue   ↑↓ choose   tab queue", controls]
+            } else {
+                [" ↵ play this one   ↑↓ choose   / search   tab search", controls]
+            };
+            lines.extend(keys.map(|k| Line::from(Span::styled(k, dim))));
             f.render_widget(Paragraph::new(lines), inner);
         }
 

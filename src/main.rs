@@ -251,6 +251,7 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
 
     loop {
         app.music.drain();
+        app.tick_player();
         if app.pomo.tick() {
             app.msg = match app.pomo.phase {
                 scene::Phase::Break => "break — go and look at something far away".into(),
