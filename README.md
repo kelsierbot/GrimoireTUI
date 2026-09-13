@@ -39,6 +39,7 @@ The crate is `grimoire-tui`; the binary it installs is `grimoire`. Make sure
 grimoire                          open your manuscript
 grimoire ~/novels/the-archive     open a specific one
 grimoire new ~/novels/next-one    start one
+grimoire music-setup              install + connect YouTube Music
 ```
 
 With no arguments it opens the current directory if it's a manuscript,
@@ -172,29 +173,29 @@ close, and fireflies come out between the rabbits.
 
 There is no official YouTube Music API, and anything that extracts stream URLs
 both violates the terms and side-steps the subscription you already pay for.
-**So Grimoire never plays audio.**
-
-It drives [th-ch/youtube-music](https://github.com/th-ch/youtube-music)'s API
-Server instead — a desktop client already signed into your real account. Your
-playlists, your Premium, your playback; Grimoire just presses the buttons. That
-client ships a `.dmg` and an `.AppImage`, so the same setup works on macOS and
-Linux.
-
-1. Install it from [the releases page](https://github.com/th-ch/youtube-music/releases)
-2. Enable **Plugins → API Server** (listens on `26538`)
-3. Pair:
+**So Grimoire never plays audio.** It drives
+[th-ch/youtube-music](https://github.com/th-ch/youtube-music) — a desktop
+client already signed into your real account. Your playlists, your Premium,
+your playback; Grimoire just presses the buttons.
 
 ```sh
-grimoire music-auth
+grimoire music-setup
 ```
 
-Accept the prompt in the app; the token lands in
-`~/.config/grimoire/music.toml`. With no token configured the pane stays inert
-and never touches the network.
+One command. It finds the client or offers to download it, enables the API
+Server plugin, starts it, and pairs. Nothing else to do but sign in and press
+play.
 
-> Earlier versions targeted YTMDesktop. Its Homebrew cask was disabled on
-> 2026-09-01 for failing Apple's Gatekeeper check, so the backend moved to a
-> client that installs cleanly on both platforms.
+Worth knowing what it handles for you on macOS: that build is **ad-hoc signed
+rather than notarised**, so macOS quarantines it and refuses to launch — the
+step everyone gets stuck on. Setup clears the quarantine flag and re-signs the
+app locally. It also binds the API server to `127.0.0.1` rather than the
+plugin's default `0.0.0.0`, because there is no reason to expose your music
+controls to the whole network. The client's config is backed up before it is
+touched.
+
+`grimoire music-auth` re-pairs on its own if you ever need it. With no token
+configured the pane stays inert and never touches the network.
 
 ## Status
 

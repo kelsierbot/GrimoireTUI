@@ -236,7 +236,7 @@ fn draw_music(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
         MusicState::NoToken => vec![
             Line::from(Span::styled("no account linked", Style::default().fg(t.dim))),
             Line::from(Span::styled(
-                "grimoire music-auth",
+                "grimoire music-setup",
                 Style::default().fg(t.border),
             )),
         ],

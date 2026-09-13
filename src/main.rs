@@ -28,6 +28,10 @@ fn main() -> Result<()> {
     let mut args = std::env::args().skip(1);
     let first = args.next();
 
+    if first.as_deref() == Some("music-setup") {
+        return music::setup();
+    }
+
     if first.as_deref() == Some("music-auth") {
         let cfg = music::Config::load();
         let host = args.next().unwrap_or(cfg.host);
@@ -44,7 +48,8 @@ fn main() -> Result<()> {
         println!("  grimoire                    open your current manuscript");
         println!("  grimoire <dir>              open a specific one");
         println!("  grimoire new <dir>          start a new one");
-        println!("  grimoire music-auth         pair with YTMDesktop");
+        println!("  grimoire music-setup        install + connect YouTube Music");
+        println!("  grimoire music-auth         re-pair only");
         println!();
         println!("With no arguments grimoire opens the current directory if it is a");
         println!("manuscript, otherwise the last one you had open, otherwise it creates");
