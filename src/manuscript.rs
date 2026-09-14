@@ -37,17 +37,41 @@ pub enum Section {
 
 /// A container holding scenes is a chapter; one holding only containers is a
 /// part. Depth alone lies as soon as someone skips the part level.
+///
+/// An empty folder has nothing inside to judge by, and a chapter is always
+/// empty the moment it's made. So it goes by its name first ("Chapter Two",
+/// "Part Two"), then by where it sits: inside another folder it's a chapter,
+/// at the top it matches its neighbours.
 pub fn section_of(p: &Project, idx: usize) -> Section {
     let n = &p.nodes[idx];
-    match n.kind {
-        Kind::Scene => Section::Scene,
-        _ => {
-            if n.children.iter().any(|&c| p.nodes[c].kind == Kind::Scene) {
-                Section::Chapter
-            } else {
-                Section::Part
-            }
-        }
+    if n.kind == Kind::Scene {
+        return Section::Scene;
+    }
+    let holds = |i: usize, kind: Kind| p.nodes[i].children.iter().any(|&c| p.nodes[c].kind == kind);
+    if holds(idx, Kind::Scene) {
+        return Section::Chapter;
+    }
+    if holds(idx, Kind::Container) {
+        return Section::Part;
+    }
+    match n.title.to_lowercase().split_whitespace().next() {
+        Some("chapter") => return Section::Chapter,
+        Some("part") => return Section::Part,
+        _ => {}
+    }
+    let parent = n.path.parent();
+    if p.nodes.iter().any(|m| m.kind == Kind::Container && Some(m.path.as_path()) == parent) {
+        return Section::Chapter;
+    }
+    let neighbours: Vec<usize> = (0..p.nodes.len())
+        .filter(|&i| i != idx && p.nodes[i].kind == Kind::Container && p.nodes[i].path.parent() == parent)
+        .collect();
+    if neighbours.iter().any(|&i| holds(i, Kind::Container)) {
+        Section::Part
+    } else if neighbours.iter().any(|&i| holds(i, Kind::Scene)) {
+        Section::Chapter
+    } else {
+        Section::Part
     }
 }
 
@@ -431,5 +455,70 @@ mod tests {
         assert_eq!(spell(23), "TWENTY-THREE");
         assert_eq!(spell(40), "FORTY");
         assert_eq!(spell(99), "NINETY-NINE");
+    }
+
+    use crate::project;
+    use std::fs;
+
+    /// A fresh book: Part One / Chapter One / Opening, plus notes.
+    fn book(tag: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("grimoire-ms-{tag}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&d);
+        project::scaffold(&d).unwrap();
+        d
+    }
+
+    /// A book with no parts: Chapter One / Opening straight under manuscript/.
+    fn flat_book(tag: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("grimoire-ms-{tag}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&d);
+        let ch = d.join("manuscript/01-chapter-one");
+        fs::create_dir_all(&ch).unwrap();
+        fs::write(ch.join("01-opening.md"), "Words.\n").unwrap();
+        d
+    }
+
+    fn level(p: &Project, title: &str) -> Section {
+        let i = p.nodes.iter().position(|n| n.title == title);
+        section_of(p, i.unwrap_or_else(|| panic!("no {title} in the tree")))
+    }
+
+    #[test]
+    fn an_empty_folder_inside_a_part_is_a_chapter() {
+        let d = book("nested");
+        project::create(&d.join("manuscript/01-part-one"), "The Lamp", true).unwrap();
+        let p = Project::load(&d).unwrap();
+        assert_eq!(level(&p, "The Lamp"), Section::Chapter);
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn an_empty_folder_takes_the_level_of_its_neighbours() {
+        let d = book("beside-parts");
+        project::create(&d.join("manuscript"), "Book Two", true).unwrap();
+        let p = Project::load(&d).unwrap();
+        assert_eq!(level(&p, "Book Two"), Section::Part);
+        fs::remove_dir_all(&d).unwrap();
+
+        let d = flat_book("beside-chapters");
+        project::create(&d.join("manuscript"), "Interlude", true).unwrap();
+        let p = Project::load(&d).unwrap();
+        assert_eq!(level(&p, "Interlude"), Section::Chapter);
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn an_empty_folder_named_for_its_level_is_that_level() {
+        let d = book("named-chapter");
+        project::create(&d.join("manuscript"), "Chapter Two", true).unwrap();
+        let p = Project::load(&d).unwrap();
+        assert_eq!(level(&p, "Chapter Two"), Section::Chapter);
+        fs::remove_dir_all(&d).unwrap();
+
+        let d = flat_book("named-part");
+        project::create(&d.join("manuscript"), "Part One", true).unwrap();
+        let p = Project::load(&d).unwrap();
+        assert_eq!(level(&p, "Part One"), Section::Part);
+        fs::remove_dir_all(&d).unwrap();
     }
 }

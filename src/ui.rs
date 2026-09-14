@@ -7,6 +7,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Padding, Paragraph};
 
 use crate::app::{App, Focus, Overlay};
+use crate::create::{self, New};
 use crate::music::State as MusicState;
 use crate::project::Kind;
 use crate::scene::{self, Ink, Mode, Phase};
@@ -180,6 +181,50 @@ fn draw_tree(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
     }
 
     f.render_widget(Paragraph::new(lines), inner);
+    draw_create_keys(f, app, area, focused, t);
+}
+
+/// The create keys, on the tree's bottom edge where the eye already is —
+/// "n scene  c chapter  p part". Clicking one does what pressing it would.
+fn draw_create_keys(f: &mut Frame, app: &mut App, area: Rect, focused: bool, t: &Theme) {
+    app.create_hits.clear();
+    if area.height < 3 || area.width < 4 {
+        return;
+    }
+    let row = Rect {
+        x: area.x + 1,
+        y: area.y + area.height - 1,
+        width: area.width - 2,
+        height: 1,
+    };
+    let (key_style, word_style) = if focused {
+        (
+            Style::default().fg(t.accent).add_modifier(Modifier::BOLD),
+            Style::default().fg(t.text),
+        )
+    } else {
+        (Style::default().fg(t.dim), Style::default().fg(t.dim))
+    };
+    let sel = app.visible.get(app.sel).copied();
+    let mut spans = vec![Span::raw(" ")];
+    let mut x = row.x + 1;
+    for (i, &(key, word)) in create::offers(&app.project, sel).iter().enumerate() {
+        let gap = if i > 0 { 2 } else { 0 };
+        let width = 2 + word.chars().count() as u16;
+        if x + gap + width > row.x + row.width {
+            break;
+        }
+        spans.push(Span::raw(" ".repeat(gap as usize)));
+        x += gap;
+        spans.push(Span::styled(key.to_string(), key_style));
+        spans.push(Span::styled(format!(" {word}"), word_style));
+        if let Some(want) = New::from_key(key) {
+            app.create_hits.push((Rect { x, y: row.y, width, height: 1 }, want));
+        }
+        x += width;
+    }
+    spans.push(Span::raw(" "));
+    f.render_widget(Paragraph::new(Line::from(spans)), row);
 }
 
 fn draw_scene(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
@@ -485,13 +530,14 @@ fn draw_status(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
         ));
     }
 
-    let hints = app.hints();
+    // Keep a gap after the message; drop whole hints rather than run into it.
     let used: usize = spans.iter().map(|s| s.content.chars().count()).sum();
+    let hints = fit_hints(&app.hints(), (area.width as usize).saturating_sub(used + 3));
     let pad = (area.width as usize)
         .saturating_sub(used)
-        .saturating_sub(hints.chars().count());
+        .saturating_sub(hints.chars().count() + 1);
     spans.push(Span::raw(" ".repeat(pad)));
-    spans.push(Span::styled(hints, Style::default().fg(t.dim)));
+    spans.push(Span::styled(format!("{hints} "), Style::default().fg(t.dim)));
 
     f.render_widget(Paragraph::new(Line::from(spans)), area);
 }
@@ -681,28 +727,32 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             f.render_widget(Paragraph::new(lines), inner);
         }
 
-        Overlay::Create { folder, label, buf, .. } => {
+        Overlay::Create { plan, buf, fresh } => {
             let box_area = centred(area, 56, 7);
             f.render_widget(Clear, box_area);
-            let block = pane_block(if *folder { "NEW FOLDER" } else { "NEW SCENE" }, true, t);
+            let title = format!("NEW {}", plan.noun.to_uppercase());
+            let block = pane_block(&title, true, t);
             let inner = block.inner(box_area);
             f.render_widget(block, box_area);
+            // A suggested name shows selected, because typing replaces it.
+            let (name, keys) = if *fresh {
+                (
+                    Style::default().fg(t.text).bg(t.sel),
+                    " ↵ create   type to rename   esc cancel",
+                )
+            } else {
+                (Style::default().fg(t.text), " type a name   ↵ create   esc cancel")
+            };
             let lines = vec![
-                Line::from(Span::styled(
-                    format!(" at the end of {label}"),
-                    Style::default().fg(t.dim),
-                )),
+                Line::from(Span::styled(format!(" {}", plan.place), Style::default().fg(t.dim))),
                 Line::from(""),
                 Line::from(vec![
                     Span::styled(" ▸ ", Style::default().fg(t.accent)),
-                    Span::styled(buf.clone(), Style::default().fg(t.text)),
+                    Span::styled(buf.clone(), name),
                     Span::styled("█", Style::default().fg(t.accent)),
                 ]),
                 Line::from(""),
-                Line::from(Span::styled(
-                    " type a name   ↵ create   esc cancel",
-                    Style::default().fg(t.dim),
-                )),
+                Line::from(Span::styled(keys, Style::default().fg(t.dim))),
             ];
             f.render_widget(Paragraph::new(lines), inner);
         }
@@ -844,6 +894,23 @@ fn scene_slice(r: crate::editor::VisRow, start: usize, end: usize) -> crate::edi
     }
 }
 
+/// As many whole hints as fit in `room`, from the left. Hints are separated
+/// by two spaces; cutting one mid-word reads as a glitch.
+fn fit_hints(hints: &str, room: usize) -> String {
+    let mut out = String::new();
+    for hint in hints.trim_end().split("  ") {
+        let sep = if out.is_empty() { 0 } else { 2 };
+        if out.chars().count() + sep + hint.chars().count() > room {
+            break;
+        }
+        if sep > 0 {
+            out.push_str("  ");
+        }
+        out.push_str(hint);
+    }
+    out
+}
+
 fn truncate(s: &str, w: usize) -> String {
     if s.chars().count() <= w {
         return s.to_string();
@@ -863,4 +930,17 @@ fn thousands(n: usize) -> String {
         out.push(c);
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hints_that_do_not_fit_drop_whole_from_the_right() {
+        let hints = "Tab pane  ↵ fold  n scene  c chapter  F1 menu ";
+        assert_eq!(fit_hints(hints, 100), "Tab pane  ↵ fold  n scene  c chapter  F1 menu");
+        assert_eq!(fit_hints(hints, 30), "Tab pane  ↵ fold  n scene");
+        assert_eq!(fit_hints(hints, 5), "");
+    }
 }

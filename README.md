@@ -89,8 +89,10 @@ heard of.
 | `↑ ↓` · `j k` | move in the tree |
 | `Enter` · `Space` | fold or unfold a container · open a scene |
 | `→` `l` / `←` `h` | expand / collapse, or jump to parent |
-| `n` | new scene — in the selected chapter, at the end |
-| `N` | new folder (part, chapter, or notes category) — beside the selected one |
+| `n` | new scene — at the end of the selected chapter (a selected part's last chapter) |
+| `c` | new chapter — named for you ("Chapter Two"), at the end of the part you're in |
+| `p` | new part — named for you ("Part Two"), at the end of the manuscript |
+| `N` | new folder beside the selected one — for notes; in the manuscript it's a chapter or part |
 | `Ctrl-S` | save all changed scenes |
 | `Ctrl-C` | copy the selection |
 | `Ctrl-Q` | quit — twice if unsaved |

@@ -5,6 +5,7 @@ use ratatui::layout::Rect;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::create::{self, New, Plan};
 use crate::editor::Editor;
 use crate::manuscript;
 use crate::music::{self, Music};
@@ -60,6 +61,9 @@ pub struct App {
     pub rect_editor: Rect,
     pub rect_scene: Rect,
     pub rect_music: Rect,
+    /// Where the create keys on the tree's bottom edge were drawn, so a
+    /// click on one does what pressing it would.
+    pub create_hits: Vec<(Rect, New)>,
     pub theme: Theme,
     pub overlay: Overlay,
 }
@@ -76,13 +80,13 @@ pub enum Overlay {
     Sources { sel: usize },
     /// Editing the custom theme swatch by swatch.
     Custom { field: usize, buf: String },
-    /// Naming a new scene or folder. `dir` is where it will go; `label` says
-    /// so in the prompt.
+    /// Naming a new scene, chapter, part or folder. The name starts as the
+    /// plan's suggestion, selected, so typing replaces it and ↵ accepts it.
     Create {
-        folder: bool,
-        dir: PathBuf,
-        label: String,
+        plan: Plan,
         buf: String,
+        /// Still showing the suggestion untouched.
+        fresh: bool,
     },
     /// The music player: what's playing, the queue, playlists, and search.
     Player {
@@ -130,12 +134,7 @@ impl App {
 
     pub fn new(project: Project) -> Result<Self> {
         let visible = project.visible();
-        let mut parents = vec![None; project.nodes.len()];
-        for (i, n) in project.nodes.iter().enumerate() {
-            for &c in &n.children {
-                parents[c] = Some(i);
-            }
-        }
+        let parents = project.parents();
         let baseline = load_baseline(&project)?;
         // Open the first scene straight away so launching lands you on prose
         // rather than an empty pane. Focus stays on the tree, so a stray
@@ -174,6 +173,7 @@ impl App {
             rect_editor: Rect::default(),
             rect_scene: Rect::default(),
             rect_music: Rect::default(),
+            create_hits: Vec::new(),
             theme: theme::load(),
             overlay: Overlay::None,
         })
@@ -253,60 +253,29 @@ impl App {
         }
     }
 
-    // ---- creating scenes and folders --------------------------------------
+    // ---- creating scenes, chapters and parts -------------------------------
 
-    /// Where `n` (scene) or `N` (folder) puts the new item, judged from the
-    /// selection, plus a phrase for the prompt. Always the end of a folder:
-    /// nothing existing is ever renamed or renumbered.
-    fn creation_target(&self, folder: bool) -> (PathBuf, String) {
-        let root = &self.project.root;
-        let section = |path: &Path| -> (PathBuf, String) {
-            let top = path
-                .strip_prefix(root)
-                .ok()
-                .and_then(|p| p.components().next())
-                .map(|c| root.join(c))
-                .unwrap_or_else(|| root.join("manuscript"));
-            let label = match top.file_name().and_then(|s| s.to_str()) {
-                Some("notes") => "notes",
-                Some("front-matter") => "the front matter",
-                _ => "the manuscript",
-            };
-            (top, label.to_string())
-        };
-        let inside = |i: usize| {
-            let n = &self.project.nodes[i];
-            (n.path.clone(), n.title.clone())
-        };
-        let Some(&idx) = self.visible.get(self.sel) else {
-            return section(&root.join("manuscript"));
-        };
-        let node = &self.project.nodes[idx];
-        let up = |i: usize| self.parents[i];
-        match (node.kind, folder) {
-            (Kind::Divider, _) => section(&node.path),
-            // A scene goes into the selected chapter, or the selected scene's.
-            (Kind::Container, false) => inside(idx),
-            (Kind::Scene, false) => up(idx).map_or_else(|| section(&node.path), inside),
-            // A folder goes beside the selected one: Chapter Two after Chapter One.
-            (Kind::Container, true) => up(idx).map_or_else(|| section(&node.path), inside),
-            (Kind::Scene, true) => up(idx)
-                .and_then(up)
-                .map_or_else(|| section(&node.path), inside),
+    /// Open the naming prompt for `n`, `c`, `p` or `N`, or say why not.
+    /// Where things go is `create::plan`'s job.
+    pub fn start_create(&mut self, want: New) {
+        let sel = self.visible.get(self.sel).copied();
+        match create::plan(&self.project, &self.parents, sel, want) {
+            Ok(plan) => {
+                let fresh = !plan.name.is_empty();
+                self.overlay = Overlay::Create {
+                    buf: plan.name.clone(),
+                    plan,
+                    fresh,
+                };
+            }
+            Err(why) => {
+                self.overlay = Overlay::None;
+                self.msg = why;
+            }
         }
     }
 
-    pub fn start_create(&mut self, folder: bool) {
-        let (dir, label) = self.creation_target(folder);
-        self.overlay = Overlay::Create {
-            folder,
-            dir,
-            label,
-            buf: String::new(),
-        };
-    }
-
-    fn finish_create(&mut self, folder: bool, dir: PathBuf, name: String) {
+    fn finish_create(&mut self, plan: Plan, name: String) {
         // Save first, so re-reading the tree can't lose an unsaved sentence.
         self.flush();
         let saved = match self.project.save_all() {
@@ -316,7 +285,7 @@ impl App {
                 return;
             }
         };
-        let path = match project::create(&dir, &name, folder) {
+        let path = match project::create(&plan.dir, &name, plan.folder) {
             Ok(p) => p,
             Err(e) => {
                 self.msg = format!("couldn't create it: {e}");
@@ -327,7 +296,9 @@ impl App {
             self.msg = format!("created, but couldn't re-read the tree: {e}");
             return;
         }
+        let mut made = path.file_name().unwrap_or_default().to_string_lossy().to_string();
         if let Some(i) = self.project.nodes.iter().position(|n| n.path == path) {
+            made = self.project.nodes[i].title.clone();
             let mut p = self.parents[i];
             while let Some(pi) = p {
                 self.project.nodes[pi].expanded = true;
@@ -337,13 +308,21 @@ impl App {
             if let Some(pos) = self.visible.iter().position(|&v| v == i) {
                 self.sel = pos;
             }
-            if !folder {
+            if plan.folder {
+                // The next key is n or c, which only the tree hears.
+                self.focus = Focus::Tree;
+            } else {
                 self.open_scene(i);
             }
         }
-        let file = path.file_name().unwrap_or_default().to_string_lossy();
+        // Say what comes next, so an empty chapter isn't a dead end.
+        let next = match plan.noun {
+            "chapter" => " · n adds a scene to it",
+            "part" => " · c adds a chapter to it",
+            _ => "",
+        };
         let also = if saved > 0 { format!(" · saved {saved} first") } else { String::new() };
-        self.msg = format!("created {file}{also}");
+        self.msg = format!("made {made}{next}{also}");
     }
 
     /// Re-read the tree from disk, keeping what's folded, which scene is open,
@@ -364,12 +343,7 @@ impl App {
                 n.expanded = false;
             }
         }
-        self.parents = vec![None; self.project.nodes.len()];
-        for (i, n) in self.project.nodes.iter().enumerate() {
-            for &c in &n.children {
-                self.parents[c] = Some(i);
-            }
-        }
+        self.parents = self.project.parents();
         self.open = open_path.and_then(|p| self.project.nodes.iter().position(|n| n.path == p));
         self.refresh_visible();
         Ok(())
@@ -380,8 +354,10 @@ impl App {
     pub fn on_tree_key(&mut self, key: Key) {
         match key {
             Key::Char('t') => self.open_theme_picker(),
-            Key::Char('n') => self.start_create(false),
-            Key::Char('N') => self.start_create(true),
+            Key::Char('n') => self.start_create(New::Scene),
+            Key::Char('c') => self.start_create(New::Chapter),
+            Key::Char('p') => self.start_create(New::Part),
+            Key::Char('N') => self.start_create(New::Folder),
             Key::Up => self.sel = self.sel.saturating_sub(1),
             Key::Down => {
                 if self.sel + 1 < self.visible.len() {
@@ -525,7 +501,14 @@ impl App {
 
     /// A left click focuses the pane under the pointer and acts on it.
     pub fn on_click(&mut self, x: u16, y: u16) {
-        if hit(self.rect_tree, x, y) {
+        let clicked = self.create_hits.iter().find(|(r, _)| hit(*r, x, y)).map(|&(_, w)| w);
+        if let Some(want) = clicked {
+            if self.focus == Focus::Editor {
+                self.flush();
+            }
+            self.focus = Focus::Tree;
+            self.start_create(want);
+        } else if hit(self.rect_tree, x, y) {
             if self.focus == Focus::Editor {
                 self.flush();
             }
@@ -626,8 +609,10 @@ impl App {
         v
     }
 
-    pub const MENU: [&'static str; 8] = [
+    pub const MENU: [&'static str; 10] = [
         "New scene…          (n)",
+        "New chapter…        (c)",
+        "New part…           (p)",
         "New folder…         (N)",
         "Update project map  (project.md)",
         "Compile manuscript",
@@ -677,9 +662,11 @@ impl App {
 
     fn run_menu(&mut self, i: usize) {
         match i {
-            0 => self.start_create(false),
-            1 => self.start_create(true),
-            2 => {
+            0 => self.start_create(New::Scene),
+            1 => self.start_create(New::Chapter),
+            2 => self.start_create(New::Part),
+            3 => self.start_create(New::Folder),
+            4 => {
                 self.flush_public();
                 match manuscript::write_project_file(&self.project) {
                     Ok(p) => {
@@ -692,7 +679,7 @@ impl App {
                 }
                 self.overlay = Overlay::None;
             }
-            3 => {
+            5 => {
                 self.flush_public();
                 match manuscript::compile(&self.project) {
                     Ok(c) => {
@@ -713,13 +700,13 @@ impl App {
                 }
                 self.overlay = Overlay::None;
             }
-            4 => self.open_player(),
-            5 => {
+            6 => self.open_player(),
+            7 => {
                 let cur = self.music.source;
                 let sel = music::Source::ALL.iter().position(|s| *s == cur).unwrap_or(0);
                 self.overlay = Overlay::Sources { sel };
             }
-            6 => self.open_theme_picker(),
+            8 => self.open_theme_picker(),
             _ => self.overlay = Overlay::None,
         }
     }
@@ -999,15 +986,29 @@ impl App {
                 }
             }
 
-            Overlay::Create { folder, dir, buf, .. } => match key {
-                Key::Char(c) if !c.is_control() && buf.chars().count() < 60 => buf.push(c),
-                Key::Backspace => {
-                    buf.pop();
+            Overlay::Create { plan, buf, fresh } => match key {
+                // The suggestion is selected: typing replaces it, Backspace
+                // clears it, → or End keeps it to add to.
+                Key::Char(c) if !c.is_control() => {
+                    if std::mem::take(fresh) {
+                        buf.clear();
+                    }
+                    if buf.chars().count() < 60 {
+                        buf.push(c);
+                    }
                 }
+                Key::Backspace => {
+                    if std::mem::take(fresh) {
+                        buf.clear();
+                    } else {
+                        buf.pop();
+                    }
+                }
+                Key::Right | Key::End => *fresh = false,
                 Key::Enter => {
-                    let (folder, dir, name) = (*folder, dir.clone(), buf.clone());
+                    let (plan, name) = (plan.clone(), buf.clone());
                     self.overlay = Overlay::None;
-                    self.finish_create(folder, dir, name);
+                    self.finish_create(plan, name);
                 }
                 Key::Esc => self.overlay = Overlay::None,
                 _ => {}
@@ -1019,7 +1020,14 @@ impl App {
     pub fn hints(&self) -> String {
         let m = self.mod_label();
         match self.focus {
-            Focus::Tree => format!("Tab pane  ↵ fold  n scene  N folder  F1 menu  {m}S save  {m}Q quit "),
+            Focus::Tree => {
+                let sel = self.visible.get(self.sel).copied();
+                let keys: Vec<String> = create::offers(&self.project, sel)
+                    .iter()
+                    .map(|(k, w)| format!("{k} {w}"))
+                    .collect();
+                format!("Tab pane  ↵ fold  {}  F1 menu  {m}S save  {m}Q quit ", keys.join("  "))
+            }
             Focus::Editor => format!("Tab pane  Esc tree  F1 menu  {m}S save  {m}Q quit "),
             Focus::Clearing => format!("Tab pane  ←→ view  ↵ start/pause  r reset  {m}Q quit "),
             Focus::Music => format!("Tab pane  ↵ open player  space pause  ←→ track  {m}Q quit "),

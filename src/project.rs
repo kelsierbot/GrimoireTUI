@@ -256,6 +256,17 @@ impl Project {
         Ok(out)
     }
 
+    /// Each node's parent, for walking up the tree.
+    pub fn parents(&self) -> Vec<Option<usize>> {
+        let mut out = vec![None; self.nodes.len()];
+        for (i, n) in self.nodes.iter().enumerate() {
+            for &c in &n.children {
+                out[c] = Some(i);
+            }
+        }
+        out
+    }
+
     /// Words in this node, summing descendants for containers.
     pub fn subtree_words(&self, i: usize) -> usize {
         let n = &self.nodes[i];
@@ -471,17 +482,18 @@ pub fn create(dir: &Path, name: &str, folder: bool) -> Result<PathBuf> {
 fn next_number(dir: &Path) -> Result<usize> {
     let mut top = 0;
     for e in fs::read_dir(dir).with_context(|| format!("reading {}", dir.display()))? {
-        let name = e?.file_name();
-        let digits: String = name
-            .to_string_lossy()
-            .chars()
-            .take_while(|c| c.is_ascii_digit())
-            .collect();
-        if let Ok(n) = digits.parse::<usize>() {
+        if let Some(n) = leading_number(&e?.path()) {
             top = top.max(n);
         }
     }
     Ok(top + 1)
+}
+
+/// The `1` in `01-the-archive.md`, which is what orders the tree.
+pub fn leading_number(path: &Path) -> Option<usize> {
+    let name = path.file_name()?.to_string_lossy();
+    let digits: String = name.chars().take_while(|c| c.is_ascii_digit()).collect();
+    digits.parse().ok()
 }
 
 /// A name as it can live on disk: words joined by dashes, with capitals and
