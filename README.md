@@ -53,17 +53,33 @@ name — a leading `01-` sorts the file and is stripped for display.
 
 ```
 the-archive/
-├─ novel.toml                    title, author, word targets
+├─ novel.toml                    title, author, word targets, part_label
 ├─ manuscript/
-│  └─ 01-part-one/
-│     ├─ 01-chapter-one/
-│     │  ├─ 01-the-archive.md    a scene
-│     │  └─ 02-gravel.md
-│     └─ 02-chapter-two/
+│  ├─ 01-Act-One/
+│  │  ├─ 01-Chapter-One/
+│  │  │  ├─ 01-Scene-One.md      a scene
+│  │  │  ├─ 02-Scene-Two.md
+│  │  │  └─ 03-Scene-Three.md
+│  │  └─ 02-Chapter-Two/ …
+│  ├─ 02-Act-Two/ …
+│  └─ 03-Act-Three/ …
 ├─ notes/
-│  └─ characters/wren.md
+│  ├─ 01-Characters/   02-Races/     03-Regions/   04-Magic-System/
+│  └─ 05-Politics/     06-Religion/  07-Notes/     08-Research/
 └─ .grimoire/                    session state, gitignored
+   └─ trash/                     what you delete, still shown in the tree
 ```
+
+**A new book arrives with its shape already standing:** three acts of nine
+chapters, three scenes in each — twenty-seven chapters, eighty-one scenes, all
+of them empty. The structure is a suggestion you rearrange; the writing is
+never presumed. `part_label` in `novel.toml` is what this book calls its
+largest division — `Act` to begin with, `Part` or `Book` if you prefer — and
+the app says your word back everywhere it names one.
+
+The notebook sections are numbered so they read in the order a world gets
+built rather than alphabetically. A big book opens folded down to the first
+scene, so launching shows you the shape rather than a hundred rows.
 
 Scene metadata lives in YAML frontmatter:
 

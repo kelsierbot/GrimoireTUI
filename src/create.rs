@@ -230,20 +230,7 @@ fn place(p: &Project, dir: &Path) -> String {
     }
 }
 
-/// "Chapter" and 2 make "Chapter Two".
-fn numbered(what: &str, n: usize) -> String {
-    let word: Vec<String> = manuscript::spell(n)
-        .split('-')
-        .map(|w| {
-            let mut c = w.chars();
-            match c.next() {
-                Some(f) => f.to_string() + &c.as_str().to_lowercase(),
-                None => String::new(),
-            }
-        })
-        .collect();
-    format!("{what} {}", word.join("-"))
-}
+use crate::manuscript::numbered;
 
 #[cfg(test)]
 mod tests {
@@ -251,11 +238,19 @@ mod tests {
     use crate::project;
     use std::fs;
 
-    /// A fresh book: Part One / Chapter One / Opening, plus notes.
+    /// A small book built by hand: Part One / Chapter One / Opening, plus one
+    /// note. Deliberately *not* the template — these tests are about where a
+    /// new thing lands, and they shouldn't move every time the template does.
     fn book(tag: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("grimoire-new-{tag}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&d);
-        project::scaffold(&d).unwrap();
+        let ch = d.join("manuscript/01-part-one/01-chapter-one");
+        fs::create_dir_all(&ch).unwrap();
+        fs::write(ch.join("01-opening.md"), "---\ntitle: Opening\n---\n\nWords.\n").unwrap();
+        let notes = d.join("notes/01-characters");
+        fs::create_dir_all(&notes).unwrap();
+        fs::write(notes.join("01-example.md"), "---\ntitle: Example\n---\n\nA note.\n").unwrap();
+        fs::write(d.join("novel.toml"), "title = \"Test\"\n").unwrap();
         d
     }
 
@@ -362,8 +357,8 @@ mod tests {
         let d = book("n-notes");
         let plan = press(&d, "Example", New::Scene).unwrap();
         assert_eq!(plan.noun, "note");
-        assert_eq!(plan.dir, d.join("notes/characters"));
-        assert_eq!(plan.place, "in Characters");
+        assert_eq!(plan.dir, d.join("notes/01-characters"));
+        assert_eq!(plan.place, "in Characters, after Example");
         fs::remove_dir_all(&d).unwrap();
     }
 

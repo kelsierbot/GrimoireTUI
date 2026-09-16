@@ -104,6 +104,8 @@ pub enum Overlay {
         name: String,
         noun: String,
         words: usize,
+        /// It's already in the trash, so this one really is the end of it.
+        permanent: bool,
     },
     /// The music player: what's playing, the queue, playlists, and search.
     Player {
@@ -149,17 +151,39 @@ impl App {
         if self.super_keys { "⌘" } else { "^" }
     }
 
-    pub fn new(project: Project) -> Result<Self> {
-        let visible = project.visible();
+    pub fn new(mut project: Project) -> Result<Self> {
         let parents = project.parents();
         let baseline = load_baseline(&project)?;
         // Open the first scene straight away so launching lands you on prose
         // rather than an empty pane. Focus stays on the tree, so a stray
         // keystroke can't wander into the manuscript.
-        let first_scene = project
-            .visible()
-            .into_iter()
+        let first_scene = (0..project.nodes.len())
             .find(|&i| project.nodes[i].kind == Kind::Scene && project.nodes[i].in_manuscript);
+        // A three-act book is a hundred rows fully open. Fold the manuscript
+        // and then open only the way down to that first scene, so the shape of
+        // the book is legible above the prose instead of burying it. A small
+        // book is under the threshold and behaves as it always did. From here
+        // on, folding is remembered across reloads.
+        let scenes = project
+            .nodes
+            .iter()
+            .filter(|n| n.kind == Kind::Scene && n.in_manuscript)
+            .count();
+        if scenes > 12 {
+            for n in &mut project.nodes {
+                if n.kind == Kind::Container && n.in_manuscript {
+                    n.expanded = false;
+                }
+            }
+            if let Some(i) = first_scene {
+                let mut up = parents[i];
+                while let Some(pi) = up {
+                    project.nodes[pi].expanded = true;
+                    up = parents[pi];
+                }
+            }
+        }
+        let visible = project.visible();
 
         Ok(Self {
             project,
@@ -350,6 +374,9 @@ impl App {
         if n.kind == Kind::Divider {
             return "heading".into();
         }
+        if self.project.in_trash(idx) {
+            return if n.kind == Kind::Container { "folder".into() } else { "file".into() };
+        }
         if n.front_matter {
             return if n.kind == Kind::Container { "folder".into() } else { "page".into() };
         }
@@ -423,10 +450,11 @@ impl App {
             name: n.title.clone(),
             noun: self.noun_of(idx),
             words: self.project.subtree_words(idx),
+            permanent: self.project.in_trash(idx),
         };
     }
 
-    fn finish_delete(&mut self, path: PathBuf, name: String) {
+    fn finish_delete(&mut self, path: PathBuf, name: String, permanent: bool) {
         self.flush();
         if let Err(e) = self.project.save_all() {
             self.msg = format!("couldn't save before deleting: {e}");
@@ -440,13 +468,18 @@ impl App {
             self.editor = Editor::from_str("");
             self.focus = Focus::Tree;
         }
-        match project::trash(&root, &path) {
-            Ok(_) => {
+        let done = if permanent {
+            project::destroy(&path).map(|_| String::new())
+        } else {
+            project::trash(&root, &path).map(|_| " — it's in the trash if you want it back".into())
+        };
+        match done {
+            Ok(where_to) => {
                 if let Err(e) = self.reload_tree() {
                     self.msg = format!("deleted, but couldn't re-read the tree: {e}");
                     return;
                 }
-                self.msg = format!("deleted {name} — it's in .grimoire/trash if you want it back");
+                self.msg = format!("deleted {name}{where_to}");
             }
             Err(e) => self.msg = format!("couldn't delete it: {e}"),
         }
@@ -1181,11 +1214,11 @@ impl App {
 
             // Only `y` deletes. Enter is the fold key two rows up and the
             // fingers know it — it must not be able to destroy a chapter.
-            Overlay::Confirm { path, name, .. } => match key {
+            Overlay::Confirm { path, name, permanent, .. } => match key {
                 Key::Char('y') | Key::Char('Y') => {
-                    let (path, name) = (path.clone(), name.clone());
+                    let (path, name, permanent) = (path.clone(), name.clone(), *permanent);
                     self.overlay = Overlay::None;
-                    self.finish_delete(path, name);
+                    self.finish_delete(path, name, permanent);
                 }
                 Key::Esc | Key::Enter | Key::Char('n') | Key::Char('N') | Key::Char('q') => {
                     self.overlay = Overlay::None;

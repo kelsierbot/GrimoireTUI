@@ -188,7 +188,38 @@ impl Project {
             p.roots.extend(idxs);
         }
 
+        // Last, and last for a reason: what's been deleted is still on screen,
+        // so nothing ever simply disappears. It counts for nothing and
+        // compiles into nothing.
+        let bin = trash_dir(root);
+        if bin.is_dir() {
+            let div = p.push(Node {
+                kind: Kind::Divider,
+                title: "TRASH".into(),
+                path: bin.clone(),
+                depth: 0,
+                expanded: true,
+                children: Vec::new(),
+                in_manuscript: false,
+                compile: false,
+                front_matter: false,
+                front: None,
+                body: String::new(),
+                dirty: false,
+                pov: None,
+                status: None,
+            });
+            p.roots.push(div);
+            let idxs = p.scan(&bin, 0, false, false)?;
+            p.roots.extend(idxs);
+        }
+
         Ok(p)
+    }
+
+    /// Is this row already in the trash? Then deleting it means for good.
+    pub fn in_trash(&self, idx: usize) -> bool {
+        self.nodes[idx].path.starts_with(trash_dir(&self.root))
     }
 
     fn push(&mut self, n: Node) -> usize {
@@ -408,7 +439,7 @@ fn display_title(path: &Path, front: Option<&str>) -> String {
         .map(|(i, _)| &stem[i..])
         .unwrap_or(&stem);
 
-    stripped
+    let words: Vec<String> = stripped
         .split(['-', '_', ' '])
         .filter(|w| !w.is_empty())
         .map(|w| {
@@ -418,12 +449,69 @@ fn display_title(path: &Path, front: Option<&str>) -> String {
                 None => String::new(),
             }
         })
-        .collect::<Vec<_>>()
-        .join(" ")
+        .collect();
+    rejoin_numbers(&words)
 }
 
-/// Create a new manuscript skeleton. Refuses to touch a directory that
-/// already holds a project.
+/// A dash is a word separator on disk, so "Chapter Twenty-Seven" comes back as
+/// three words. Only one pairing is ever meant as a hyphen — a tens word
+/// followed by a units word — so put that one back and leave everything else
+/// alone. "The Archive" stays two words; "Chapter Twenty-Seven" stays hyphenated.
+fn rejoin_numbers(words: &[String]) -> String {
+    const TENS: [&str; 8] = [
+        "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety",
+    ];
+    const UNITS: [&str; 9] = [
+        "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
+    ];
+    let mut out: Vec<String> = Vec::with_capacity(words.len());
+    let mut i = 0;
+    while i < words.len() {
+        let w = words[i].to_lowercase();
+        let next = words.get(i + 1).map(|n| n.to_lowercase());
+        match next {
+            Some(n) if TENS.contains(&w.as_str()) && UNITS.contains(&n.as_str()) => {
+                out.push(format!("{}-{}", words[i], words[i + 1]));
+                i += 2;
+            }
+            _ => {
+                out.push(words[i].clone());
+                i += 1;
+            }
+        }
+    }
+    out.join(" ")
+}
+
+/// Three acts, nine chapters each, three scenes in every chapter.
+pub const ACTS: usize = 3;
+pub const CHAPTERS_PER_ACT: usize = 9;
+pub const SCENES_PER_CHAPTER: usize = 3;
+
+/// The notebook a secondary world needs, in the order one gets built rather
+/// than in alphabetical order — which is why they're numbered on disk.
+pub const NOTE_SECTIONS: [&str; 8] = [
+    "Characters",
+    "Races",
+    "Regions",
+    "Magic System",
+    "Politics",
+    "Religion",
+    "Notes",
+    "Research",
+];
+
+/// Where deleted things go. Inside `.grimoire/`, which is gitignored, but the
+/// tree shows it so nothing ever just vanishes.
+pub fn trash_dir(root: &Path) -> PathBuf {
+    root.join(".grimoire/trash")
+}
+
+/// Create a new manuscript skeleton: the three-act shape, with every chapter
+/// and scene already standing so the book is a thing to fill in rather than a
+/// blank page. The scenes are empty — the structure is a suggestion, the
+/// writing isn't presumed. Refuses to touch a directory that already holds a
+/// project.
 pub fn scaffold(root: &Path) -> Result<()> {
     if root.join("manuscript").is_dir() {
         anyhow::bail!("{} already contains a manuscript/", root.display());
@@ -434,31 +522,55 @@ pub fn scaffold(root: &Path) -> Result<()> {
         .map(|s| display_title(Path::new(s), None))
         .unwrap_or_else(|| "Untitled".into());
 
-    let scene_dir = root.join("manuscript/01-part-one/01-chapter-one");
-    fs::create_dir_all(&scene_dir)
-        .with_context(|| format!("creating {}", scene_dir.display()))?;
-    fs::create_dir_all(root.join("notes/characters"))?;
-    fs::create_dir_all(root.join("notes/places"))?;
-
     write_new(
         &root.join("novel.toml"),
         &format!(
-            "title = \"{title}\"\nauthor = \"\"\ndraft = \"1\"\ntarget_words = 80000\ndaily_target = 1000\n\n# What this book calls its largest division: Part, Act, Book…\npart_label = \"Part\"\n"
+            "title = \"{title}\"\nauthor = \"\"\ndraft = \"1\"\ntarget_words = 80000\ndaily_target = 1000\n\n# What this book calls its largest division: Act, Part, Book…\npart_label = \"Act\"\n"
         ),
     )?;
 
-    write_new(
-        &scene_dir.join("01-opening.md"),
-        "---\ntitle: Opening\npov:\nstatus: outline\nsynopsis:\ntarget: 1500\n---\n\n",
-    )?;
+    let mut chapter = 0usize;
+    for act in 1..=ACTS {
+        let act_dir = root
+            .join("manuscript")
+            .join(numbered_dir(act, &crate::manuscript::numbered("Act", act)));
+        for c in 1..=CHAPTERS_PER_ACT {
+            chapter += 1;
+            // Chapters are numbered straight through the book, the way the
+            // finished manuscript numbers them, not restarted in each act.
+            let ch_dir = act_dir.join(numbered_dir(c, &crate::manuscript::numbered("Chapter", chapter)));
+            fs::create_dir_all(&ch_dir)
+                .with_context(|| format!("creating {}", ch_dir.display()))?;
+            for s in 1..=SCENES_PER_CHAPTER {
+                let name = crate::manuscript::numbered("Scene", s);
+                let path = ch_dir.join(format!("{}.md", numbered_dir(s, &name)));
+                write_new(
+                    &path,
+                    &format!(
+                        "---\ntitle: \"{name}\"\npov:\nstatus: outline\nsynopsis:\ntarget: 1500\n---\n\n"
+                    ),
+                )?;
+            }
+        }
+    }
 
-    write_new(
-        &root.join("notes/characters/example.md"),
-        "---\ntitle: Example\n---\n\nDelete this and write someone real.\n",
-    )?;
+    for (i, section) in NOTE_SECTIONS.iter().enumerate() {
+        let dir = root.join("notes").join(numbered_dir(i + 1, section));
+        fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
+    }
+
+    // The trash exists from the first launch, so "where did that chapter go?"
+    // is answered on screen before anything has been deleted.
+    let bin = trash_dir(root);
+    fs::create_dir_all(&bin).with_context(|| format!("creating {}", bin.display()))?;
 
     write_new(&root.join(".gitignore"), ".grimoire/\n")?;
     Ok(())
+}
+
+/// `7` and "Chapter Seven" make `07-Chapter-Seven`.
+fn numbered_dir(n: usize, name: &str) -> String {
+    format!("{:02}-{}", n, file_safe(name))
 }
 
 fn write_new(path: &Path, body: &str) -> Result<()> {
@@ -572,6 +684,17 @@ pub fn trash(root: &Path, path: &Path) -> Result<PathBuf> {
     Ok(target)
 }
 
+/// Remove something for good. Only ever reached for what is already in the
+/// trash — everywhere else, deleting moves things there instead.
+pub fn destroy(path: &Path) -> Result<()> {
+    if path.is_dir() {
+        fs::remove_dir_all(path)
+    } else {
+        fs::remove_file(path)
+    }
+    .with_context(|| format!("deleting {}", path.display()))
+}
+
 /// One more than the highest leading number among the entries in `dir`.
 fn next_number(dir: &Path) -> Result<usize> {
     let mut top = 0;
@@ -648,6 +771,93 @@ mod tests {
         let blank = create(&d, "   ", true).unwrap();
         assert_eq!(blank.file_name().unwrap(), "02-Untitled");
         fs::remove_dir_all(&d).unwrap();
+    }
+
+    /// The shape a new book arrives in: three acts, twenty-seven chapters,
+    /// three scenes in each, and no words written for you.
+    #[test]
+    fn the_template_is_three_acts_of_nine_chapters() {
+        let d = temp_dir("template");
+        scaffold(&d).unwrap();
+        let p = Project::load(&d).unwrap();
+        let containers = |depth: usize| {
+            p.nodes
+                .iter()
+                .filter(|n| n.kind == Kind::Container && n.in_manuscript && n.depth == depth)
+                .count()
+        };
+        assert_eq!(containers(0), ACTS, "acts");
+        assert_eq!(containers(1), ACTS * CHAPTERS_PER_ACT, "chapters");
+        let scenes: Vec<&Node> = p
+            .nodes
+            .iter()
+            .filter(|n| n.kind == Kind::Scene && n.in_manuscript)
+            .collect();
+        assert_eq!(scenes.len(), ACTS * CHAPTERS_PER_ACT * SCENES_PER_CHAPTER);
+        assert_eq!(p.total_words(), 0, "the scenes start empty");
+
+        // Named straight through the book, and spelled the way they'd be read.
+        let titles: Vec<&str> = p
+            .nodes
+            .iter()
+            .filter(|n| n.kind == Kind::Container && n.in_manuscript && n.depth == 1)
+            .map(|n| n.title.as_str())
+            .collect();
+        assert_eq!(titles[0], "Chapter One");
+        assert_eq!(titles[9], "Chapter Ten");
+        assert_eq!(titles[26], "Chapter Twenty-Seven");
+        assert_eq!(p.meta.part_word(), "Act", "a new book counts in acts");
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn the_notebook_reads_in_the_order_a_world_gets_built() {
+        let d = temp_dir("notebook");
+        scaffold(&d).unwrap();
+        let p = Project::load(&d).unwrap();
+        let sections: Vec<String> = p
+            .nodes
+            .iter()
+            .filter(|n| n.kind == Kind::Container && !n.in_manuscript && n.depth == 0)
+            .filter(|n| !n.path.starts_with(trash_dir(&d)))
+            .map(|n| n.title.clone())
+            .collect();
+        assert_eq!(sections, NOTE_SECTIONS.to_vec(), "not alphabetical");
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn the_trash_is_in_the_tree_from_the_start_and_counts_for_nothing() {
+        let d = temp_dir("trash-shown");
+        scaffold(&d).unwrap();
+        let scene = Project::load(&d)
+            .unwrap()
+            .nodes
+            .iter()
+            .find(|n| n.kind == Kind::Scene)
+            .map(|n| n.path.clone())
+            .unwrap();
+        fs::write(&scene, "---\ntitle: \"Scene One\"\n---\n\nOne two three.\n").unwrap();
+        trash(&d, &scene).unwrap();
+
+        let p = Project::load(&d).unwrap();
+        assert!(p.nodes.iter().any(|n| n.title == "TRASH"), "the heading shows");
+        let gone = p
+            .nodes
+            .iter()
+            .position(|n| n.title.contains("Scene One") && n.path.starts_with(trash_dir(&d)))
+            .expect("the deleted scene is listed under it");
+        assert!(p.in_trash(gone));
+        assert!(!p.nodes[gone].in_manuscript);
+        assert_eq!(p.total_words(), 0, "trashed words don't count toward the draft");
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn a_spelled_out_chapter_keeps_its_hyphen_but_a_title_keeps_its_spaces() {
+        assert_eq!(display_title(Path::new("07-Chapter-Twenty-Seven"), None), "Chapter Twenty-Seven");
+        assert_eq!(display_title(Path::new("01-the-archive.md"), None), "The Archive");
+        assert_eq!(display_title(Path::new("03-Act-Three"), None), "Act Three");
     }
 
     #[test]

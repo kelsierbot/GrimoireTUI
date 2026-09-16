@@ -791,7 +791,7 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             f.render_widget(Paragraph::new(lines), inner);
         }
 
-        Overlay::Confirm { name, noun, words, .. } => {
+        Overlay::Confirm { name, noun, words, permanent, .. } => {
             let box_area = centred(area, 58, 8);
             f.render_widget(Clear, box_area);
             let title = format!("DELETE {}", noun.to_uppercase());
@@ -812,8 +812,12 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
                 Line::from(""),
                 Line::from(Span::styled(format!(" {toll}"), Style::default().fg(t.warn))),
                 Line::from(Span::styled(
-                    " it moves to .grimoire/trash, so it isn't gone for good",
-                    Style::default().fg(t.dim),
+                    if *permanent {
+                        " it's already in the trash — this is for good"
+                    } else {
+                        " it moves to the trash, so it isn't gone for good"
+                    },
+                    Style::default().fg(if *permanent { t.warn } else { t.dim }),
                 )),
                 Line::from(""),
                 Line::from(Span::styled(

@@ -78,6 +78,22 @@ pub fn section_of(p: &Project, idx: usize) -> Section {
     }
 }
 
+/// "Chapter" and 2 make "Chapter Two" — how the book names its own divisions,
+/// both when one is created and when the template lays them out.
+pub fn numbered(what: &str, n: usize) -> String {
+    let word: Vec<String> = spell(n)
+        .split('-')
+        .map(|w| {
+            let mut c = w.chars();
+            match c.next() {
+                Some(f) => f.to_string() + &c.as_str().to_lowercase(),
+                None => String::new(),
+            }
+        })
+        .collect();
+    format!("{what} {}", word.join("-"))
+}
+
 pub fn project_file(root: &Path) -> PathBuf {
     root.join("project.md")
 }
@@ -463,11 +479,15 @@ mod tests {
     use crate::project;
     use std::fs;
 
-    /// A fresh book: Part One / Chapter One / Opening, plus notes.
+    /// A small book built by hand: Part One / Chapter One / Opening. Not the
+    /// template, so these tests stay about levels rather than about its size.
     fn book(tag: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("grimoire-ms-{tag}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&d);
-        project::scaffold(&d).unwrap();
+        let ch = d.join("manuscript/01-part-one/01-chapter-one");
+        fs::create_dir_all(&ch).unwrap();
+        fs::write(ch.join("01-opening.md"), "Words.\n").unwrap();
+        fs::create_dir_all(d.join("notes/01-characters")).unwrap();
         d
     }
 
