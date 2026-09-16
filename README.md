@@ -44,6 +44,18 @@ every download is on the [releases page](https://github.com/kelsierbot/GrimoireT
 Settings live in `~/.config/grimoire` (`%USERPROFILE%\.config\grimoire` on
 Windows) and a first manuscript goes in `Documents/Grimoire`.
 
+**Linux needs two things every desktop distro already has:** glibc 2.35 or
+newer (Ubuntu 22.04, Debian 12, Fedora 36 and later), and ALSA's audio library.
+Minimal installs, servers, containers and WSL can be missing the library, and
+then `grimoire` stops with `libasound.so.2: cannot open shared object file`.
+Install it and run `grimoire` again:
+
+```sh
+sudo apt install libasound2t64   # Ubuntu 24.04+, Debian 13+ (older: libasound2)
+sudo dnf install alsa-lib        # Fedora
+sudo pacman -S alsa-lib          # Arch
+```
+
 ### From source
 
 Requires Rust 1.85 or newer.
