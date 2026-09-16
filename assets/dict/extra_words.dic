@@ -1,0 +1,78 @@
+# Grimoire's additions to the bundled en_US dictionary, part of GrimoireTUI
+# (MIT licence). One word per line in Hunspell .dic syntax, word/FLAGS, using
+# the affix flags from en_US.aff (S plural, M possessive, D -ed, G -ing,
+# R -er, T -est, P -ness). Lines starting with # are ignored.
+#
+# These are real words novelists use that the standard-size en_US list
+# leaves out: variant spellings American dictionaries also accept, archaic
+# forms for dialogue, and the everyday vocabulary of fantasy and science
+# fiction. A book's invented names belong in its own dictionary.txt instead.
+
+# Variant spellings
+amidst
+amongst
+axe/MDSG
+dreamt
+grey/MDRSTGP
+greyish
+learnt
+spelt
+spilt
+
+# Archaic, for dialogue
+couldst
+mayhap
+shouldst
+tis
+
+# Fantasy and science fiction
+castellan/MS
+chainmail/M
+cutpurse/MS
+destrier/MS
+dwarven
+dwarves
+elven
+fae/M
+fletching/M
+glaive/MS
+godling/MS
+golem/MS
+greatsword/MS
+grimoire/MS
+gryphon/MS
+hyperdrive/MS
+jarl/MS
+katana/MS
+kraken/MS
+lich/MS
+lightspeed/M
+longsword/MS
+lycanthrope/MS
+mana/M
+manticore/MS
+necromantic
+pauldron/MS
+revenant/MS
+runestone/MS
+scry/DSG
+sellsword/MS
+seneschal/MS
+shapeshift/DSG
+shapeshifter/MS
+shapeshifting/M
+sigil/MS
+spellbook/MS
+spellcaster/MS
+spellcasting/M
+starship/MS
+teleport/DSG
+undead/M
+undeath/M
+vambrace/MS
+vampiric
+warband/MS
+warhammer/MS
+worldbuilding/M
+wyrm/MS
+wyvern/MS
