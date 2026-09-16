@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 use crate::cork;
 use crate::create::{self, New, Plan};
 use crate::editor::{self, Editor};
+use crate::export;
 use crate::history;
 use crate::manuscript;
 use crate::palette::{self, Action};
@@ -178,6 +179,16 @@ pub enum Overlay {
     },
     /// Near-miss spellings of notebook names.
     Names { drifts: Vec<search::Drift>, sel: usize },
+    /// Export for readers: formats, which acts, then the result.
+    Export {
+        /// Word, EPUB, Markdown.
+        formats: [bool; 3],
+        /// Each act by path, with its title and whether it's included.
+        parts: Vec<(PathBuf, String, bool)>,
+        sel: usize,
+        /// What happened, once it has run: lines to show.
+        done: Option<Vec<String>>,
+    },
     /// Suggestions for one misspelt word, plus adding it to the book.
     Spelling {
         line: usize,
@@ -664,6 +675,7 @@ impl App {
     fn run_feature(&mut self, action: Action) {
         match action {
             Action::Corkboard => self.open_cork(),
+            Action::Export => self.open_export(),
             Action::Spellcheck => self.toggle_spellcheck(),
             Action::SpellingSuggestions => self.spelling(),
             Action::MoveUp => self.move_selected(true),
@@ -855,6 +867,62 @@ impl App {
     /// book's own list counts too, since it's meant.
     fn is_dictionary_word(&self, word: &str) -> bool {
         self.speller.as_ref().is_some_and(|s| s.is_correct(&word.to_lowercase()))
+    }
+
+    // ---- export ----------------------------------------------------------
+
+    pub fn open_export(&mut self) {
+        self.flush();
+        let parts = export::parts(&self.project)
+            .into_iter()
+            .map(|(i, title)| (self.project.nodes[i].path.clone(), title, true))
+            .collect();
+        self.overlay = Overlay::Export { formats: [true, true, false], parts, sel: 0, done: None };
+    }
+
+    fn run_export(&mut self, formats: [bool; 3], parts: &[(PathBuf, String, bool)]) -> Vec<String> {
+        // Export what's on screen, saved or not; saving first keeps the files
+        // and the export in agreement.
+        self.commit_saves();
+        let chosen: Vec<usize> = parts
+            .iter()
+            .filter(|(_, _, on)| *on)
+            .filter_map(|(p, _, _)| self.project.nodes.iter().position(|n| &n.path == p))
+            .collect();
+        let whole = parts.is_empty() || chosen.len() == parts.len();
+        let opts = export::ExportOptions {
+            docx: formats[0],
+            epub: formats[1],
+            markdown: formats[2],
+            parts: if whole { None } else { Some(chosen) },
+        };
+        match export::export(&self.project, &opts) {
+            Ok(done) => {
+                let mut lines: Vec<String> = done
+                    .files
+                    .iter()
+                    .map(|f| {
+                        let size = fs::metadata(f).map(|m| m.len()).unwrap_or(0);
+                        let rel = f.strip_prefix(&self.project.root).unwrap_or(f);
+                        format!("✓ {}  {}", rel.display(), human_size(size))
+                    })
+                    .collect();
+                lines.push(String::new());
+                // Shunn rounds, which makes a short book "about 0 words".
+                let rounded = manuscript::rounded_words(done.words);
+                let words = if rounded == 0 { format!("{} words", done.words) } else { format!("about {rounded} words") };
+                lines.push(format!(
+                    "{} chapter{} · {words} · {} manuscript page{}",
+                    done.chapters,
+                    if done.chapters == 1 { "" } else { "s" },
+                    done.pages,
+                    if done.pages == 1 { "" } else { "s" },
+                ));
+                self.msg = format!("exported {} file{} to exports/", done.files.len(), if done.files.len() == 1 { "" } else { "s" });
+                lines
+            }
+            Err(e) => vec![format!("couldn't export: {e}")],
+        }
     }
 
     // ---- spelling --------------------------------------------------------
@@ -2075,6 +2143,39 @@ impl App {
 
             Overlay::Cork { .. } => self.cork_key(key),
 
+            Overlay::Export { formats, parts, sel, done } => {
+                if done.is_some() {
+                    self.overlay = Overlay::None;
+                    return;
+                }
+                // Rows: three formats, each act, then the export button.
+                let rows = 3 + parts.len() + 1;
+                match key {
+                    Key::Down | Key::Char('j') => *sel = (*sel + 1).min(rows - 1),
+                    Key::Up | Key::Char('k') => *sel = sel.saturating_sub(1),
+                    Key::Char(' ') | Key::Enter if *sel < 3 => formats[*sel] = !formats[*sel],
+                    Key::Char(' ') | Key::Enter if *sel < 3 + parts.len() => {
+                        let p = &mut parts[*sel - 3];
+                        p.2 = !p.2;
+                    }
+                    Key::Enter | Key::Char('x') => {
+                        if !formats.iter().any(|&f| f) {
+                            self.msg = "choose at least one format".into();
+                        } else if !parts.is_empty() && !parts.iter().any(|p| p.2) {
+                            self.msg = format!("choose at least one {}", self.project.meta.part_noun());
+                        } else {
+                            let (f, p) = (*formats, parts.clone());
+                            let lines = self.run_export(f, &p);
+                            if let Overlay::Export { done, .. } = &mut self.overlay {
+                                *done = Some(lines);
+                            }
+                        }
+                    }
+                    Key::Esc => self.overlay = Overlay::None,
+                    _ => {}
+                }
+            }
+
             Overlay::Spelling { line, start, end, word, suggestions, sel } => {
                 // Rows: each suggestion, then "add to this book", then "leave it".
                 let rows = suggestions.len() + 2;
@@ -2554,6 +2655,15 @@ pub enum Key {
     BackTab,
     F(u8),
     Other,
+}
+
+/// "84 KB", "1.2 MB".
+fn human_size(bytes: u64) -> String {
+    match bytes {
+        b if b >= 1_048_576 => format!("{:.1} MB", b as f64 / 1_048_576.0),
+        b if b >= 1024 => format!("{} KB", b / 1024),
+        b => format!("{b} bytes"),
+    }
 }
 
 /// Put the likeliest fix first: fewest edits (a swap counts as one), then the

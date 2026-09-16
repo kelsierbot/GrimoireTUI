@@ -793,6 +793,63 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             f.render_widget(Paragraph::new(lines), inner);
         }
 
+        Overlay::Export { formats, parts, sel, done } => {
+            let h = (3 + parts.len() as u16 + 10).min(area.height);
+            let box_area = centred(area, 66, h);
+            f.render_widget(Clear, box_area);
+            let block = pane_block("EXPORT FOR READERS", true, t);
+            let inner = block.inner(box_area);
+            f.render_widget(block, box_area);
+            let dim = Style::default().fg(t.dim);
+            let mut lines: Vec<Line> = Vec::new();
+            if let Some(result) = done {
+                for l in result {
+                    let style = if l.starts_with('✓') { Style::default().fg(t.accent) } else if l.starts_with("couldn't") { Style::default().fg(t.warn) } else { Style::default().fg(t.text) };
+                    lines.push(Line::from(Span::styled(format!(" {l}"), style)));
+                }
+                while lines.len() < (inner.height as usize).saturating_sub(1) {
+                    lines.push(Line::from(""));
+                }
+                lines.push(Line::from(Span::styled(" any key closes", dim)));
+                f.render_widget(Paragraph::new(lines), inner);
+                return;
+            }
+            let row = |i: usize, on: bool, label: String, note: &str, lines: &mut Vec<Line>| {
+                let cursor = i == *sel;
+                let l = Line::from(vec![
+                    Span::styled(if cursor { " ▸ " } else { "   " }, Style::default().fg(t.accent)),
+                    Span::styled(if on { "[x] " } else { "[ ] " }, Style::default().fg(if on { t.accent } else { t.dim })),
+                    Span::styled(format!("{label:<16}"), Style::default().fg(if cursor { t.accent } else { t.text })),
+                    Span::styled(note.to_string(), dim),
+                ]);
+                lines.push(if cursor { l.style(Style::default().bg(t.sel)) } else { l });
+            };
+            lines.push(Line::from(Span::styled(" Formats", Style::default().fg(t.text).add_modifier(Modifier::BOLD))));
+            row(0, formats[0], "Word document".into(), "standard manuscript format, for agents and editors", &mut lines);
+            row(1, formats[1], "EPUB".into(), "for phones and e-readers", &mut lines);
+            row(2, formats[2], "Markdown".into(), "the plain compiled text", &mut lines);
+            if !parts.is_empty() {
+                lines.push(Line::from(""));
+                lines.push(Line::from(Span::styled(" Include", Style::default().fg(t.text).add_modifier(Modifier::BOLD))));
+                for (i, (_, title, on)) in parts.iter().enumerate() {
+                    row(3 + i, *on, title.clone(), "", &mut lines);
+                }
+            }
+            lines.push(Line::from(""));
+            let button = 3 + parts.len();
+            let on = *sel == button;
+            let b = Line::from(vec![
+                Span::styled(if on { " ▸ " } else { "   " }, Style::default().fg(t.accent)),
+                Span::styled(" Export to exports/ ", Style::default().fg(if on { t.sel } else { t.accent }).bg(if on { t.accent } else { t.sel })),
+            ]);
+            lines.push(b);
+            while lines.len() < (inner.height as usize).saturating_sub(1) {
+                lines.push(Line::from(""));
+            }
+            lines.push(Line::from(Span::styled(" ↑↓ choose   space/↵ tick   x export   esc close", dim)));
+            f.render_widget(Paragraph::new(lines), inner);
+        }
+
         Overlay::Spelling { word, suggestions, sel, line, end, .. } => {
             // Sits just under the word, clamped to the screen.
             let rows = app.editor.layout(app.edit_width);
