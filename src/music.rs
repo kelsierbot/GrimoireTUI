@@ -1464,7 +1464,36 @@ fn client_config_path() -> PathBuf {
 }
 
 fn installed() -> bool {
-    app_path().exists()
+    app_path().exists() && !built_for_another_cpu(&app_path())
+}
+
+/// The CPU an ELF binary was built for, spelled the way
+/// `std::env::consts::ARCH` spells it. `None` for anything that isn't ELF —
+/// a macOS .app bundle, a script, a missing file. An AppImage's runtime is an
+/// ordinary ELF header, so this reads the right answer for those too.
+fn elf_arch(path: &std::path::Path) -> Option<&'static str> {
+    use std::io::Read;
+    let mut head = [0u8; 20];
+    std::fs::File::open(path).ok()?.read_exact(&mut head).ok()?;
+    if &head[..4] != b"\x7fELF" {
+        return None;
+    }
+    let machine = if head[5] == 2 {
+        u16::from_be_bytes([head[18], head[19]])
+    } else {
+        u16::from_le_bytes([head[18], head[19]])
+    };
+    Some(match machine {
+        0x03 => "x86",
+        0x28 => "arm",
+        0x3E => "x86_64",
+        0xB7 => "aarch64",
+        _ => "unknown",
+    })
+}
+
+fn built_for_another_cpu(path: &std::path::Path) -> bool {
+    elf_arch(path).is_some_and(|a| a != std::env::consts::ARCH)
 }
 
 fn port_open(host: &str, port: u16) -> bool {
@@ -1570,10 +1599,46 @@ fn quit_client() {
         let _ = Command::new("osascript")
             .args(["-e", "quit app \"YouTube Music\""])
             .status();
-    } else {
-        let _ = Command::new("pkill").arg("-f").arg("youtube-music").status();
+        thread::sleep(Duration::from_secs(3));
+        return;
     }
-    thread::sleep(Duration::from_secs(3));
+
+    // Signal Electron's main process only. It closes its helpers and the
+    // AppImage runtime unmounts after it. Signalling the runtime as well (what
+    // a plain pkill does) pulls the mount out from under an Electron that is
+    // still shutting down, and it spins a full core forever.
+    let main = client_pids(true);
+    if main.is_empty() {
+        return;
+    }
+    let _ = Command::new("kill").args(&main).status();
+    for _ in 0..20 {
+        thread::sleep(Duration::from_millis(500));
+        if client_pids(false).is_empty() {
+            return;
+        }
+    }
+    let _ = Command::new("kill").arg("-9").args(client_pids(false)).status();
+}
+
+/// Linux: pids of the running AppImage client. With `main_only`, just
+/// Electron's main process — the one inside the mount with no `--type=`.
+///
+/// Matched on "/youtube-music" as a whole path component: a bare
+/// "youtube-music" also matches YTMDesktop (/app/lib/youtube-music-desktop-
+/// app/…), a different player that may well be open.
+fn client_pids(main_only: bool) -> Vec<String> {
+    let Ok(out) = std::process::Command::new("pgrep")
+        .args(["-af", "/youtube-music( |$)"])
+        .output()
+    else {
+        return Vec::new();
+    };
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter(|l| !main_only || (l.contains("/.mount_") && !l.contains("--type=")))
+        .filter_map(|l| l.split_whitespace().next().map(str::to_string))
+        .collect()
 }
 
 fn download_and_install() -> Result<()> {
@@ -1593,23 +1658,12 @@ fn download_and_install() -> Result<()> {
     let rel: serde_json::Value = res.body_mut().read_json()?;
     let tag = rel["tag_name"].as_str().unwrap_or("?").to_string();
 
-    let want_arm = cfg!(target_arch = "aarch64");
     let ext = if cfg!(target_os = "macos") { ".dmg" } else { ".AppImage" };
+    let arch = std::env::consts::ARCH;
 
     let assets = rel["assets"].as_array().cloned().unwrap_or_default();
-    let pick = assets
-        .iter()
-        .filter(|a| a["name"].as_str().is_some_and(|n| n.ends_with(ext)))
-        .find(|a| {
-            let n = a["name"].as_str().unwrap_or("");
-            n.contains("arm64") == want_arm
-        })
-        .or_else(|| {
-            assets
-                .iter()
-                .find(|a| a["name"].as_str().is_some_and(|n| n.ends_with(ext)))
-        })
-        .ok_or_else(|| anyhow!("no {ext} asset in release {tag}"))?;
+    let pick = pick_asset(&assets, ext, arch)
+        .ok_or_else(|| anyhow!("release {tag} has no {ext} built for {arch}"))?;
 
     let name = pick["name"].as_str().unwrap_or("download").to_string();
     let url = pick["browser_download_url"]
@@ -1683,6 +1737,107 @@ fn download_and_install() -> Result<()> {
 
     let _ = std::fs::remove_file(&tmp);
     Ok(())
+}
+
+/// The release build that runs on `arch` (`std::env::consts::ARCH`).
+///
+/// th-ch tags every build with its CPU (`-arm64`, `-armv7l`) except x64,
+/// which carries no tag at all — `YouTube-Music-3.12.0.AppImage`. So an
+/// untagged name means x64. There is deliberately no "any .AppImage will do"
+/// fallback: the armv7l build copies onto an x86_64 machine without complaint
+/// and then simply never starts, which surfaced as "the API server never came
+/// up" with nothing pointing at the real cause.
+fn pick_asset<'a>(
+    assets: &'a [serde_json::Value],
+    ext: &str,
+    arch: &str,
+) -> Option<&'a serde_json::Value> {
+    const TAGS: [(&str, &str); 7] = [
+        ("arm64", "aarch64"),
+        ("aarch64", "aarch64"),
+        ("armv7l", "arm"),
+        ("ia32", "x86"),
+        ("x86_64", "x86_64"),
+        ("x64", "x86_64"),
+        ("amd64", "x86_64"),
+    ];
+    assets.iter().find(|a| {
+        let Some(name) = a["name"].as_str() else {
+            return false;
+        };
+        if !name.ends_with(ext) {
+            return false;
+        }
+        let name = name.to_lowercase();
+        match TAGS.iter().find(|(tag, _)| name.contains(tag)) {
+            Some((_, built_for)) => *built_for == arch,
+            None => arch == "x86_64",
+        }
+    })
+}
+
+#[cfg(test)]
+mod install_tests {
+    use super::*;
+    use serde_json::json;
+
+    /// The real v3.12.0 asset list, in GitHub's order — the arm builds come
+    /// before the untagged x64 one, which is how armv7l got picked.
+    fn release() -> Vec<serde_json::Value> {
+        [
+            "YouTube-Music-3.12.0-arm64.AppImage",
+            "YouTube-Music-3.12.0-arm64.dmg",
+            "YouTube-Music-3.12.0-armv7l.AppImage",
+            "YouTube-Music-3.12.0-x86_64.flatpak",
+            "YouTube-Music-3.12.0.AppImage",
+            "YouTube-Music-3.12.0.dmg",
+        ]
+        .iter()
+        .map(|n| json!({ "name": n }))
+        .collect()
+    }
+
+    fn picked(ext: &str, arch: &str) -> Option<String> {
+        let assets = release();
+        pick_asset(&assets, ext, arch).map(|a| a["name"].as_str().unwrap().to_string())
+    }
+
+    #[test]
+    fn each_cpu_gets_its_own_build() {
+        assert_eq!(picked(".AppImage", "x86_64").as_deref(), Some("YouTube-Music-3.12.0.AppImage"));
+        assert_eq!(picked(".AppImage", "aarch64").as_deref(), Some("YouTube-Music-3.12.0-arm64.AppImage"));
+        assert_eq!(picked(".AppImage", "arm").as_deref(), Some("YouTube-Music-3.12.0-armv7l.AppImage"));
+        assert_eq!(picked(".dmg", "x86_64").as_deref(), Some("YouTube-Music-3.12.0.dmg"));
+        assert_eq!(picked(".dmg", "aarch64").as_deref(), Some("YouTube-Music-3.12.0-arm64.dmg"));
+    }
+
+    #[test]
+    fn no_build_for_this_cpu_means_none_not_a_wrong_one() {
+        assert_eq!(picked(".AppImage", "riscv64"), None);
+        assert_eq!(picked(".dmg", "arm"), None);
+    }
+
+    #[test]
+    fn reads_the_cpu_out_of_an_elf_header() {
+        let exe = std::env::current_exe().unwrap();
+        assert_eq!(elf_arch(&exe), Some(std::env::consts::ARCH));
+        assert!(!built_for_another_cpu(&exe));
+
+        // First 20 bytes of the armv7l AppImage that was installed on bazzite.
+        let dir = std::env::temp_dir().join(format!("grimoire-elf-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let arm = dir.join("youtube-music");
+        let head = [
+            0x7f, b'E', b'L', b'F', 1, 1, 1, 0, b'A', b'I', 2, 0, 0, 0, 0, 0, 2, 0, 0x28, 0,
+        ];
+        std::fs::write(&arm, head).unwrap();
+        assert_eq!(elf_arch(&arm), Some("arm"));
+        assert!(built_for_another_cpu(&arm));
+
+        std::fs::write(&arm, "#!/bin/sh\n").unwrap();
+        assert_eq!(elf_arch(&arm), None, "not ELF: no opinion");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 
@@ -1787,7 +1942,16 @@ pub fn setup() -> Result<()> {
     if installed() {
         println!("  found {}", app_path().display());
     } else {
-        println!("  not installed.\n");
+        if let Some(cpu) = elf_arch(&app_path()) {
+            println!(
+                "  found {}, but it's built for {cpu} and this machine is {}.",
+                app_path().display(),
+                std::env::consts::ARCH
+            );
+            println!("  It can never start here — replacing it.\n");
+        } else {
+            println!("  not installed.\n");
+        }
         println!("  Grimoire can fetch it from github.com/th-ch/youtube-music.");
         if cfg!(target_os = "macos") {
             println!("  That build is ad-hoc signed rather than notarised, so macOS");
