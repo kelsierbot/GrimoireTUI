@@ -23,22 +23,40 @@ whole design constraint, and everything else follows from it.
 
 ## Install
 
+**Windows** — open PowerShell or Command Prompt and paste:
+
+```powershell
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/kelsierbot/GrimoireTUI/releases/latest/download/grimoire-tui-installer.ps1 | iex"
+```
+
+**macOS and Linux** — in a terminal:
+
+```sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/kelsierbot/GrimoireTUI/releases/latest/download/grimoire-tui-installer.sh | sh
+```
+
+Then open a **new** terminal (on Windows, Windows Terminal is best) and run
+`grimoire`. Nothing else to install — no Rust, no build tools. The installer
+puts `grimoire` in `~/.cargo/bin` and adds that to your `PATH`. Builds are for
+Windows x64, macOS (Apple Silicon and Intel) and Linux (x86_64 and ARM64);
+every download is on the [releases page](https://github.com/kelsierbot/GrimoireTUI/releases).
+
+Settings live in `~/.config/grimoire` (`%USERPROFILE%\.config\grimoire` on
+Windows) and a first manuscript goes in `Documents/Grimoire`.
+
+### From source
+
 Requires Rust 1.85 or newer.
 
 ```sh
 git clone https://github.com/kelsierbot/GrimoireTUI
 cd GrimoireTUI
 cargo install --path .
-grimoire
 ```
 
-The crate is `grimoire-tui`; the binary it installs is `grimoire`. Make sure
-`~/.cargo/bin` is on your `PATH`. A crates.io release is coming.
-
-**On Windows**, install Rust with [rustup](https://rustup.rs) — it offers to
-install the Visual Studio C++ build tools it needs; say yes — then run the same
-commands in Windows Terminal. Settings live in `%USERPROFILE%\.config\grimoire`
-and a first manuscript goes in `Documents\Grimoire`, as on the other two.
+The crate is `grimoire-tui`; the binary it installs is `grimoire`. On Windows,
+install Rust with [rustup](https://rustup.rs) and let it add the Visual Studio
+C++ build tools.
 
 ```sh
 grimoire                          open your manuscript
@@ -271,8 +289,7 @@ remote-control sources.
 and lets you write.
 
 Not yet: command palette, corkboard view (`pov` and `status` are already parsed
-and waiting for it), git sync, scene reordering, renaming and deleting from
-inside the app, search, spellcheck, and undo.
+and waiting for it), git sync, scene reordering, search, spellcheck, and undo.
 
 ## Development
 
@@ -293,6 +310,20 @@ src/ui.rs        rendering
 src/music.rs     youtube-music API Server client
 site/            the landing page
 ```
+
+### Releasing
+
+Bump `version` in `Cargo.toml`, add a matching section to `CHANGELOG.md`,
+commit, then tag and push the tag:
+
+```sh
+git tag v0.2.0 && git push origin v0.2.0
+```
+
+The **Release** workflow ([dist](https://github.com/axodotdev/cargo-dist))
+builds every platform and publishes the GitHub release with both installers;
+**installer-check** then installs it with the one-liners on Windows, macOS and
+Linux and runs it. Nothing is published unless every build succeeds.
 
 Issues and pull requests welcome.
 

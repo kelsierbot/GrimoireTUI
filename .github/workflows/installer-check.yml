@@ -1,0 +1,62 @@
+name: installer-check
+
+# After a release is published, install it exactly the way the README tells
+# people to — the one-line installer, on a machine that has never seen
+# Grimoire — then run what got installed from a fresh shell.
+
+on:
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+  workflow_dispatch:
+
+jobs:
+  install:
+    # Tag pushes only: the Release workflow also runs a plan-only pass on PRs.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Install with the one-liner, from Command Prompt as the README allows
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          powershell -ExecutionPolicy Bypass -c "irm https://github.com/kelsierbot/GrimoireTUI/releases/latest/download/grimoire-tui-installer.ps1 | iex"
+
+      - name: grimoire runs from a new terminal
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          # A new terminal builds PATH from the registry, which is where the
+          # installer put it — so do the same rather than trusting this shell.
+          $env:Path = [Environment]::GetEnvironmentVariable('Path', 'User') + ';' +
+                      [Environment]::GetEnvironmentVariable('Path', 'Machine')
+          $cmd = Get-Command grimoire -ErrorAction Stop
+          Write-Host "grimoire resolves to $($cmd.Source)"
+          grimoire --help
+          if ($LASTEXITCODE -ne 0) { throw "grimoire --help exited $LASTEXITCODE" }
+          $book = Join-Path $env:RUNNER_TEMP 'book'
+          grimoire new $book
+          if (-not (Test-Path (Join-Path $book 'manuscript'))) { throw "no manuscript in $book" }
+
+      - name: Install with the one-liner
+        if: runner.os != 'Windows'
+        run: |
+          curl --proto '=https' --tlsv1.2 -LsSf https://github.com/kelsierbot/GrimoireTUI/releases/latest/download/grimoire-tui-installer.sh | sh
+
+      - name: grimoire runs from a new terminal
+        if: runner.os != 'Windows'
+        run: |
+          # A login shell reads the profile the installer edited.
+          bash -lc '
+            set -e
+            echo "grimoire resolves to $(command -v grimoire)"
+            grimoire --help
+            grimoire new "$RUNNER_TEMP/book"
+            test -d "$RUNNER_TEMP/book/manuscript"
+          '

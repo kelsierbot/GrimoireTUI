@@ -34,6 +34,11 @@ opt-level = 3
 lto = true
 strip = true
 
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
+
 [features]
 # Audio playback for the Jellyfin and Plex sources, and system-audio capture
 # for the spectrum view (macOS 14.6+). Default on; on Linux it needs ALSA
