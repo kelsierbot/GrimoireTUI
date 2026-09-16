@@ -44,6 +44,8 @@ const FIRST_LABEL: &str = "Session history begins";
 /// history except the note of where the writer left off.
 const IGNORE_STATE: &str = ".grimoire/*";
 const KEEP_RESUME: &str = "!.grimoire/resume.md";
+/// Files made by Export, which can always be made again.
+const IGNORE_EXPORTS: &str = "exports/";
 
 /// Inherited variables that would point git at some other repository than the
 /// book — set, for instance, when Grimoire is launched from inside a git hook.
@@ -568,6 +570,11 @@ fn gitignore_keeping_resume(existing: &str) -> String {
         }
         Some(i) if !kept => lines.insert(i + 1, KEEP_RESUME.into()),
         Some(_) => {}
+    }
+    // Exports are made from the manuscript on demand; history keeps the
+    // manuscript, not copies of it.
+    if !lines.iter().any(|l| matches!(l.trim(), "exports" | "exports/" | "/exports" | "/exports/")) {
+        lines.push(IGNORE_EXPORTS.into());
     }
     let mut out = lines.join(nl);
     out.push_str(nl);
@@ -1308,27 +1315,27 @@ mod tests {
 
     #[test]
     fn a_bare_grimoire_line_becomes_the_pair_and_everything_else_stays() {
-        assert_eq!(gitignore_keeping_resume(".grimoire/\n"), ".grimoire/*\n!.grimoire/resume.md\n");
+        assert_eq!(gitignore_keeping_resume(".grimoire/\n"), ".grimoire/*\n!.grimoire/resume.md\nexports/\n");
         assert_eq!(
             gitignore_keeping_resume("# mine\n*.docx\n.grimoire/\n.DS_Store\n"),
-            "# mine\n*.docx\n.grimoire/*\n!.grimoire/resume.md\n.DS_Store\n"
+            "# mine\n*.docx\n.grimoire/*\n!.grimoire/resume.md\n.DS_Store\nexports/\n"
         );
-        assert_eq!(gitignore_keeping_resume(""), ".grimoire/*\n!.grimoire/resume.md\n");
-        assert_eq!(gitignore_keeping_resume("*.pdf"), "*.pdf\n.grimoire/*\n!.grimoire/resume.md\n");
+        assert_eq!(gitignore_keeping_resume(""), ".grimoire/*\n!.grimoire/resume.md\nexports/\n");
+        assert_eq!(gitignore_keeping_resume("*.pdf"), "*.pdf\n.grimoire/*\n!.grimoire/resume.md\nexports/\n");
         assert_eq!(
             gitignore_keeping_resume(".grimoire/*\n*.pdf\n"),
-            ".grimoire/*\n!.grimoire/resume.md\n*.pdf\n"
+            ".grimoire/*\n!.grimoire/resume.md\n*.pdf\nexports/\n"
         );
         assert_eq!(
             gitignore_keeping_resume("!.grimoire/resume.md\n.grimoire/*\n"),
-            "!.grimoire/resume.md\n.grimoire/*\n!.grimoire/resume.md\n"
+            "!.grimoire/resume.md\n.grimoire/*\n!.grimoire/resume.md\nexports/\n"
         );
         assert_eq!(
             gitignore_keeping_resume("*.pdf\r\n.grimoire/\r\n"),
-            "*.pdf\r\n.grimoire/*\r\n!.grimoire/resume.md\r\n"
+            "*.pdf\r\n.grimoire/*\r\n!.grimoire/resume.md\r\nexports/\r\n"
         );
-        let done = ".grimoire/*\n!.grimoire/resume.md\n";
-        assert_eq!(gitignore_keeping_resume(done), done);
+        let done = ".grimoire/*\n!.grimoire/resume.md\nexports/\n";
+        assert_eq!(gitignore_keeping_resume(done), done, "already right: unchanged");
     }
 
     #[test]
@@ -1365,7 +1372,7 @@ mod tests {
         assert!(!is_enabled(&d));
         enable(&d).unwrap();
         assert!(is_enabled(&d));
-        assert_eq!(fs::read_to_string(d.join(".gitignore")).unwrap(), ".grimoire/*\n!.grimoire/resume.md\n");
+        assert_eq!(fs::read_to_string(d.join(".gitignore")).unwrap(), ".grimoire/*\n!.grimoire/resume.md\nexports/\n");
         assert_eq!(run(&d, &["symbolic-ref", "--short", "HEAD"]), "main");
 
         let history = sessions(&d, 10).unwrap();

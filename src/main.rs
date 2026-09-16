@@ -15,6 +15,7 @@ mod project;
 mod recovery;
 mod scene;
 mod search;
+mod sessions;
 mod settings;
 mod spell;
 mod shutdown;
