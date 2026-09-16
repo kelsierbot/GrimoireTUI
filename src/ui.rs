@@ -464,27 +464,52 @@ fn draw_editor(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
     let rows = app.editor.layout(app.edit_width);
     app.editor.clamp_scroll(&rows, app.edit_height);
 
-    // Paint the drag selection by splitting each row into up to three runs.
+    // Each row is painted in layers, char by char, then merged into runs:
+    // find matches, then the selection on top.
+    let find = match &app.overlay {
+        Overlay::Find { query, .. } if !query.is_empty() => Some(query.as_str()),
+        _ => None,
+    };
+    let match_bg = blend(t.border, t.sun, 0.45);
+    let mut line_matches: std::collections::HashMap<usize, Vec<(usize, usize)>> = std::collections::HashMap::new();
     let visible: Vec<Line> = rows
         .iter()
         .skip(app.editor.scroll)
         .take(app.edit_height)
         .map(|&r| {
             let plain = Style::default().fg(t.text);
-            match app.editor.row_selection(r) {
-                None => Line::from(Span::styled(app.editor.row_text(r), plain)),
-                Some((from, to)) => {
-                    let seg = |a: usize, b: usize| app.editor.row_text(scene_slice(r, a, b));
-                    Line::from(vec![
-                        Span::styled(seg(r.start, from), plain),
-                        Span::styled(
-                            seg(from, to),
-                            Style::default().fg(t.text).bg(t.sel),
-                        ),
-                        Span::styled(seg(to, r.end), plain),
-                    ])
+            let chars: Vec<char> = app.editor.lines[r.line].chars().skip(r.start).take(r.end - r.start).collect();
+            let mut styles = vec![plain; chars.len()];
+            let mut paint = |from: usize, to: usize, f: &dyn Fn(Style) -> Style| {
+                for c in from.max(r.start)..to.min(r.end) {
+                    styles[c - r.start] = f(styles[c - r.start]);
+                }
+            };
+            if let Some(q) = find {
+                let hits = line_matches
+                    .entry(r.line)
+                    .or_insert_with(|| crate::search::matches(&app.editor.lines[r.line], q));
+                for &(s, e) in hits.iter() {
+                    paint(s, e, &|st| st.bg(match_bg));
                 }
             }
+            if let Some((from, to)) = app.editor.row_selection(r) {
+                paint(from, to, &|st| st.bg(t.sel).fg(if find.is_some() { t.accent } else { t.text }));
+            }
+            let mut spans: Vec<Span> = Vec::new();
+            let mut run = String::new();
+            let mut run_style = plain;
+            for (ch, st) in chars.iter().zip(styles) {
+                if st != run_style && !run.is_empty() {
+                    spans.push(Span::styled(std::mem::take(&mut run), run_style));
+                }
+                run_style = st;
+                run.push(*ch);
+            }
+            if !run.is_empty() {
+                spans.push(Span::styled(run, run_style));
+            }
+            Line::from(spans)
         })
         .collect();
 
@@ -574,6 +599,227 @@ fn centred(area: Rect, w: u16, h: u16) -> Rect {
 fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
     match &app.overlay {
         Overlay::None => {}
+
+        Overlay::Palette { query, sel, entries } => {
+            let hits = crate::palette::filter(entries, query);
+            let rows = 14usize;
+            let w = area.width.saturating_sub(4).min(84);
+            let h = rows as u16 + 5;
+            let box_area = Rect { x: area.x + (area.width - w) / 2, y: area.y + 2.min(area.height.saturating_sub(h)), width: w, height: h.min(area.height) };
+            f.render_widget(Clear, box_area);
+            let block = pane_block("FIND ANYTHING", true, t);
+            let inner = block.inner(box_area);
+            f.render_widget(block, box_area);
+            let iw = inner.width as usize;
+            let dim = Style::default().fg(t.dim);
+            let sel = (*sel).min(hits.len().saturating_sub(1));
+            let mut lines = vec![
+                Line::from(vec![
+                    Span::styled(" › ", Style::default().fg(t.accent)),
+                    Span::styled(query.clone(), Style::default().fg(t.text)),
+                    Span::styled("█", Style::default().fg(t.accent)),
+                ]),
+                Line::from(Span::styled("─".repeat(iw), Style::default().fg(t.border))),
+            ];
+            let start = sel.saturating_sub(rows.saturating_sub(1));
+            for (i, e) in hits.iter().enumerate().skip(start).take(rows) {
+                let on = i == sel;
+                let key_w = e.key.chars().count();
+                let label_w = e.label.chars().count().min(iw.saturating_sub(key_w + 6));
+                let label = truncate(&e.label, label_w);
+                let detail_room = iw.saturating_sub(label.chars().count() + key_w + 7);
+                let detail = if e.detail.is_empty() || detail_room < 6 { String::new() } else { format!("  {}", truncate(&e.detail, detail_room)) };
+                let used = 3 + label.chars().count() + detail.chars().count();
+                let pad = iw.saturating_sub(used + key_w + 1);
+                let row = Line::from(vec![
+                    Span::styled(if on { " ▸ " } else { "   " }, Style::default().fg(t.accent)),
+                    Span::styled(label, Style::default().fg(if on { t.accent } else { t.text })),
+                    Span::styled(detail, dim),
+                    Span::raw(" ".repeat(pad)),
+                    Span::styled(e.key.clone(), Style::default().fg(t.sun)),
+                    Span::raw(" "),
+                ]);
+                lines.push(if on { row.style(Style::default().bg(t.sel)) } else { row });
+            }
+            if hits.is_empty() {
+                lines.push(Line::from(Span::styled("   nothing by that name", dim)));
+            }
+            while lines.len() < rows + 2 {
+                lines.push(Line::from(""));
+            }
+            lines.push(Line::from(Span::styled(" type to search   ↑↓ choose   ↵ do it   esc close", dim)));
+            f.render_widget(Paragraph::new(lines), inner);
+        }
+
+        Overlay::Find { query, with, on_with, .. } => {
+            let editor = app.rect_editor;
+            let h = if with.is_some() { 4 } else { 3 };
+            let w = editor.width.saturating_add(4).min(area.width);
+            let bar = Rect {
+                x: editor.x.saturating_sub(2),
+                y: (editor.y + editor.height).saturating_sub(h).max(area.y),
+                width: w,
+                height: h,
+            };
+            f.render_widget(Clear, bar);
+            let block = Block::default().borders(Borders::TOP | Borders::BOTTOM).border_style(Style::default().fg(t.accent));
+            let inner = block.inner(bar);
+            f.render_widget(block, bar);
+            let dim = Style::default().fg(t.dim);
+            let field = |label: &str, text: &str, active: bool| {
+                vec![
+                    Span::styled(format!(" {label:>7} ▸ "), Style::default().fg(if active { t.accent } else { t.dim })),
+                    Span::styled(text.to_string(), Style::default().fg(t.text)),
+                    Span::styled(if active { "█" } else { " " }, Style::default().fg(t.accent)),
+                ]
+            };
+            let m = app.mod_label();
+            let mut first = field("find", query, !*on_with);
+            let pos = app.find_position(query);
+            first.push(Span::styled(format!("  {pos}"), Style::default().fg(if pos == "no matches" { t.warn } else { t.sun })));
+            first.push(Span::styled(format!("   ↵ next  ↑ previous  Tab replace  {m}F whole book  esc close"), dim));
+            let mut lines = vec![Line::from(first)];
+            if let Some(w) = with {
+                let mut second = field("replace", w, *on_with);
+                second.push(Span::styled(format!("   ↵ replace this one  {m}R replace all in this scene"), dim));
+                lines.push(Line::from(second));
+            }
+            f.render_widget(Paragraph::new(lines), inner);
+        }
+
+        Overlay::FindBook { query, with, on_with, hits, sel, confirm } => {
+            let box_area = centred(area, area.width.saturating_sub(4).min(110), area.height.saturating_sub(2).min(38));
+            f.render_widget(Clear, box_area);
+            let scenes = {
+                let mut seen: Vec<&std::path::Path> = Vec::new();
+                for h in hits {
+                    if !seen.contains(&h.path.as_path()) {
+                        seen.push(&h.path);
+                    }
+                }
+                seen.len()
+            };
+            let head = if query.is_empty() {
+                "FIND IN THE BOOK".to_string()
+            } else {
+                format!("FIND IN THE BOOK · {} match{} in {} scene{}", hits.len(), if hits.len() == 1 { "" } else { "es" }, scenes, if scenes == 1 { "" } else { "s" })
+            };
+            let block = pane_block(&head, true, t);
+            let inner = block.inner(box_area);
+            f.render_widget(block, box_area);
+            let iw = inner.width as usize;
+            let dim = Style::default().fg(t.dim);
+            let field = |label: &str, text: &str, active: bool| {
+                Line::from(vec![
+                    Span::styled(format!(" {label:>7} ▸ "), Style::default().fg(if active { t.accent } else { t.dim })),
+                    Span::styled(text.to_string(), Style::default().fg(t.text)),
+                    Span::styled(if active { "█" } else { " " }, Style::default().fg(t.accent)),
+                ])
+            };
+            let mut lines = vec![field("find", query, !*on_with)];
+            if let Some(w) = with {
+                lines.push(field("replace", w, *on_with));
+            }
+            lines.push(Line::from(Span::styled("─".repeat(iw), Style::default().fg(t.border))));
+
+            // Results, grouped under the scene they're in, scrolled to keep
+            // the selection in view.
+            let mut rows: Vec<(Option<usize>, Line)> = Vec::new();
+            let mut last: Option<&std::path::Path> = None;
+            let counts = |p: &std::path::Path| hits.iter().filter(|h| h.path == p).count();
+            let match_bg = blend(t.border, t.sun, 0.45);
+            for (i, h) in hits.iter().enumerate() {
+                if last != Some(h.path.as_path()) {
+                    last = Some(&h.path);
+                    rows.push((None, Line::from(vec![
+                        Span::styled(format!(" {}", truncate(&h.place, iw.saturating_sub(8))), Style::default().fg(t.accent)),
+                        Span::styled(format!("  {}", counts(&h.path)), dim),
+                    ])));
+                }
+                let chars: Vec<char> = h.text.chars().collect();
+                let room = iw.saturating_sub(10);
+                let lead = h.start.saturating_sub(room / 3);
+                let before: String = chars[lead..h.start].iter().collect();
+                let hit: String = chars[h.start..h.end].iter().collect();
+                let after_room = room.saturating_sub(before.chars().count() + hit.chars().count());
+                let after: String = chars[h.end..].iter().take(after_room).collect();
+                let on = i == *sel;
+                let row = Line::from(vec![
+                    Span::styled(if on { "  ▸ " } else { "    " }, Style::default().fg(t.accent)),
+                    Span::styled(format!("{}{before}", if lead > 0 { "…" } else { "" }), Style::default().fg(t.text)),
+                    Span::styled(hit, Style::default().fg(t.text).bg(match_bg)),
+                    Span::styled(after, Style::default().fg(t.text)),
+                ]);
+                rows.push((Some(i), if on { row.style(Style::default().bg(t.sel)) } else { row }));
+            }
+            let room = (inner.height as usize).saturating_sub(lines.len() + 2);
+            let sel_row = rows.iter().position(|(i, _)| *i == Some(*sel)).unwrap_or(0);
+            let start = sel_row.saturating_sub(room.saturating_sub(2));
+            if query.is_empty() {
+                lines.push(Line::from(Span::styled(" type to search every scene and note", dim)));
+            } else if hits.is_empty() {
+                lines.push(Line::from(Span::styled(" nothing found", dim)));
+            }
+            lines.extend(rows.into_iter().skip(start).take(room).map(|(_, l)| l));
+            while lines.len() < (inner.height as usize).saturating_sub(1) {
+                lines.push(Line::from(""));
+            }
+            let m = app.mod_label();
+            lines.push(if *confirm {
+                Line::from(vec![
+                    Span::styled(
+                        format!(" Replace {} match{} in {} scene{} with “{}”? ", hits.len(), if hits.len() == 1 { "" } else { "es" }, scenes, if scenes == 1 { "" } else { "s" }, with.clone().unwrap_or_default()),
+                        Style::default().fg(t.warn),
+                    ),
+                    Span::styled("y replace   any other key cancels", Style::default().fg(t.text)),
+                ])
+            } else if with.is_some() {
+                Line::from(Span::styled(format!(" ↑↓ choose   ↵ go to it   Tab switch field   ↵ in replace (or {m}R) replaces all   esc close"), dim))
+            } else {
+                Line::from(Span::styled(" ↑↓ choose   ↵ go to it   Tab replace   esc close", dim))
+            });
+            f.render_widget(Paragraph::new(lines), inner);
+        }
+
+        Overlay::Names { drifts, sel } => {
+            let h = (drifts.len() as u16 * 2).min(20) + 6;
+            let box_area = centred(area, area.width.saturating_sub(4).min(90), h);
+            f.render_widget(Clear, box_area);
+            let block = pane_block("NAMES THAT DRIFTED", true, t);
+            let inner = block.inner(box_area);
+            f.render_widget(block, box_area);
+            let dim = Style::default().fg(t.dim);
+            let mut lines = vec![
+                Line::from(Span::styled(" Spellings one or two letters away from a name in your notebook:", Style::default().fg(t.text))),
+                Line::from(""),
+            ];
+            for (i, d) in drifts.iter().enumerate().take(10) {
+                let on = i == *sel;
+                let mut scenes: Vec<&str> = Vec::new();
+                for h in &d.hits {
+                    let title = h.place.rsplit(" › ").next().unwrap_or(&h.place);
+                    if !scenes.contains(&title) {
+                        scenes.push(title);
+                    }
+                }
+                let row = Line::from(vec![
+                    Span::styled(if on { " ▸ " } else { "   " }, Style::default().fg(t.accent)),
+                    Span::styled(d.variant.clone(), Style::default().fg(t.warn)),
+                    Span::styled(format!(" ×{}", d.hits.len()), dim),
+                    Span::styled(" — the ", dim),
+                    Span::styled(d.name.section.clone(), dim),
+                    Span::styled(" note says ", dim),
+                    Span::styled(d.name.name.clone(), Style::default().fg(t.accent)),
+                ]);
+                lines.push(if on { row.style(Style::default().bg(t.sel)) } else { row });
+                lines.push(Line::from(Span::styled(format!("     {}", truncate(&scenes.join(" · "), inner.width.saturating_sub(6) as usize)), dim)));
+            }
+            while lines.len() < (inner.height as usize).saturating_sub(1) {
+                lines.push(Line::from(""));
+            }
+            lines.push(Line::from(Span::styled(" ↑↓ choose   ↵ go to the first one   f fix them all   esc close", dim)));
+            f.render_widget(Paragraph::new(lines), inner);
+        }
 
         Overlay::Recover { items } => {
             let h = (items.len() as u16).min(8) + 8;
@@ -1198,14 +1444,6 @@ fn diff_lines(pieces: &[crate::history::Piece], width: usize, t: &Theme) -> (Vec
     (wrap.lines, first)
 }
 
-/// A sub-range of a visual row, for painting selection runs.
-fn scene_slice(r: crate::editor::VisRow, start: usize, end: usize) -> crate::editor::VisRow {
-    crate::editor::VisRow {
-        line: r.line,
-        start,
-        end,
-    }
-}
 
 /// As many whole hints as fit in `room`, from the left. Hints are separated
 /// by two spaces; cutting one mid-word reads as a glitch.

@@ -7,9 +7,11 @@ mod history;
 mod library;
 mod manuscript;
 mod music;
+mod palette;
 mod project;
 mod recovery;
 mod scene;
+mod search;
 mod shutdown;
 mod theme;
 mod ui;
@@ -387,6 +389,17 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
                 }
                 KeyCode::Char('c') => app.copy_selection(),
                 KeyCode::Char('x') => app.cut(),
+                KeyCode::Char('k') if matches!(app.overlay, Overlay::None) => app.open_palette(),
+                KeyCode::Char('f') => match &app.overlay {
+                    Overlay::None => app.open_find(),
+                    // Ctrl-F again widens the search to the whole book.
+                    Overlay::Find { query, .. } => {
+                        let q = query.clone();
+                        app.open_find_book(q);
+                    }
+                    _ => {}
+                },
+                KeyCode::Char('r') => app.replace_all_key(),
                 KeyCode::Char('z') if shift => app.redo(),
                 KeyCode::Char('Z') => app.redo(),
                 KeyCode::Char('z') => app.undo(),
@@ -432,6 +445,12 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
 
         if !matches!(app.overlay, Overlay::None) {
             app.on_overlay_key(key);
+            if app.quit {
+                if app.try_quit() {
+                    return Ok(());
+                }
+                app.quit = false;
+            }
             continue;
         }
 
@@ -482,7 +501,10 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
         }
 
         if app.quit {
-            return Ok(());
+            if app.try_quit() {
+                return Ok(());
+            }
+            app.quit = false;
         }
     }
 }

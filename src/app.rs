@@ -11,7 +11,9 @@ use crate::create::{self, New, Plan};
 use crate::editor::{self, Editor};
 use crate::history;
 use crate::manuscript;
+use crate::palette::{self, Action};
 use crate::recovery;
+use crate::search;
 use crate::music::{self, Music};
 use crate::project::{self, Kind, Project};
 use crate::scene::{Mode, Pomodoro};
@@ -94,6 +96,8 @@ pub struct App {
     pre_snapshotted: HashSet<PathBuf>,
     /// Undo for scenes that aren't open, so switching back still undoes.
     undo_stash: HashMap<PathBuf, editor::History>,
+    /// Spellcheck underlines are showing.
+    pub spell_on: bool,
 }
 
 /// Modal state. Only one can be up at a time.
@@ -137,6 +141,23 @@ pub enum Overlay {
     },
     /// Words that couldn't be saved last time, offered back on launch.
     Recover { items: Vec<recovery::Pending> },
+    /// Ctrl-K: find any action, scene, note or theme by name.
+    Palette { query: String, sel: usize, entries: Vec<palette::Entry> },
+    /// Find (and replace) in the open scene: a bar under the prose, which
+    /// stays visible so the matches light up in place.
+    Find { query: String, with: Option<String>, on_with: bool, from: (usize, usize) },
+    /// Find (and replace) across the whole book.
+    FindBook {
+        query: String,
+        with: Option<String>,
+        on_with: bool,
+        hits: Vec<search::Hit>,
+        sel: usize,
+        /// Showing "replace N in M scenes? y/n".
+        confirm: bool,
+    },
+    /// Near-miss spellings of notebook names.
+    Names { drifts: Vec<search::Drift>, sel: usize },
     /// A scene's kept versions, with what changed since each.
     History {
         scene: PathBuf,
@@ -261,6 +282,7 @@ impl App {
             last_attempt: None,
             pre_snapshotted: HashSet::new(),
             undo_stash: HashMap::new(),
+            spell_on: false,
         })
         .map(|mut app: App| {
             let items = recovery::pending(&app.project);
@@ -502,6 +524,310 @@ impl App {
         self.editor.delete_selection();
         self.editor.insert_str(text);
         self.flush();
+    }
+
+    // ---- the command palette -------------------------------------------
+
+    pub fn open_palette(&mut self) {
+        self.flush();
+        let entries = palette::entries(self);
+        self.overlay = Overlay::Palette { query: String::new(), sel: 0, entries };
+    }
+
+    /// Point the tree at a node: unfold the way down to it and select it.
+    pub fn reveal(&mut self, idx: usize) {
+        let mut up = self.parents[idx];
+        while let Some(pi) = up {
+            self.project.nodes[pi].expanded = true;
+            up = self.parents[pi];
+        }
+        self.refresh_visible();
+        if let Some(pos) = self.visible.iter().position(|&v| v == idx) {
+            self.sel = pos;
+        }
+    }
+
+    /// Tree actions act on the tree's selection. From the editor, that should
+    /// be the scene you're writing, not wherever the tree was left.
+    fn select_open_scene(&mut self) {
+        if self.focus == Focus::Editor
+            && let Some(i) = self.open
+        {
+            self.reveal(i);
+        }
+    }
+
+    pub fn run_action(&mut self, action: Action) {
+        self.overlay = Overlay::None;
+        match action {
+            Action::NewScene | Action::NewChapter | Action::NewPart | Action::NewFolder => {
+                self.select_open_scene();
+                self.start_create(match action {
+                    Action::NewScene => New::Scene,
+                    Action::NewChapter => New::Chapter,
+                    Action::NewPart => New::Part,
+                    _ => New::Folder,
+                });
+            }
+            Action::Rename => {
+                self.select_open_scene();
+                self.start_rename();
+            }
+            Action::Delete => {
+                self.select_open_scene();
+                self.start_delete();
+            }
+            Action::History => self.open_history(),
+            Action::Save => self.save(),
+            Action::Undo | Action::Redo => {
+                if self.open.is_some() {
+                    self.focus = Focus::Editor;
+                }
+                if action == Action::Undo { self.undo() } else { self.redo() }
+            }
+            Action::ProjectMap => self.run_menu(7),
+            Action::Compile => self.run_menu(8),
+            Action::Themes => self.open_theme_picker(),
+            Action::Theme(name) => {
+                if let Some(th) = theme::presets().into_iter().find(|t| t.name == name) {
+                    self.theme = th;
+                    let _ = theme::save(&self.theme);
+                    self.msg = format!("theme: {name}");
+                }
+            }
+            Action::MusicToggle => self.set_music(!self.music.enabled),
+            Action::MusicPlayer => self.on_function_key(7),
+            Action::MusicSource => self.run_menu(10),
+            Action::PlayPause => self.on_function_key(5),
+            Action::NextTrack => self.on_function_key(6),
+            Action::PrevTrack => self.on_function_key(4),
+            Action::Timer => self.on_function_key(2),
+            Action::TimerReset => self.on_function_key(3),
+            Action::Menu => self.open_menu(),
+            Action::Quit => self.quit = true,
+            Action::Open(path) => {
+                if let Some(i) = self.project.nodes.iter().position(|n| n.path == path) {
+                    self.reveal(i);
+                    self.open_scene(i);
+                }
+            }
+            other => self.run_feature(other),
+        }
+    }
+
+    /// Actions that belong to a feature with its own section below.
+    fn run_feature(&mut self, action: Action) {
+        match action {
+            Action::FindInScene => self.open_find(),
+            Action::FindInBook => self.open_find_book(String::new()),
+            Action::CheckNames => self.check_names(),
+            other => self.msg = format!("{other:?} isn't available yet"),
+        }
+    }
+
+    // ---- find and replace ------------------------------------------------
+
+    /// Ctrl-F in a scene. A selected phrase becomes the search.
+    pub fn open_find(&mut self) {
+        let Some(_) = self.open else {
+            self.open_find_book(String::new());
+            return;
+        };
+        self.flush();
+        self.focus = Focus::Editor;
+        let query = self
+            .editor
+            .selected_text()
+            .filter(|s| !s.contains('\n'))
+            .unwrap_or_default();
+        let from = self.editor.selection().map(|(a, _)| a).unwrap_or((self.editor.cy, self.editor.cx));
+        self.overlay = Overlay::Find { query, with: None, on_with: false, from };
+    }
+
+    /// Every match in the open scene, in order.
+    fn scene_matches(&self, query: &str) -> Vec<(usize, usize, usize)> {
+        self.editor
+            .lines
+            .iter()
+            .enumerate()
+            .flat_map(|(l, line)| search::matches(line, query).into_iter().map(move |(s, e)| (l, s, e)))
+            .collect()
+    }
+
+    /// Select the next match after the cursor (or the previous one before the
+    /// selection), wrapping at the ends. Returns "3 of 9" style position.
+    fn find_step(&mut self, query: &str, forward: bool, from: Option<(usize, usize)>) {
+        let all = self.scene_matches(query);
+        if all.is_empty() {
+            self.editor.clear_selection();
+            return;
+        }
+        let here = from.unwrap_or_else(|| {
+            if forward {
+                (self.editor.cy, self.editor.cx)
+            } else {
+                self.editor.selection().map(|(a, _)| a).unwrap_or((self.editor.cy, self.editor.cx))
+            }
+        });
+        let pick = if forward {
+            all.iter().find(|&&(l, s, _)| (l, s) >= here).or(all.first())
+        } else {
+            all.iter().rev().find(|&&(l, s, _)| (l, s) < here).or(all.last())
+        };
+        if let Some(&(l, s, e)) = pick {
+            self.editor.select((l, s), (l, e));
+        }
+    }
+
+    /// "3 of 9" for the find bar, or "no matches".
+    pub fn find_position(&self, query: &str) -> String {
+        if query.is_empty() {
+            return String::new();
+        }
+        let all = self.scene_matches(query);
+        if all.is_empty() {
+            return "no matches".into();
+        }
+        let cur = self.editor.selection().and_then(|(a, b)| all.iter().position(|&(l, s, e)| (l, s) == a && (l, e) == b));
+        match cur {
+            Some(i) => format!("{} of {}", i + 1, all.len()),
+            None => format!("{} matches", all.len()),
+        }
+    }
+
+    fn replace_current(&mut self, query: &str, with: &str) {
+        let is_match = self
+            .editor
+            .selected_text()
+            .is_some_and(|t| search::matches(&t, query) == vec![(0, t.chars().count())]);
+        if is_match {
+            self.editor.delete_selection();
+            self.editor.insert_str(with);
+            self.flush();
+        }
+        self.find_step(query, true, None);
+    }
+
+    /// Ctrl-R while finding: replace every match in this scene, or ask before
+    /// replacing across the book.
+    pub fn replace_all_key(&mut self) {
+        match &mut self.overlay {
+            Overlay::Find { query, with: Some(with), .. } if !query.is_empty() => {
+                let (query, with) = (query.clone(), with.clone());
+                let (text, n) = search::replace_all(&self.editor.text(), &query, &with);
+                if n > 0 {
+                    self.editor.set_text(&text);
+                    self.flush();
+                }
+                self.msg = match n {
+                    0 => "no matches".into(),
+                    1 => "replaced 1 — Ctrl-Z undoes it".into(),
+                    n => format!("replaced {n} — Ctrl-Z undoes them"),
+                };
+            }
+            Overlay::FindBook { query, with: Some(_), hits, confirm, .. } if !query.is_empty() && !hits.is_empty() => {
+                *confirm = true;
+            }
+            Overlay::Find { .. } | Overlay::FindBook { .. } => {
+                self.msg = "Tab to type a replacement first".into();
+            }
+            _ => {}
+        }
+    }
+
+    pub fn open_find_book(&mut self, query: String) {
+        self.flush();
+        let hits = search::book(&self.project, &self.parents, &query);
+        self.overlay = Overlay::FindBook { query, with: None, on_with: false, hits, sel: 0, confirm: false };
+    }
+
+    /// Open the scene a hit is in, with the match selected.
+    fn go_to_hit(&mut self, path: &Path, line: usize, start: usize, end: usize) {
+        self.overlay = Overlay::None;
+        let Some(i) = self.project.nodes.iter().position(|n| n.path == path) else { return };
+        self.reveal(i);
+        if self.open != Some(i) {
+            self.open_scene(i);
+        }
+        self.focus = Focus::Editor;
+        self.editor.select((line, start), (line, end));
+    }
+
+    fn replace_in_book(&mut self, query: &str, with: &str) {
+        let root = self.project.root.clone();
+        let mut scenes = 0;
+        let mut total = 0;
+        for i in 0..self.project.nodes.len() {
+            if self.project.nodes[i].kind != Kind::Scene || self.project.in_trash(i) {
+                continue;
+            }
+            let (text, n) = search::replace_all(&self.project.nodes[i].body, query, with);
+            if n == 0 {
+                continue;
+            }
+            // Every scene's version from before goes into its history.
+            let path = self.project.nodes[i].path.clone();
+            let _ = history::snapshot(&root, &path, &self.project.nodes[i].file_text(), None);
+            if self.open == Some(i) {
+                self.editor.set_text(&text);
+            }
+            self.project.nodes[i].body = text;
+            self.mark_changed(i);
+            scenes += 1;
+            total += n;
+        }
+        self.commit_saves();
+        self.msg = format!(
+            "replaced {total} in {scenes} scene{} — each one's previous version is in its history (H)",
+            if scenes == 1 { "" } else { "s" }
+        );
+    }
+
+    pub fn check_names(&mut self) {
+        self.flush();
+        let names = search::names(&self.project, &self.parents);
+        if names.is_empty() {
+            self.msg = "no notes in the notebook to check names against yet".into();
+            return;
+        }
+        let known = |w: &str| self.is_dictionary_word(w);
+        let drifts = search::drift(&self.project, &self.parents, &names, &known);
+        if drifts.is_empty() {
+            self.msg = format!("every name matches the notebook ({} checked)", names.len());
+            return;
+        }
+        self.overlay = Overlay::Names { drifts, sel: 0 };
+    }
+
+    /// Whether a word is ordinary English, so it isn't mistaken for a
+    /// misspelt name. Without a dictionary loaded, nothing is.
+    fn is_dictionary_word(&self, _word: &str) -> bool {
+        false
+    }
+
+    fn fix_name(&mut self, variant: &str, name: &str) {
+        let root = self.project.root.clone();
+        let mut total = 0;
+        for i in 0..self.project.nodes.len() {
+            let n = &self.project.nodes[i];
+            if n.kind != Kind::Scene || !n.in_manuscript || self.project.in_trash(i) {
+                continue;
+            }
+            let (text, count) = search::replace_word(&n.body, variant, name);
+            if count == 0 {
+                continue;
+            }
+            let path = n.path.clone();
+            let _ = history::snapshot(&root, &path, &n.file_text(), None);
+            if self.open == Some(i) {
+                self.editor.set_text(&text);
+            }
+            self.project.nodes[i].body = text;
+            self.mark_changed(i);
+            total += count;
+        }
+        self.commit_saves();
+        self.msg = format!("{variant} → {name} in {total} place{}", if total == 1 { "" } else { "s" });
     }
 
     // ---- scene history -------------------------------------------------
@@ -796,6 +1122,7 @@ impl App {
             Key::Char('r') => self.start_rename(),
             Key::Char('d') => self.start_delete(),
             Key::Char('H') => self.open_history(),
+            Key::Char('/') => self.open_find_book(String::new()),
             Key::Up => self.sel = self.sel.saturating_sub(1),
             Key::Down => {
                 if self.sel + 1 < self.visible.len() {
@@ -1058,7 +1385,9 @@ impl App {
     pub fn menu(&self) -> Vec<String> {
         let row = |label: String, key: &str| format!("{label:<20}{key}");
         let music = if self.music.enabled { "Turn music off" } else { "Turn music on" };
+        let m = self.mod_label();
         vec![
+            row("Find anything…".into(), &format!("({m}K)")),
             row("New scene…".into(), "(n)"),
             row("New chapter…".into(), "(c)"),
             row(format!("New {}…", self.project.meta.part_noun()), "(p)"),
@@ -1114,6 +1443,12 @@ impl App {
     }
 
     fn run_menu(&mut self, i: usize) {
+        // Row 0 is the palette; everything else keeps its old number.
+        if i == 0 {
+            self.open_palette();
+            return;
+        }
+        let i = i - 1;
         match i {
             0 => self.start_create(New::Scene),
             1 => self.start_create(New::Chapter),
@@ -1228,6 +1563,158 @@ impl App {
         let menu_len = self.menu().len();
         match &mut self.overlay {
             Overlay::None => {}
+
+            Overlay::Palette { query, sel, entries } => match key {
+                Key::Char(c) if !c.is_control() => {
+                    query.push(c);
+                    *sel = 0;
+                }
+                Key::Backspace => {
+                    query.pop();
+                    *sel = 0;
+                }
+                Key::Down => *sel += 1,
+                Key::Up => *sel = sel.saturating_sub(1),
+                Key::PageDown => *sel += 10,
+                Key::PageUp => *sel = sel.saturating_sub(10),
+                Key::Enter => {
+                    let hits = palette::filter(entries, query);
+                    if let Some(e) = hits.get((*sel).min(hits.len().saturating_sub(1))) {
+                        let action = e.action.clone();
+                        self.run_action(action);
+                    }
+                }
+                Key::Esc => self.overlay = Overlay::None,
+                _ => {}
+            },
+
+            Overlay::Find { query, with, on_with, from } => {
+                let (q, from_pos) = (query.clone(), *from);
+                match key {
+                    Key::Char(c) if !c.is_control() => {
+                        if *on_with {
+                            with.get_or_insert_with(String::new).push(c);
+                        } else {
+                            query.push(c);
+                            let q = query.clone();
+                            self.find_step(&q, true, Some(from_pos));
+                        }
+                    }
+                    Key::Backspace => {
+                        if *on_with {
+                            if let Some(w) = with {
+                                w.pop();
+                            }
+                        } else {
+                            query.pop();
+                            let q = query.clone();
+                            self.find_step(&q, true, Some(from_pos));
+                        }
+                    }
+                    Key::Tab | Key::BackTab => {
+                        if with.is_none() {
+                            *with = Some(String::new());
+                        }
+                        *on_with = !*on_with;
+                    }
+                    Key::Enter if *on_with => {
+                        let w = with.clone().unwrap_or_default();
+                        self.replace_current(&q, &w);
+                    }
+                    Key::Enter | Key::Down => self.find_step(&q, true, None),
+                    Key::Up => self.find_step(&q, false, None),
+                    Key::Esc => {
+                        self.overlay = Overlay::None;
+                        self.focus = Focus::Editor;
+                    }
+                    _ => {}
+                }
+            }
+
+            Overlay::FindBook { query, with, on_with, hits, sel, confirm } => {
+                if *confirm {
+                    match key {
+                        Key::Char('y') | Key::Char('Y') => {
+                            let (q, w) = (query.clone(), with.clone().unwrap_or_default());
+                            self.overlay = Overlay::None;
+                            self.replace_in_book(&q, &w);
+                        }
+                        _ => *confirm = false,
+                    }
+                    return;
+                }
+                let mut changed = false;
+                match key {
+                    Key::Char(c) if !c.is_control() => {
+                        if *on_with {
+                            with.get_or_insert_with(String::new).push(c);
+                        } else {
+                            query.push(c);
+                            changed = true;
+                        }
+                    }
+                    Key::Backspace => {
+                        if *on_with {
+                            if let Some(w) = with {
+                                w.pop();
+                            }
+                        } else {
+                            query.pop();
+                            changed = true;
+                        }
+                    }
+                    Key::Tab | Key::BackTab => {
+                        if with.is_none() {
+                            *with = Some(String::new());
+                        }
+                        *on_with = !*on_with;
+                    }
+                    Key::Down => *sel = (*sel + 1).min(hits.len().saturating_sub(1)),
+                    Key::Up => *sel = sel.saturating_sub(1),
+                    Key::PageDown => *sel = (*sel + 10).min(hits.len().saturating_sub(1)),
+                    Key::PageUp => *sel = sel.saturating_sub(10),
+                    Key::Enter if *on_with => {
+                        if !hits.is_empty() && with.is_some() {
+                            *confirm = true;
+                        }
+                    }
+                    Key::Enter => {
+                        if let Some(h) = hits.get(*sel).cloned() {
+                            self.go_to_hit(&h.path, h.line, h.start, h.end);
+                        }
+                    }
+                    Key::Esc => self.overlay = Overlay::None,
+                    _ => {}
+                }
+                if changed && let Overlay::FindBook { query, hits, sel, .. } = &mut self.overlay {
+                    *hits = search::book(&self.project, &self.parents, query);
+                    *sel = 0;
+                }
+            }
+
+            Overlay::Names { drifts, sel } => match key {
+                Key::Down | Key::Char('j') => *sel = (*sel + 1).min(drifts.len().saturating_sub(1)),
+                Key::Up | Key::Char('k') => *sel = sel.saturating_sub(1),
+                Key::Enter => {
+                    if let Some(h) = drifts.get(*sel).and_then(|d| d.hits.first()).cloned() {
+                        self.go_to_hit(&h.path, h.line, h.start, h.end);
+                    }
+                }
+                Key::Char('f') | Key::Char('F') => {
+                    if let Some(d) = drifts.get(*sel).cloned() {
+                        drifts.remove(*sel);
+                        if *sel >= drifts.len() {
+                            *sel = drifts.len().saturating_sub(1);
+                        }
+                        if drifts.is_empty() {
+                            self.overlay = Overlay::None;
+                        }
+                        self.fix_name(&d.variant, &d.name.name);
+                    }
+                }
+                Key::Esc => self.overlay = Overlay::None,
+                _ => {}
+            },
 
             Overlay::Recover { items } => match key {
                 Key::Char('y') | Key::Char('Y') | Key::Enter => {
