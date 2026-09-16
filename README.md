@@ -136,7 +136,8 @@ heard of.
 
 | Key | |
 |---|---|
-| `Tab` / `Shift-Tab` | cycle panes — tree, editor, clearing, music |
+| `Ctrl-K` | **find anything** — every action, scene, note and theme by name, with its key |
+| `Tab` / `Shift-Tab` | cycle panes — tree, editor, the open note, clearing, music |
 | `↑ ↓` · `j k` | move in the tree |
 | `Enter` · `Space` | fold or unfold a container · open a scene |
 | `→` `l` / `←` `h` | expand / collapse, or jump to parent |
@@ -146,15 +147,77 @@ heard of.
 | `N` | new folder beside the selected one — for notes; in the manuscript it's a chapter or part |
 | `r` | rename what's selected — the file is renamed to match and keeps its place |
 | `d` | delete what's selected — asks first, then moves it to `.grimoire/trash` |
-| `Ctrl-S` | save all changed scenes |
-| `Ctrl-C` | copy the selection |
-| `Ctrl-Q` | quit — twice if unsaved |
+| `Alt-↑` `Alt-↓` · `K` `J` | move the scene or folder up or down — across chapters and acts at the ends; dragging a row in the tree does the same |
+| `H` | the scene's history — every kept version, what changed, restore any |
+| `b` | the corkboard |
+| `/` | find in the whole book |
+| `Ctrl-F` | find in the scene (`Ctrl-F` again: the whole book) · `Tab` to replace · `Ctrl-R` replace all |
+| `Ctrl-Z` `Ctrl-Y` | undo · redo (`Ctrl-Shift-Z` too, where the terminal can send it) |
+| `Ctrl-X` `Ctrl-C` | cut · copy the selection |
+| `Ctrl-O` | open the note for the name under the cursor beside the scene |
+| `F8` | spelling suggestions for this word, or the next misspelling |
+| `Ctrl-S` | save now — autosave already does, two seconds after you stop typing |
+| `Ctrl-Q` · `q` in the tree | quit, saving everything first |
 | `Esc` | leave the editor |
 | `F2` `F3` | start or pause the timer · reset |
 | `F9` · `t` | themes |
 | `←` `→` | in the clearing pane: switch view |
-| `F4` `F5` `F6` | previous · play-pause · next |
+| `F4` `F5` `F6` | previous · play-pause · next (with music on) |
 | `F7` | the music player — queue, your playlists, search, and every control (also `F1`, or `Enter` on the music pane) |
+
+## Nothing is lost
+
+- **Autosave.** A scene is written two seconds after you stop typing, and
+  never sits unsaved longer than twenty. Every write goes through a temporary
+  file, so a crash mid-save can't tear a scene in half. Closing the terminal
+  window, logging out or `kill` saves first; so does quitting.
+- **Recovery.** If a save fails (a full disk, a file another program has
+  locked) or Grimoire crashes, the words go to `.grimoire/recovery/` and the
+  next launch offers them back beside the saved version.
+- **Undo.** A word at a time, per scene, kept when you switch scenes. Typing
+  over a selection replaces it; a paste is one step.
+- **History.** Every scene keeps dated copies as you work — at most every five
+  minutes, plus how it was before today's first change and before anything
+  drastic — in `.grimoire/history/`, as plain Markdown. `H` lists them with a
+  word diff against now and restores any version (itself undoable).
+
+## Finding and shaping
+
+- **Find and replace** in a scene or across the book, grouped by act and
+  chapter, with a preview before anything is replaced across scenes (each
+  scene's previous version goes to its history first).
+- **Name drift** (palette: *Check names*): spellings one or two letters away
+  from a name in your notebook — *Kaelan* where the Characters note says
+  *Kaelen* — with where they are, fixed in one go.
+- **Spellcheck** underlines misspellings from a bundled en_US dictionary and
+  never flags your notebook's names. Words you add go in `dictionary.txt` at
+  the book's root. On unless turned off (palette).
+- **Moving** a scene or folder renames only the files whose number changes,
+  and rewrites `[[links]]` in your notes that pointed at them.
+- **The corkboard** (`b`) shows an act as index cards chapter by chapter:
+  POV (each character in its own colour), status, synopsis, words against
+  target. `p` filters to one POV; `s`, `e` and `v` edit the card, changing only
+  that line of the scene's frontmatter.
+
+## The notebook and the prose
+
+Names from your notebook — note titles, their `aliases:`, the distinctive
+words of a longer title — show in the accent colour as you write. `Ctrl-O` on
+one opens that note beside the scene, with **Appears in**: every scene that
+mentions it. Nothing extra is stored; it's all read from the files.
+
+## Readers, and other computers
+
+- **Export** (palette): a Word document in standard manuscript format, an
+  EPUB for phones and e-readers, and Markdown — the whole book or chosen acts —
+  into `exports/`. Also `grimoire export [--docx] [--epub] [--md] [--parts 1,3]`.
+- **Resume.** `.grimoire/resume.md` remembers the scene and paragraph you were
+  at, so opening the book on any computer the folder reaches lands you there.
+- **Writing sessions** (palette): turn on history for the book and each
+  session is kept as a snapshot labelled like a diary line — *Tuesday evening ·
+  Act Two · 1,240 words* — with what changed that session. It's Git inside the
+  book folder; connect a remote and sessions back themselves up in the
+  background. Needs Git installed.
 
 Vertical movement in the editor is **visual, not logical** — Down moves one
 screen row inside a wrapped paragraph rather than jumping the whole paragraph,
@@ -236,7 +299,9 @@ close, and fireflies come out between the rabbits.
 
 ## Music
 
-Four sources, chosen from the menu (`F1` → Music source) and remembered.
+Music is **off until you turn it on** — from the menu (`F1` → *Turn music on*)
+or the palette. Setting a source up turns it on too. Four sources, chosen from
+the menu (`F1` → Music source) and remembered.
 
 | Source | How it works | Setup |
 |---|---|---|
@@ -297,11 +362,12 @@ remote-control sources.
 
 ## Status
 
-**v0.1.** It opens a manuscript, shows you the shape of it, tracks your words,
-and lets you write.
+**v0.2 (unreleased).** Everything above: autosave, recovery, undo and history;
+the palette; find and replace; spellcheck and name drift; moving scenes; the
+corkboard; the codex; export; resume and writing sessions.
 
-Not yet: command palette, corkboard view (`pov` and `status` are already parsed
-and waiting for it), git sync, scene reordering, search, spellcheck, and undo.
+Not yet: a split view of two scenes, a timeline, and languages other than
+English for spellcheck.
 
 ## Development
 

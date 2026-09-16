@@ -36,8 +36,13 @@ pub fn path(root: &Path) -> PathBuf {
     root.join(".grimoire").join("resume.md")
 }
 
-/// This computer's name, as the writer would recognise it.
+/// This computer's name, as the writer would recognise it. Looked up once.
 pub fn machine_name() -> String {
+    static NAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    NAME.get_or_init(lookup_machine_name).clone()
+}
+
+fn lookup_machine_name() -> String {
     let from_env = std::env::var("COMPUTERNAME").or_else(|_| std::env::var("HOSTNAME")).ok();
     let name = from_env
         .or_else(|| std::fs::read_to_string("/etc/hostname").ok())
