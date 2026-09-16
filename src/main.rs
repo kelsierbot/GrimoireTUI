@@ -1,6 +1,7 @@
 //! grimoire — a terminal writing desk for novels.
 
 mod app;
+mod cork;
 mod create;
 mod editor;
 mod history;

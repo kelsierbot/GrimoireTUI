@@ -24,6 +24,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     // Cloned once per frame so sub-renderers can read the theme while `app`
     // stays mutably borrowed for scroll and rect bookkeeping.
     let t = app.theme.clone();
+    app.screen = (f.area().width, f.area().height);
 
     let [main, status] =
         Layout::vertical([Constraint::Min(3), Constraint::Length(1)]).areas(f.area());
@@ -784,6 +785,8 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             f.render_widget(Paragraph::new(lines), inner);
         }
 
+        Overlay::Cork { scope, sel, pov, typing } => draw_cork(f, app, area, t, scope, *sel, pov.as_deref(), typing.as_ref()),
+
         Overlay::Names { drifts, sel } => {
             let h = (drifts.len() as u16 * 2).min(20) + 6;
             let box_area = centred(area, area.width.saturating_sub(4).min(90), h);
@@ -1354,6 +1357,184 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             f.render_widget(Paragraph::new(lines), inner);
         }
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_cork(
+    f: &mut Frame,
+    app: &App,
+    area: Rect,
+    t: &Theme,
+    scope: &Option<std::path::PathBuf>,
+    sel: usize,
+    pov: Option<&str>,
+    typing: Option<&(crate::app::CardField, String)>,
+) {
+    use crate::cork;
+    let box_area = Rect { x: area.x, y: area.y, width: area.width, height: area.height.saturating_sub(1) };
+    f.render_widget(Clear, box_area);
+    let part = app.cork_scope(scope);
+    let groups = cork::board(&app.project, part);
+    let where_ = part.map(|i| app.project.nodes[i].title.to_uppercase()).unwrap_or_else(|| "THE BOOK".into());
+    let head = match pov {
+        Some(p) => format!("CORKBOARD · {where_} · POV: {p}"),
+        None => format!("CORKBOARD · {where_}"),
+    };
+    let block = pane_block(&head, true, t);
+    let inner = block.inner(box_area);
+    f.render_widget(block, box_area);
+    let dim = Style::default().fg(t.dim);
+
+    // Each POV keeps one colour for the whole board.
+    let povs = cork::povs(&groups);
+    let palette = [t.accent, t.moon, t.sun, t.bloom, t.warn, t.text];
+    let colour_of = |name: Option<&str>| {
+        name.and_then(|n| povs.iter().position(|p| p.eq_ignore_ascii_case(n)))
+            .map(|i| palette[i % palette.len()])
+            .unwrap_or(t.dim)
+    };
+    let mut legend = vec![Span::styled(" POV  ", dim)];
+    for p in &povs {
+        legend.push(Span::styled("■ ", Style::default().fg(colour_of(Some(p)))));
+        legend.push(Span::styled(format!("{p}   "), Style::default().fg(if pov.is_none_or(|x| x == p) { t.text } else { t.dim })));
+    }
+    if povs.is_empty() {
+        legend.push(Span::styled("none set yet — v on a card sets one", dim));
+    }
+    f.render_widget(Paragraph::new(Line::from(legend)), Rect { x: inner.x, y: inner.y, width: inner.width, height: 1 });
+
+    let cols = app.cork_cols();
+    const CARD_H: u16 = 6;
+    use crate::app::CARD_W;
+    let layout = cork::layout(&groups, cols);
+    let cards: Vec<&cork::Card> = groups.iter().flat_map(|g| &g.cards).collect();
+    let sel = sel.min(cards.len().saturating_sub(1));
+
+    // Rows of the board, with a heading line before each chapter's first row.
+    let body = Rect { x: inner.x, y: inner.y + 2, width: inner.width, height: inner.height.saturating_sub(4) };
+    let mut y_of_row: Vec<u16> = Vec::new();
+    let mut y = 0u16;
+    let mut group_first_row = Vec::new();
+    let mut row = 0usize;
+    for g in &groups {
+        group_first_row.push((row, y));
+        y += 1; // heading
+        for _ in 0..g.cards.len().div_ceil(cols) {
+            y_of_row.push(y);
+            y += CARD_H;
+            row += 1;
+        }
+        y += 1; // gap
+    }
+    let sel_row = layout.get(sel).map(|&(_, r, _)| r).unwrap_or(0);
+    let sel_bottom = y_of_row.get(sel_row).copied().unwrap_or(0) + CARD_H;
+    let offset = sel_bottom.saturating_sub(body.height);
+
+    for (gi, g) in groups.iter().enumerate() {
+        let (_, gy) = group_first_row[gi];
+        if gy >= offset && gy - offset < body.height {
+            let words: usize = g.cards.iter().map(|c| c.words).sum();
+            let title = if g.title.is_empty() { "scenes".to_string() } else { g.title.clone() };
+            f.render_widget(
+                Paragraph::new(Line::from(vec![
+                    Span::styled(format!(" {title}"), Style::default().fg(t.accent).add_modifier(Modifier::BOLD)),
+                    Span::styled(format!("  {} scene{} · {} words", g.cards.len(), if g.cards.len() == 1 { "" } else { "s" }, thousands(words)), dim),
+                ])),
+                Rect { x: body.x, y: body.y + gy - offset, width: body.width, height: 1 },
+            );
+        }
+    }
+
+    for (n, &(_, r, c)) in layout.iter().enumerate() {
+        let top = y_of_row[r];
+        if top < offset || top - offset + CARD_H > body.height {
+            continue;
+        }
+        let card = cards[n];
+        let rect = Rect { x: body.x + 1 + c as u16 * CARD_W, y: body.y + top - offset, width: CARD_W - 1, height: CARD_H };
+        let lit = pov.is_none_or(|p| card.pov.as_deref().is_some_and(|cp| cp.eq_ignore_ascii_case(p)));
+        let on = n == sel;
+        let edge = if on { t.accent } else if lit { colour_of(card.pov.as_deref()) } else { t.border };
+        let text = if lit { t.text } else { t.border };
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(edge).add_modifier(if on { Modifier::BOLD } else { Modifier::empty() }))
+            .title(Span::styled(format!(" {} ", truncate(&card.title, (CARD_W - 5) as usize)), Style::default().fg(if on { t.accent } else { text })));
+        let cin = block.inner(rect);
+        f.render_widget(block, rect);
+        let w = cin.width as usize;
+        let status = card.status.clone().unwrap_or_default();
+        let status_col = match status.to_lowercase().as_str() {
+            "done" => t.bloom,
+            "revised" => t.accent,
+            "draft" => t.sun,
+            _ => t.dim,
+        };
+        let who = card.pov.clone().unwrap_or_else(|| "no POV".into());
+        let pad = w.saturating_sub(who.chars().count() + status.chars().count());
+        let editing_here = on && typing.is_some();
+        let mut lines = vec![Line::from(vec![
+            Span::styled(truncate(&who, w.saturating_sub(status.chars().count() + 1)), Style::default().fg(if lit { colour_of(card.pov.as_deref()) } else { t.border })),
+            Span::raw(" ".repeat(pad)),
+            Span::styled(status, Style::default().fg(if lit { status_col } else { t.border })),
+        ])];
+        let synopsis = match typing {
+            Some((crate::app::CardField::Synopsis, buf)) if editing_here => format!("{buf}█"),
+            _ => card.synopsis.clone().unwrap_or_default(),
+        };
+        let wrapped = wrap_words(&synopsis, w);
+        for i in 0..2 {
+            lines.push(Line::from(Span::styled(wrapped.get(i).cloned().unwrap_or_default(), Style::default().fg(if lit { t.text } else { t.border }))));
+        }
+        if let Some((crate::app::CardField::Pov, buf)) = typing.filter(|_| editing_here) {
+            lines[0] = Line::from(vec![Span::styled("POV ▸ ", Style::default().fg(t.accent)), Span::styled(format!("{buf}█"), Style::default().fg(t.text))]);
+        }
+        let bar_w = w.saturating_sub(6).max(4);
+        let words = thousands(card.words);
+        let bar = match card.target {
+            Some(target) => {
+                let filled = ((card.words * bar_w) / target.max(1)).min(bar_w);
+                vec![
+                    Span::styled("█".repeat(filled), Style::default().fg(if lit { t.accent } else { t.border })),
+                    Span::styled("░".repeat(bar_w - filled), Style::default().fg(t.border)),
+                    Span::styled(format!("{words:>6}"), dim),
+                ]
+            }
+            None => vec![Span::styled(format!("{words} words"), dim)],
+        };
+        lines.push(Line::from(bar));
+        f.render_widget(Paragraph::new(lines), cin);
+    }
+
+    let keys = if typing.is_some() {
+        " type   ↵ save   esc cancel".to_string()
+    } else {
+        format!(
+            " ←→↑↓ move   ↵ open   s status   e synopsis   v POV   p filter by POV{}   esc close",
+            if cork::parts(&app.project).len() > 1 { "   [ ] other acts" } else { "" }
+        )
+    };
+    f.render_widget(Paragraph::new(Line::from(Span::styled(keys, dim))), Rect { x: inner.x, y: inner.y + inner.height.saturating_sub(1), width: inner.width, height: 1 });
+}
+
+/// Greedy word wrap for short card text.
+fn wrap_words(s: &str, width: usize) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut cur = String::new();
+    for word in s.split_whitespace() {
+        let need = if cur.is_empty() { word.chars().count() } else { cur.chars().count() + 1 + word.chars().count() };
+        if need > width && !cur.is_empty() {
+            out.push(std::mem::take(&mut cur));
+        }
+        if !cur.is_empty() {
+            cur.push(' ');
+        }
+        cur.push_str(word);
+    }
+    if !cur.is_empty() {
+        out.push(cur);
+    }
+    out.into_iter().map(|l| truncate(&l, width)).collect()
 }
 
 /// "Today 9:14 pm", "Yesterday 6:02 pm", "Tue 16 Sep 9:14 pm".

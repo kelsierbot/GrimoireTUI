@@ -89,6 +89,23 @@ impl Node {
         self.body.split_whitespace().count()
     }
 
+    /// A value from the scene's frontmatter, if it has one.
+    pub fn meta(&self, key: &str) -> Option<String> {
+        self.front.as_deref().and_then(|f| front_get(f, key))
+    }
+
+    /// Change one frontmatter value, leaving every other line of the block
+    /// exactly as it was, and keep the fields read from it in step.
+    pub fn set_meta(&mut self, key: &str, value: &str) {
+        self.front = Some(set_front(self.front.as_deref(), key, value));
+        let v = (!value.trim().is_empty()).then(|| value.trim().to_string());
+        match key {
+            "pov" => self.pov = v,
+            "status" => self.status = v,
+            _ => {}
+        }
+    }
+
     /// The scene as it belongs on disk: its frontmatter block, untouched, then
     /// the prose.
     pub fn file_text(&self) -> String {
@@ -480,6 +497,38 @@ fn front_get(front: &str, key: &str) -> Option<String> {
         }
     }
     None
+}
+
+/// Set `key: value` in a frontmatter block. The first line for that key is
+/// replaced; if there isn't one, it goes at the end. Nothing else changes — not
+/// the order, the comments, or keys Grimoire has never heard of.
+pub fn set_front(front: Option<&str>, key: &str, value: &str) -> String {
+    let value = value.trim();
+    let needs_quotes = value.contains(':') || value.contains('#') || value.starts_with(['"', '\'', '[', '{', '-', '&', '*', '!', '|', '>', '%', '@', '`']);
+    let line = if value.is_empty() {
+        format!("{key}:")
+    } else if needs_quotes {
+        format!("{key}: \"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
+    } else {
+        format!("{key}: {value}")
+    };
+    let mut out = String::new();
+    let mut done = false;
+    for l in front.unwrap_or("").lines() {
+        let is_key = !l.starts_with([' ', '\t']) && l.split_once(':').is_some_and(|(k, _)| k.trim() == key);
+        if is_key && !done {
+            out.push_str(&line);
+            done = true;
+        } else {
+            out.push_str(l);
+        }
+        out.push('\n');
+    }
+    if !done {
+        out.push_str(&line);
+        out.push('\n');
+    }
+    out
 }
 
 /// `01-the-archive.md` -> `The Archive`, unless frontmatter names it.
@@ -927,7 +976,7 @@ pub fn rewrite_links(root: &Path, renames: &[(PathBuf, PathBuf)]) -> usize {
         .collect();
 
     let mut files = Vec::new();
-    collect_md(root, root, &mut files);
+    collect_md(root, &mut files);
     let mut changed = 0;
     for file in files {
         let Ok(text) = fs::read_to_string(&file) else { continue };
@@ -942,7 +991,7 @@ pub fn rewrite_links(root: &Path, renames: &[(PathBuf, PathBuf)]) -> usize {
     changed
 }
 
-fn collect_md(root: &Path, dir: &Path, out: &mut Vec<PathBuf>) {
+fn collect_md(dir: &Path, out: &mut Vec<PathBuf>) {
     let Ok(rd) = fs::read_dir(dir) else { return };
     for e in rd.flatten() {
         let p = e.path();
@@ -951,7 +1000,7 @@ fn collect_md(root: &Path, dir: &Path, out: &mut Vec<PathBuf>) {
             continue;
         }
         if p.is_dir() {
-            collect_md(root, &p, out);
+            collect_md(&p, out);
         } else if name.ends_with(".md") {
             out.push(p);
         }
@@ -1297,6 +1346,19 @@ mod tests {
         assert_eq!(fs::read_to_string(d.join("02-Scene.md")).unwrap(), "first");
         assert_eq!(m.target, d.join("01-Scene.md"));
         fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn setting_a_frontmatter_value_touches_only_that_line() {
+        let front = "title: \"Gravel\"\n# a comment\npov:\nmood: grey\ntags:\n  - lot\n";
+        let out = set_front(Some(front), "pov", "Wren");
+        assert_eq!(out, "title: \"Gravel\"\n# a comment\npov: Wren\nmood: grey\ntags:\n  - lot\n");
+        let out = set_front(Some(&out), "synopsis", "Confronts the caretaker: again");
+        assert!(out.ends_with("synopsis: \"Confronts the caretaker: again\"\n"), "added at the end, quoted for the colon");
+        assert_eq!(front_get(&out, "synopsis").as_deref(), Some("Confronts the caretaker: again"));
+        let out = set_front(Some(&out), "pov", "");
+        assert!(out.contains("\npov:\n"), "clearing leaves the key");
+        assert_eq!(set_front(None, "status", "draft"), "status: draft\n");
     }
 
     #[test]

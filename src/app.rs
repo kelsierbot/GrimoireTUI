@@ -7,6 +7,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use crate::cork;
 use crate::create::{self, New, Plan};
 use crate::editor::{self, Editor};
 use crate::history;
@@ -100,7 +101,19 @@ pub struct App {
     pub spell_on: bool,
     /// A tree row being dragged to a new place: (row it started on, row now under the pointer).
     pub tree_drag: Option<(usize, usize)>,
+    /// The whole terminal's size at the last draw, for layouts that depend on it.
+    pub screen: (u16, u16),
 }
+
+/// What's being typed on a corkboard card.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CardField {
+    Synopsis,
+    Pov,
+}
+
+/// Width of one index card, border included, plus the gap after it.
+pub const CARD_W: u16 = 30;
 
 /// Modal state. Only one can be up at a time.
 #[derive(Debug, Clone, PartialEq)]
@@ -160,6 +173,16 @@ pub enum Overlay {
     },
     /// Near-miss spellings of notebook names.
     Names { drifts: Vec<search::Drift>, sel: usize },
+    /// Index cards for one act, chapter by chapter.
+    Cork {
+        /// The act shown, by path (indices move when the tree reloads);
+        /// None for a book without acts.
+        scope: Option<PathBuf>,
+        sel: usize,
+        /// Only this POV's cards are lit.
+        pov: Option<String>,
+        typing: Option<(CardField, String)>,
+    },
     /// A scene's kept versions, with what changed since each.
     History {
         scene: PathBuf,
@@ -286,6 +309,7 @@ impl App {
             undo_stash: HashMap::new(),
             spell_on: false,
             tree_drag: None,
+            screen: (120, 40),
         })
         .map(|mut app: App| {
             let items = recovery::pending(&app.project);
@@ -621,6 +645,7 @@ impl App {
     /// Actions that belong to a feature with its own section below.
     fn run_feature(&mut self, action: Action) {
         match action {
+            Action::Corkboard => self.open_cork(),
             Action::MoveUp => self.move_selected(true),
             Action::MoveDown => self.move_selected(false),
             Action::FindInScene => self.open_find(),
@@ -1124,6 +1149,120 @@ impl App {
         Ok(())
     }
 
+    // ---- the corkboard --------------------------------------------------
+
+    pub fn cork_cols(&self) -> usize {
+        ((self.screen.0.saturating_sub(4)) / CARD_W).max(1) as usize
+    }
+
+    pub fn cork_scope(&self, scope: &Option<PathBuf>) -> Option<usize> {
+        scope.as_ref().and_then(|p| self.project.nodes.iter().position(|n| &n.path == p))
+    }
+
+    pub fn open_cork(&mut self) {
+        self.flush();
+        let at = match self.focus {
+            Focus::Editor => self.open,
+            _ => self.visible.get(self.sel).copied().or(self.open),
+        };
+        let parts = cork::parts(&self.project);
+        let part = at
+            .and_then(|i| cork::part_of(&self.project, &self.parents, i))
+            .or_else(|| parts.first().copied());
+        let groups = cork::board(&self.project, part);
+        if groups.is_empty() {
+            self.msg = "no scenes to put on the board yet".into();
+            return;
+        }
+        let sel = groups
+            .iter()
+            .flat_map(|g| &g.cards)
+            .position(|c| Some(c.idx) == at)
+            .unwrap_or(0);
+        self.overlay = Overlay::Cork {
+            scope: part.map(|i| self.project.nodes[i].path.clone()),
+            sel,
+            pov: None,
+            typing: None,
+        };
+    }
+
+    fn cork_key(&mut self, key: Key) {
+        let cols = self.cork_cols();
+        let Overlay::Cork { scope, sel, pov, typing } = &mut self.overlay else { return };
+        let scope_idx = scope.as_ref().and_then(|p| self.project.nodes.iter().position(|n| &n.path == p));
+        let groups = cork::board(&self.project, scope_idx);
+        let cards: Vec<cork::Card> = groups.iter().flat_map(|g| g.cards.clone()).collect();
+        if cards.is_empty() {
+            self.overlay = Overlay::None;
+            return;
+        }
+        *sel = (*sel).min(cards.len() - 1);
+        let card = cards[*sel].clone();
+
+        if let Some((field, buf)) = typing {
+            match key {
+                Key::Char(c) if !c.is_control() && buf.chars().count() < 200 => buf.push(c),
+                Key::Backspace => {
+                    buf.pop();
+                }
+                Key::Enter => {
+                    let (field, value) = (*field, buf.clone());
+                    *typing = None;
+                    let key = match field {
+                        CardField::Synopsis => "synopsis",
+                        CardField::Pov => "pov",
+                    };
+                    self.project.nodes[card.idx].set_meta(key, &value);
+                    self.mark_changed(card.idx);
+                    self.msg = format!("{} · {key} saved", card.title);
+                }
+                Key::Esc => *typing = None,
+                _ => {}
+            }
+            return;
+        }
+
+        match key {
+            Key::Left | Key::Char('h') => *sel = cork::step(&groups, cols, *sel, -1, 0),
+            Key::Right | Key::Char('l') => *sel = cork::step(&groups, cols, *sel, 1, 0),
+            Key::Up | Key::Char('k') => *sel = cork::step(&groups, cols, *sel, 0, -1),
+            Key::Down | Key::Char('j') => *sel = cork::step(&groups, cols, *sel, 0, 1),
+            Key::Char('[') | Key::Char(']') => {
+                let parts = cork::parts(&self.project);
+                if let Some(at) = scope_idx.and_then(|s| parts.iter().position(|&p| p == s)) {
+                    let next = if key == Key::Char('[') { at.checked_sub(1) } else { (at + 1 < parts.len()).then_some(at + 1) };
+                    if let Some(n) = next {
+                        *scope = Some(self.project.nodes[parts[n]].path.clone());
+                        *sel = 0;
+                    }
+                }
+            }
+            Key::Char('p') => {
+                let all = cork::povs(&groups);
+                *pov = match pov.as_ref().and_then(|cur| all.iter().position(|x| x == cur)) {
+                    None if !all.is_empty() && pov.is_none() => Some(all[0].clone()),
+                    Some(i) if i + 1 < all.len() => Some(all[i + 1].clone()),
+                    _ => None,
+                };
+            }
+            Key::Char('s') => {
+                let next = cork::next_status(card.status.as_deref());
+                self.project.nodes[card.idx].set_meta("status", next);
+                self.mark_changed(card.idx);
+            }
+            Key::Char('e') => *typing = Some((CardField::Synopsis, card.synopsis.clone().unwrap_or_default())),
+            Key::Char('v') => *typing = Some((CardField::Pov, card.pov.clone().unwrap_or_default())),
+            Key::Enter => {
+                self.overlay = Overlay::None;
+                self.reveal(card.idx);
+                self.open_scene(card.idx);
+            }
+            Key::Esc | Key::Char('b') => self.overlay = Overlay::None,
+            _ => {}
+        }
+    }
+
     // ---- moving scenes and chapters -------------------------------------
 
     /// Alt-↑ / Alt-↓: move the selected scene or folder one place.
@@ -1213,6 +1352,7 @@ impl App {
             Key::Char('r') => self.start_rename(),
             Key::Char('d') => self.start_delete(),
             Key::Char('H') => self.open_history(),
+            Key::Char('b') => self.open_cork(),
             Key::Char('K') => self.move_selected(true),
             Key::Char('J') => self.move_selected(false),
             Key::Char('/') => self.open_find_book(String::new()),
@@ -1793,6 +1933,8 @@ impl App {
                     *sel = 0;
                 }
             }
+
+            Overlay::Cork { .. } => self.cork_key(key),
 
             Overlay::Names { drifts, sel } => match key {
                 Key::Down | Key::Char('j') => *sel = (*sel + 1).min(drifts.len().saturating_sub(1)),
