@@ -366,8 +366,7 @@ remote-control sources.
 the palette; find and replace; spellcheck and name drift; moving scenes; the
 corkboard; the codex; export; resume and writing sessions.
 
-Not yet: a split view of two scenes, a timeline, and languages other than
-English for spellcheck.
+Limits: spellcheck is English only, and Spotify isn't supported on Windows.
 
 ## Development
 
