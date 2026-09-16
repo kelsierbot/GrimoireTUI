@@ -13,6 +13,7 @@ mod project;
 mod recovery;
 mod scene;
 mod search;
+mod spell;
 mod shutdown;
 mod theme;
 mod ui;
