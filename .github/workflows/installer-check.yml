@@ -48,10 +48,16 @@ jobs:
           powershell -ExecutionPolicy Bypass -c "irm https://github.com/kelsierbot/GrimoireTUI/releases/latest/download/grimoire-tui-installer.ps1 | iex" > install.log 2>&1
           type install.log
 
-      - name: The x64 build was chosen
+      - name: An x64 grimoire.exe was installed (Windows on ARM runs it emulated)
         shell: powershell
         run: |
-          if (-not (Select-String -Path install.log -Pattern 'x86_64-pc-windows-msvc' -Quiet)) { throw 'installer did not pick the x64 build' }
+          # The installer names the machine's own triple (aarch64-… on ARM) but
+          # maps it to the x64 download, so check the program, not the log.
+          $bytes = [IO.File]::ReadAllBytes("$HOME\.cargo\bin\grimoire.exe")
+          $pe = [BitConverter]::ToInt32($bytes, 0x3C)
+          $machine = [BitConverter]::ToUInt16($bytes, $pe + 4)
+          Write-Host ("installed grimoire.exe machine type: 0x{0:X4}" -f $machine)
+          if ($machine -ne 0x8664) { throw 'grimoire.exe is not an x64 build' }
 
       - name: grimoire runs from a new terminal
         shell: powershell
@@ -109,3 +115,17 @@ jobs:
               grimoire new "$HOME/book"
               test -d "$HOME/book/manuscript"
             '
+
+      - name: What the installer left behind (on failure)
+        if: failure()
+        run: |
+          home="$RUNNER_TEMP/fresh-home"
+          ls -la "$home" "$home/.cargo" || true
+          for f in .profile .bashrc .bash_profile .bash_login .zshrc .zshenv; do
+            [ -f "$home/$f" ] && { echo "== $f (last 5 lines)"; tail -5 "$home/$f"; }
+          done
+          echo "== .cargo/env"; cat "$home/.cargo/env" || true
+          echo "== /etc/skel"; ls -la /etc/skel || true
+          echo "== trace of the new terminal's startup"
+          env -i HOME="$home" PATH=/usr/bin:/bin:/usr/sbin:/sbin TERM=xterm \
+            ${{ matrix.new-terminal }} -x 'echo PATH=$PATH' 2>&1 | grep -v "^+++* *\(\[\|case\|shopt\|HIST\|alias\|if\|test\|\]\)" | tail -40 || true
