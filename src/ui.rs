@@ -68,7 +68,15 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     if app.music_visible {
         draw_music(f, app, music_area, &t);
     }
-    draw_editor(f, app, edit_area, &t);
+    // A note opened from the prose sits beside it, when there's room.
+    if app.codex.is_some() && edit_area.width >= 70 {
+        let [ed, cx] = Layout::horizontal([Constraint::Min(34), Constraint::Percentage(38)]).areas(edit_area);
+        draw_editor(f, app, ed, &t);
+        draw_codex(f, app, cx, &t);
+    } else {
+        app.rect_codex = Rect::default();
+        draw_editor(f, app, edit_area, &t);
+    }
     draw_status(f, app, status, &t);
 
     if !matches!(app.overlay, Overlay::None) {
@@ -477,6 +485,7 @@ fn draw_editor(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
     let match_bg = blend(t.border, t.sun, 0.45);
     let mut line_matches: std::collections::HashMap<usize, Vec<(usize, usize)>> = std::collections::HashMap::new();
     let mut line_spelling: std::collections::HashMap<usize, Vec<(usize, usize)>> = std::collections::HashMap::new();
+    let mut line_names: std::collections::HashMap<usize, Vec<(usize, usize, usize)>> = std::collections::HashMap::new();
     let visible: Vec<Line> = rows
         .iter()
         .skip(app.editor.scroll)
@@ -490,6 +499,11 @@ fn draw_editor(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
                     styles[c - r.start] = f(styles[c - r.start]);
                 }
             };
+            // Notebook names in the accent colour.
+            let names = line_names.entry(r.line).or_insert_with(|| crate::codex::spans(&app.editor.lines[r.line], &app.codex_index));
+            for &(s, e, _) in names.iter() {
+                paint(s, e, &|st| st.fg(t.accent));
+            }
             if let Some(q) = find {
                 let hits = line_matches
                     .entry(r.line)
@@ -535,6 +549,69 @@ fn draw_editor(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
             f.set_cursor_position((x, y));
         }
     }
+}
+
+fn draw_codex(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
+    let Some(pane) = &app.codex else { return };
+    let focused = app.focus == Focus::Codex;
+    let title = format!("{} · {}", pane.entry.title, pane.entry.section);
+    let block = pane_block(&title, focused, t).padding(Padding::new(1, 1, 0, 0));
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+    app.rect_codex = inner;
+    let Some(pane) = &app.codex else { return };
+    let dim = Style::default().fg(t.dim);
+    let w = inner.width as usize;
+
+    // The appearances list takes the bottom; the note fills the rest.
+    let list_h = (pane.appears.len() as u16 + 2).min(inner.height / 2).max(3);
+    let note_area = Rect { height: inner.height.saturating_sub(list_h), ..inner };
+    let list_area = Rect { y: inner.y + note_area.height, height: list_h, ..inner };
+
+    let body = app
+        .project
+        .nodes
+        .iter()
+        .find(|n| n.path == pane.entry.note)
+        .map(|n| n.body.clone())
+        .unwrap_or_default();
+    let mut note: Vec<Line> = Vec::new();
+    for para in body.split('\n') {
+        if para.trim().is_empty() {
+            note.push(Line::from(""));
+            continue;
+        }
+        for l in wrap_words(para, w) {
+            note.push(Line::from(Span::styled(l, Style::default().fg(t.text))));
+        }
+    }
+    let scroll = pane.scroll.min(note.len().saturating_sub(1));
+    f.render_widget(Paragraph::new(note.into_iter().skip(scroll).collect::<Vec<_>>()), note_area);
+
+    let mut list = vec![Line::from(Span::styled(
+        match pane.appears.len() {
+            0 => "Not in the manuscript yet".to_string(),
+            1 => "Appears in 1 scene".to_string(),
+            n => format!("Appears in {n} scenes"),
+        },
+        Style::default().fg(t.accent),
+    ))];
+    let open_path = app.open.map(|i| app.project.nodes[i].path.clone());
+    let room = (list_h as usize).saturating_sub(1);
+    let start = pane.sel.saturating_sub(room.saturating_sub(1));
+    for (i, a) in pane.appears.iter().enumerate().skip(start).take(room) {
+        let here = open_path.as_ref() == Some(&a.scene);
+        let on = focused && i == pane.sel;
+        let count = format!(" ×{}", a.count);
+        let place = truncate(&a.place, w.saturating_sub(count.chars().count() + 2));
+        let row = Line::from(vec![
+            Span::styled(if here { "● " } else { "  " }, Style::default().fg(t.sun)),
+            Span::styled(place, Style::default().fg(if on { t.accent } else { t.text })),
+            Span::styled(count, dim),
+        ]);
+        list.push(if on { row.style(Style::default().bg(t.sel)) } else { row });
+    }
+    f.render_widget(Paragraph::new(list), list_area);
 }
 
 fn draw_status(f: &mut Frame, app: &App, area: Rect, t: &Theme) {

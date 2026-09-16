@@ -7,6 +7,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use crate::codex;
 use crate::cork;
 use crate::create::{self, New, Plan};
 use crate::editor::{self, Editor};
@@ -42,6 +43,8 @@ pub enum SaveState {
 pub enum Focus {
     Tree,
     Editor,
+    /// The note open beside the scene.
+    Codex,
     Clearing,
     Music,
 }
@@ -109,6 +112,19 @@ pub struct App {
     pub tree_drag: Option<(usize, usize)>,
     /// The whole terminal's size at the last draw, for layouts that depend on it.
     pub screen: (u16, u16),
+    /// Every notebook note and the names that mean it.
+    pub codex_index: Vec<codex::Entry>,
+    /// A note open beside the scene.
+    pub codex: Option<CodexPane>,
+    pub rect_codex: Rect,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CodexPane {
+    pub entry: codex::Entry,
+    pub appears: Vec<codex::Appearance>,
+    pub sel: usize,
+    pub scroll: usize,
 }
 
 /// What's being typed on a corkboard card.
@@ -337,9 +353,13 @@ impl App {
             speller_rx: None,
             tree_drag: None,
             screen: (120, 40),
+            codex_index: Vec::new(),
+            codex: None,
+            rect_codex: Rect::default(),
         })
         .map(|mut app: App| {
             app.load_speller();
+            app.rebuild_codex();
             let items = recovery::pending(&app.project);
             if !items.is_empty() {
                 app.overlay = Overlay::Recover { items };
@@ -470,10 +490,14 @@ impl App {
             }
         }
         let report = self.project.save_dirty();
+        let notes_changed = report.saved.iter().any(|&i| !self.project.nodes[i].in_manuscript);
         for &i in &report.saved {
             let n = &self.project.nodes[i];
             let _ = history::snapshot(&root, &n.path, &n.file_text(), Some(history::GAP));
             recovery::clear(&root, &n.path);
+        }
+        if notes_changed || (self.codex.is_some() && !report.saved.is_empty()) {
+            self.rebuild_codex();
         }
         if report.failed.is_empty() {
             self.save_state = SaveState::Saved(Instant::now());
@@ -675,6 +699,7 @@ impl App {
     fn run_feature(&mut self, action: Action) {
         match action {
             Action::Corkboard => self.open_cork(),
+            Action::OpenCodex => self.open_codex(),
             Action::Export => self.open_export(),
             Action::Spellcheck => self.toggle_spellcheck(),
             Action::SpellingSuggestions => self.spelling(),
@@ -958,6 +983,8 @@ impl App {
         {
             self.speller = Some(s);
             self.speller_rx = None;
+            // Now ordinary words can be told apart from names.
+            self.rebuild_codex();
         }
     }
 
@@ -966,6 +993,94 @@ impl App {
         let words = spell::names_from_titles(&self.note_titles());
         if let Some(s) = &mut self.speller {
             s.add_words(words);
+        }
+        self.rebuild_codex();
+    }
+
+    // ---- the codex -------------------------------------------------------
+
+    pub fn rebuild_codex(&mut self) {
+        let speller = self.speller.as_ref();
+        let ordinary = |w: &str| speller.is_some_and(|s| s.is_correct(w));
+        self.codex_index = codex::index(&self.project, &self.parents, &ordinary);
+        // Keep an open note current.
+        if let Some(pane) = &mut self.codex {
+            match self.codex_index.iter().find(|e| e.note == pane.entry.note) {
+                Some(e) => {
+                    pane.entry = e.clone();
+                    pane.appears = codex::appearances(&self.project, &self.parents, e);
+                }
+                None => self.codex = None,
+            }
+        }
+    }
+
+    /// Ctrl-O: open the note for the name (or [[link]]) under the cursor
+    /// beside the scene. From the tree, a selected note opens directly.
+    pub fn open_codex(&mut self) {
+        self.flush();
+        let entry = if self.focus == Focus::Tree {
+            self.visible
+                .get(self.sel)
+                .and_then(|&i| self.codex_index.iter().position(|e| e.note == self.project.nodes[i].path))
+        } else if self.open.is_some() {
+            let (cy, cx) = (self.editor.cy, self.editor.cx);
+            let line = &self.editor.lines[cy];
+            codex::link_at(line, cx, &self.codex_index).or_else(|| {
+                codex::spans(line, &self.codex_index)
+                    .into_iter()
+                    .find(|&(s, e, _)| cx >= s && cx <= e)
+                    .map(|(_, _, i)| i)
+            })
+        } else {
+            None
+        };
+        let Some(i) = entry else {
+            self.msg = if self.codex_index.is_empty() {
+                "the notebook has no notes yet — add one under Characters, Regions…".into()
+            } else {
+                "put the cursor on a name from your notebook".into()
+            };
+            return;
+        };
+        let e = self.codex_index[i].clone();
+        let appears = codex::appearances(&self.project, &self.parents, &e);
+        self.msg = format!("{} · appears in {} scene{}", e.title, appears.len(), if appears.len() == 1 { "" } else { "s" });
+        self.codex = Some(CodexPane { entry: e, appears, sel: 0, scroll: 0 });
+    }
+
+    pub fn on_codex_key(&mut self, key: Key) {
+        let Some(pane) = &mut self.codex else {
+            self.focus = Focus::Editor;
+            return;
+        };
+        match key {
+            Key::Down | Key::Char('j') => pane.sel = (pane.sel + 1).min(pane.appears.len().saturating_sub(1)),
+            Key::Up | Key::Char('k') => pane.sel = pane.sel.saturating_sub(1),
+            Key::PageDown | Key::Char(' ') => pane.scroll += 5,
+            Key::PageUp => pane.scroll = pane.scroll.saturating_sub(5),
+            Key::Enter => {
+                if let Some(a) = pane.appears.get(pane.sel).cloned()
+                    && let Some(i) = self.project.nodes.iter().position(|n| n.path == a.scene)
+                {
+                    self.reveal(i);
+                    self.open_scene(i);
+                    self.focus = Focus::Codex;
+                }
+            }
+            Key::Char('o') => {
+                // Open the note itself for editing.
+                let note = pane.entry.note.clone();
+                if let Some(i) = self.project.nodes.iter().position(|n| n.path == note) {
+                    self.reveal(i);
+                    self.open_scene(i);
+                }
+            }
+            Key::Esc | Key::Char('q') => {
+                self.codex = None;
+                self.focus = if self.open.is_some() { Focus::Editor } else { Focus::Tree };
+            }
+            _ => {}
         }
     }
 
@@ -1660,6 +1775,7 @@ impl App {
         match f {
             Focus::Tree => true,
             Focus::Editor => self.open.is_some(),
+            Focus::Codex => self.codex.is_some(),
             Focus::Clearing => self.scene_visible,
             Focus::Music => self.music_visible,
         }
@@ -1667,7 +1783,7 @@ impl App {
 
     /// Tab through every pane that is actually on screen.
     pub fn cycle_focus(&mut self, forward: bool) {
-        const ORDER: [Focus; 4] = [Focus::Tree, Focus::Editor, Focus::Clearing, Focus::Music];
+        const ORDER: [Focus; 5] = [Focus::Tree, Focus::Editor, Focus::Codex, Focus::Clearing, Focus::Music];
         let cur = ORDER.iter().position(|&f| f == self.focus).unwrap_or(0);
         for step in 1..=ORDER.len() {
             let i = if forward {
@@ -1738,6 +1854,17 @@ impl App {
                     Kind::Scene => self.open_scene(idx),
                     Kind::Divider => {}
                 }
+            }
+        } else if hit(self.rect_codex, x, y) && self.codex.is_some() {
+            self.flush();
+            self.focus = Focus::Codex;
+            // A click on an "appears in" row opens that scene.
+            let list_top = self.rect_codex.y + self.rect_codex.height.saturating_sub(self.codex.as_ref().map_or(0, |p| p.appears.len() as u16));
+            if y >= list_top
+                && let Some(pane) = &mut self.codex
+            {
+                pane.sel = (y - list_top) as usize;
+                self.on_codex_key(Key::Enter);
             }
         } else if hit(self.rect_editor, x, y) && self.open.is_some() {
             self.focus = Focus::Editor;
@@ -2630,6 +2757,7 @@ impl App {
                 )
             }
             Focus::Editor => format!("Tab pane  Esc tree  {m}K find anything  {m}Z undo  F8 spelling  F1 menu  {m}Q quit "),
+            Focus::Codex => "Tab pane  ↑↓ scenes  ↵ go there  o open the note  PgDn scroll  esc close ".into(),
             Focus::Clearing => format!("Tab pane  ←→ view  ↵ start/pause  r reset  {m}Q quit "),
             Focus::Music => format!("Tab pane  ↵ open player  space pause  ←→ track  {m}Q quit "),
         }
