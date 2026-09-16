@@ -95,9 +95,13 @@ jobs:
         run: |
           home="$RUNNER_TEMP/fresh-home"
           mkdir -p "$home"
-          # A new Linux account starts with /etc/skel's dotfiles; a new Mac
-          # account starts with none.
-          if [ -d /etc/skel ]; then cp -a /etc/skel/. "$home/"; fi
+          # A new Linux account starts with a distro's stock dotfiles; a new Mac
+          # account starts with none. Only the stock ones: GitHub's image also
+          # puts rustup into /etc/skel, and its .cargo/env (pointing at
+          # /etc/skel/.cargo/bin) would stand in for the installer's own.
+          for f in .bashrc .profile .bash_logout; do
+            if [ -f "/etc/skel/$f" ]; then cp "/etc/skel/$f" "$home/"; fi
+          done
           shell="${{ matrix.new-terminal }}"; shell="/bin/${shell%% *}"
           env -i HOME="$home" PATH=/usr/bin:/bin:/usr/sbin:/sbin SHELL="$shell" \
             sh -c "curl --proto '=https' --tlsv1.2 -LsSf https://github.com/kelsierbot/GrimoireTUI/releases/latest/download/grimoire-tui-installer.sh | sh"
