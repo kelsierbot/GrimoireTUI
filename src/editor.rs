@@ -5,7 +5,41 @@
 //! visual — pressing Down inside a wrapped paragraph moves one screen row, not
 //! one paragraph, which is the only behaviour that feels right for prose.
 
+use std::time::{Duration, Instant};
 use unicode_width::UnicodeWidthStr;
+
+/// Typing pauses longer than this start a new undo step.
+const PAUSE: Duration = Duration::from_millis(1200);
+/// Undo steps kept per scene. Each is a copy of the scene, and scenes are small.
+const DEPTH: usize = 300;
+
+/// What an edit was, for deciding where one undo step ends and the next begins.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Edit {
+    /// A letter, digit or punctuation mark.
+    Letter,
+    /// A space typed after a word: it belongs to that word's step.
+    Space,
+    Delete,
+    /// A new paragraph, a paste, a replace, a restore: always its own step.
+    Whole,
+}
+
+#[derive(Debug, Clone)]
+struct Snap {
+    lines: Vec<String>,
+    cy: usize,
+    cx: usize,
+}
+
+/// A scene's undo and redo, kept when you switch to another scene so coming
+/// back still undoes.
+#[derive(Debug, Clone, Default)]
+pub struct History {
+    undo: Vec<Snap>,
+    redo: Vec<Snap>,
+    last: Option<(Edit, Instant)>,
+}
 
 /// One visual row: a char range within a logical line.
 #[derive(Debug, Clone, Copy)]
@@ -28,6 +62,7 @@ pub struct Editor {
     /// Where a drag started, as (line, char). Selection runs from here to the
     /// cursor, in whichever order they happen to be.
     anchor: Option<(usize, usize)>,
+    hist: History,
 }
 
 impl Editor {
@@ -43,11 +78,155 @@ impl Editor {
             scroll: 0,
             goal: None,
             anchor: None,
+            hist: History::default(),
         }
     }
 
     pub fn text(&self) -> String {
         self.lines.join("\n")
+    }
+
+    // ---- undo ------------------------------------------------------------
+
+    pub fn take_history(&mut self) -> History {
+        std::mem::take(&mut self.hist)
+    }
+
+    pub fn set_history(&mut self, h: History) {
+        self.hist = h;
+    }
+
+    fn snap(&self) -> Snap {
+        Snap { lines: self.lines.clone(), cy: self.cy, cx: self.cx }
+    }
+
+    fn restore(&mut self, s: Snap) {
+        self.lines = s.lines;
+        self.cy = s.cy.min(self.lines.len().saturating_sub(1));
+        self.cx = s.cx.min(self.line_len(self.cy));
+        self.goal = None;
+        self.anchor = None;
+    }
+
+    /// Record the state before an edit, starting a new undo step when this
+    /// edit doesn't belong with the last one. A word and the space after it
+    /// are one step; a pause, a change from typing to deleting, a new
+    /// paragraph or a paste each start another.
+    fn remember(&mut self, kind: Edit) {
+        let now = Instant::now();
+        let fresh = match self.hist.last {
+            None => true,
+            Some((last, at)) => {
+                now.duration_since(at) > PAUSE
+                    || kind == Edit::Whole
+                    || last == Edit::Whole
+                    || (kind == Edit::Delete) != (last == Edit::Delete)
+                    || (last == Edit::Space && kind == Edit::Letter)
+            }
+        };
+        if fresh {
+            let s = self.snap();
+            self.hist.undo.push(s);
+            if self.hist.undo.len() > DEPTH {
+                self.hist.undo.remove(0);
+            }
+        }
+        self.hist.redo.clear();
+        self.hist.last = Some((kind, now));
+    }
+
+    /// Step back. False when there's nothing left to undo.
+    pub fn undo(&mut self) -> bool {
+        let Some(s) = self.hist.undo.pop() else { return false };
+        let cur = self.snap();
+        self.hist.redo.push(cur);
+        self.restore(s);
+        self.hist.last = None;
+        true
+    }
+
+    pub fn redo(&mut self) -> bool {
+        let Some(s) = self.hist.redo.pop() else { return false };
+        let cur = self.snap();
+        self.hist.undo.push(cur);
+        self.restore(s);
+        self.hist.last = None;
+        true
+    }
+
+    /// Replace the whole text as one undoable step — restoring a version,
+    /// replacing across the scene. The cursor stays near where it was.
+    pub fn set_text(&mut self, text: &str) {
+        self.remember(Edit::Whole);
+        self.lines = text.split('\n').map(|l| l.to_string()).collect();
+        if self.lines.is_empty() {
+            self.lines.push(String::new());
+        }
+        self.cy = self.cy.min(self.lines.len() - 1);
+        self.cx = self.cx.min(self.line_len(self.cy));
+        self.goal = None;
+        self.anchor = None;
+        self.hist.last = Some((Edit::Whole, Instant::now()));
+    }
+
+    /// Put the cursor at (line, char), clamped, with nothing selected.
+    pub fn place(&mut self, line: usize, ch: usize) {
+        self.cy = line.min(self.lines.len().saturating_sub(1));
+        self.cx = ch.min(self.line_len(self.cy));
+        self.goal = None;
+        self.anchor = None;
+    }
+
+    /// Select from (line, char) to (line, char), cursor at the end.
+    pub fn select(&mut self, from: (usize, usize), to: (usize, usize)) {
+        self.place(to.0, to.1);
+        let line = from.0.min(self.lines.len().saturating_sub(1));
+        self.anchor = Some((line, from.1.min(self.line_len(line))));
+    }
+
+    /// Delete whatever is selected, as the start of an undo step the next
+    /// keystroke joins — so typing over a selection undoes in one go.
+    /// False if nothing was selected.
+    pub fn delete_selection(&mut self) -> bool {
+        let Some(((l0, c0), (l1, c1))) = self.selection() else {
+            return false;
+        };
+        self.remember(Edit::Whole);
+        let head: String = self.lines[l0].chars().take(c0).collect();
+        let tail: String = self.lines[l1].chars().skip(c1).collect();
+        self.lines.splice(l0..=l1, [format!("{head}{tail}")]);
+        self.cy = l0;
+        self.cx = c0;
+        self.anchor = None;
+        self.goal = None;
+        // The deletion and whatever is typed next are one step.
+        self.hist.last = Some((Edit::Letter, Instant::now()));
+        true
+    }
+
+    /// Insert text that may span paragraphs, as one undo step.
+    pub fn insert_str(&mut self, text: &str) {
+        let text = text.replace("\r\n", "\n").replace('\r', "\n");
+        if text.is_empty() {
+            return;
+        }
+        self.remember(Edit::Whole);
+        let chars = self.line_chars(self.cy);
+        let at = self.cx.min(chars.len());
+        let head: String = chars[..at].iter().collect();
+        let tail: String = chars[at..].iter().collect();
+        let mut parts: Vec<String> = text.split('\n').map(|s| s.to_string()).collect();
+        let last_len = parts.last().map(|p| p.chars().count()).unwrap_or(0);
+        let n = parts.len();
+        parts[0] = format!("{head}{}", parts[0]);
+        let end_line = self.cy + n - 1;
+        let end_col = if n == 1 { at + last_len } else { last_len };
+        parts[n - 1].push_str(&tail);
+        self.lines.splice(self.cy..=self.cy, parts);
+        self.cy = end_line;
+        self.cx = end_col;
+        self.goal = None;
+        self.hist.last = Some((Edit::Whole, Instant::now()));
     }
 
     fn line_chars(&self, y: usize) -> Vec<char> {
@@ -164,6 +343,7 @@ impl Editor {
     // ---- editing ----------------------------------------------------------
 
     pub fn insert(&mut self, ch: char) {
+        self.remember(if ch.is_whitespace() { Edit::Space } else { Edit::Letter });
         let mut chars = self.line_chars(self.cy);
         let at = self.cx.min(chars.len());
         chars.insert(at, ch);
@@ -173,6 +353,7 @@ impl Editor {
     }
 
     pub fn newline(&mut self) {
+        self.remember(Edit::Whole);
         let chars = self.line_chars(self.cy);
         let at = self.cx.min(chars.len());
         let rest: String = chars[at..].iter().collect();
@@ -185,6 +366,10 @@ impl Editor {
     }
 
     pub fn backspace(&mut self) {
+        if self.cx == 0 && self.cy == 0 {
+            return;
+        }
+        self.remember(Edit::Delete);
         if self.cx > 0 {
             let mut chars = self.line_chars(self.cy);
             chars.remove(self.cx - 1);
@@ -201,6 +386,10 @@ impl Editor {
 
     pub fn delete(&mut self) {
         let len = self.line_len(self.cy);
+        if self.cx >= len && self.cy + 1 >= self.lines.len() {
+            return;
+        }
+        self.remember(Edit::Delete);
         if self.cx < len {
             let mut chars = self.line_chars(self.cy);
             chars.remove(self.cx);
@@ -453,6 +642,86 @@ mod tests {
         assert_eq!(e.row_selection(VisRow { line: 0, start: 0, end: 3 }), None);
         assert_eq!(e.row_selection(VisRow { line: 2, start: 0, end: 5 }), None);
         assert_eq!(e.row_selection(VisRow { line: 1, start: 0, end: 3 }), Some((0, 3)));
+    }
+
+    fn typed(e: &mut Editor, s: &str) {
+        for c in s.chars() {
+            e.insert(c);
+        }
+    }
+
+    #[test]
+    fn undo_takes_back_a_word_at_a_time() {
+        let mut e = ed("");
+        typed(&mut e, "Wren ran ");
+        typed(&mut e, "home");
+        assert_eq!(e.text(), "Wren ran home");
+        assert!(e.undo());
+        assert_eq!(e.text(), "Wren ran ", "the last word goes first");
+        assert!(e.undo());
+        assert_eq!(e.text(), "Wren ", "a word and its space are one step");
+        assert!(e.undo());
+        assert_eq!(e.text(), "");
+        assert!(!e.undo(), "nothing left");
+        assert!(e.redo());
+        assert!(e.redo());
+        assert_eq!(e.text(), "Wren ran ");
+    }
+
+    #[test]
+    fn deleting_is_its_own_step_and_a_new_edit_clears_redo() {
+        let mut e = ed("");
+        typed(&mut e, "hello");
+        e.backspace();
+        e.backspace();
+        assert_eq!(e.text(), "hel");
+        assert!(e.undo());
+        assert_eq!(e.text(), "hello", "both backspaces undo together");
+        assert!(e.undo());
+        assert_eq!(e.text(), "");
+        assert!(e.redo());
+        typed(&mut e, "!");
+        assert!(!e.redo(), "typing after an undo drops the redo");
+    }
+
+    #[test]
+    fn typing_over_a_selection_replaces_it_and_undoes_in_one_step() {
+        let mut e = ed("the grey lot");
+        e.select((0, 4), (0, 8));
+        assert_eq!(e.selected_text().as_deref(), Some("grey"));
+        assert!(e.delete_selection());
+        typed(&mut e, "empty");
+        assert_eq!(e.text(), "the empty lot");
+        assert!(e.undo());
+        assert_eq!(e.text(), "the grey lot");
+    }
+
+    #[test]
+    fn a_multi_paragraph_paste_lands_as_one_step_with_the_cursor_after_it() {
+        let mut e = ed("ab");
+        e.cx = 1;
+        e.insert_str("1\n2\n3");
+        assert_eq!(e.text(), "a1\n2\n3b");
+        assert_eq!((e.cy, e.cx), (2, 1));
+        assert!(e.undo());
+        assert_eq!(e.text(), "ab");
+    }
+
+    #[test]
+    fn replacing_the_whole_text_undoes() {
+        let mut e = ed("old words");
+        e.set_text("new words entirely");
+        assert!(e.undo());
+        assert_eq!(e.text(), "old words");
+    }
+
+    #[test]
+    fn a_selection_across_paragraphs_deletes_cleanly() {
+        let mut e = ed("one\ntwo\nthree");
+        e.select((0, 1), (2, 2));
+        assert!(e.delete_selection());
+        assert_eq!(e.text(), "oree");
+        assert_eq!((e.cy, e.cx), (0, 1));
     }
 
     #[test]

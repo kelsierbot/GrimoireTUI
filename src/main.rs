@@ -3,20 +3,23 @@
 mod app;
 mod create;
 mod editor;
+mod history;
 mod library;
 mod manuscript;
 mod music;
 mod project;
+mod recovery;
 mod scene;
+mod shutdown;
 mod theme;
 mod ui;
 mod visualizer;
 
 use anyhow::{Context, Result};
 use ratatui::crossterm::event::{
-    self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, KeyModifiers,
-    KeyboardEnhancementFlags, MouseButton, MouseEventKind, PopKeyboardEnhancementFlags,
-    PushKeyboardEnhancementFlags,
+    self, DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
+    Event, KeyCode, KeyEventKind, KeyModifiers, KeyboardEnhancementFlags, MouseButton,
+    MouseEventKind, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
 };
 use ratatui::crossterm::execute;
 use std::path::{Path, PathBuf};
@@ -136,14 +139,32 @@ fn main() -> Result<()> {
     // keyboard flags outright, and inside one execute! that error would stop
     // the mouse being turned on at all.
     let _ = execute!(std::io::stdout(), EnableMouseCapture);
+    // A paste arrives as one piece instead of a burst of keystrokes, so it
+    // lands as one undo step. Windows' legacy console refuses this; that's fine.
+    let _ = execute!(std::io::stdout(), EnableBracketedPaste);
     let _ = execute!(
         std::io::stdout(),
         PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES),
     );
     app.super_keys = cmd_is_reachable();
 
-    let res = run(&mut terminal, &mut app);
+    shutdown::install();
+    let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run(&mut terminal, &mut app)));
+    let res = match res {
+        Ok(r) => r,
+        Err(_) => {
+            // ratatui's panic hook has already put the terminal back and
+            // printed the panic. Keep every unsaved word before leaving.
+            app.rescue();
+            let _ = execute!(std::io::stdout(), DisableBracketedPaste, DisableMouseCapture);
+            ratatui::restore();
+            eprintln!("\nGrimoire hit a bug and closed. Anything unsaved was kept, and will be");
+            eprintln!("offered back the next time you open this book.");
+            std::process::exit(101);
+        }
+    };
 
+    let _ = execute!(std::io::stdout(), DisableBracketedPaste);
     let _ = execute!(std::io::stdout(), DisableMouseCapture);
     let _ = execute!(std::io::stdout(), PopKeyboardEnhancementFlags);
     ratatui::restore();
@@ -263,6 +284,15 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
     let mut last_frame = Instant::now();
 
     loop {
+        // Closing the window or being told to stop: save, then go.
+        if shutdown::requested() {
+            if !app.try_quit() {
+                app.rescue();
+            }
+            shutdown::done();
+            return Ok(());
+        }
+        app.autosave_tick();
         app.music.drain();
         app.tick_player();
         if app.pomo.tick() {
@@ -281,7 +311,18 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
 
         terminal.draw(|f| ui::draw(f, app))?;
 
-        if !event::poll(if spectrum { FAST_TICK } else { TICK })? {
+        // If the terminal itself goes away, reading from it fails: save what
+        // there is before reporting that.
+        let ready = match event::poll(if spectrum { FAST_TICK } else { TICK }) {
+            Ok(r) => r,
+            Err(e) => {
+                if !app.try_quit() {
+                    app.rescue();
+                }
+                return Err(e.into());
+            }
+        };
+        if !ready {
             // The scenes animate on TICK whatever the repaint rate.
             if last_frame.elapsed() >= TICK {
                 app.frame = app.frame.wrapping_add(1);
@@ -289,7 +330,26 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
             }
             continue;
         }
-        let ev = event::read()?;
+        let ev = match event::read() {
+            Ok(ev) => ev,
+            Err(e) => {
+                if !app.try_quit() {
+                    app.rescue();
+                }
+                return Err(e.into());
+            }
+        };
+
+        if let Event::Paste(text) = &ev {
+            if matches!(app.overlay, Overlay::None) {
+                app.paste(text);
+            } else {
+                for c in text.chars().filter(|c| !c.is_control()) {
+                    app.on_overlay_key(Key::Char(c));
+                }
+            }
+            continue;
+        }
 
         if let Event::Mouse(m) = ev {
             match m.kind {
@@ -319,20 +379,26 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
         let ctrl = k.modifiers.contains(KeyModifiers::CONTROL) || sup;
 
         if ctrl {
+            let shift = k.modifiers.contains(KeyModifiers::SHIFT);
             match k.code {
                 KeyCode::Char('s') => {
                     app.save();
                     confirm_quit = false;
                 }
                 KeyCode::Char('c') => app.copy_selection(),
+                KeyCode::Char('x') => app.cut(),
+                KeyCode::Char('z') if shift => app.redo(),
+                KeyCode::Char('Z') => app.redo(),
+                KeyCode::Char('z') => app.undo(),
+                KeyCode::Char('y') => app.redo(),
                 KeyCode::Char('q') => {
-                    if app.project.dirty_count() > 0 && !confirm_quit {
-                        confirm_quit = true;
-                        let m = app.mod_label();
-                        app.msg = format!("unsaved — {m}Q again to discard, {m}S to save");
-                    } else {
+                    // Quitting saves. Only a save that fails asks twice.
+                    if confirm_quit || app.try_quit() {
                         return Ok(());
                     }
+                    confirm_quit = true;
+                    let m = app.mod_label();
+                    app.msg = format!("{} · {m}Q again to quit anyway", app.msg);
                 }
                 _ => {}
             }
@@ -397,7 +463,15 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
                     Key::Char('k') => Key::Up,
                     Key::Char('h') => Key::Left,
                     Key::Char('l') => Key::Right,
-                    Key::Char('q') => return Ok(()),
+                    Key::Char('q') => {
+                        if app.try_quit() {
+                            return Ok(());
+                        }
+                        confirm_quit = true;
+                        let m = app.mod_label();
+                        app.msg = format!("{} · {m}Q to quit anyway", app.msg);
+                        continue;
+                    }
                     other => other,
                 };
                 app.on_tree_key(key);

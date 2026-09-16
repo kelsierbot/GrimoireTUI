@@ -525,12 +525,19 @@ fn draw_status(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
         ),
     ];
 
+    // Autosave keeps this quiet: a dim note while a change waits to be
+    // written, a brief tick once it is, and red only when saving failed.
     let dirty = app.project.dirty_count();
-    if dirty > 0 {
-        spans.push(Span::styled(
-            format!("  ● {dirty} unsaved"),
+    match &app.save_state {
+        crate::app::SaveState::Failed(_) if dirty > 0 => spans.push(Span::styled(
+            format!("  ● {dirty} not saved"),
             Style::default().fg(t.warn),
-        ));
+        )),
+        _ if dirty > 0 => spans.push(Span::styled("  ○ saving", Style::default().fg(t.dim))),
+        crate::app::SaveState::Saved(at) if at.elapsed() < std::time::Duration::from_secs(3) => {
+            spans.push(Span::styled("  ✓ saved", Style::default().fg(t.dim)))
+        }
+        _ => {}
     }
     if !app.msg.is_empty() {
         spans.push(Span::styled(
@@ -567,6 +574,142 @@ fn centred(area: Rect, w: u16, h: u16) -> Rect {
 fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
     match &app.overlay {
         Overlay::None => {}
+
+        Overlay::Recover { items } => {
+            let h = (items.len() as u16).min(8) + 8;
+            let box_area = centred(area, 70, h);
+            f.render_widget(Clear, box_area);
+            let block = pane_block("RECOVERED WORDS", true, t);
+            let inner = block.inner(box_area);
+            f.render_widget(block, box_area);
+            let dim = Style::default().fg(t.dim);
+            let mut lines = vec![
+                Line::from(Span::styled(
+                    " These changes were never saved last time. They're safe:",
+                    Style::default().fg(t.text),
+                )),
+                Line::from(""),
+            ];
+            for it in items.iter().take(8) {
+                let when = it.when.map(|w| {
+                    let dt: chrono::DateTime<chrono::Local> = w.into();
+                    format!(" · {}", when_label(dt))
+                });
+                lines.push(Line::from(vec![
+                    Span::styled(" ▸ ", Style::default().fg(t.accent)),
+                    Span::styled(it.title.clone(), Style::default().fg(t.accent)),
+                    Span::styled(
+                        format!(
+                            "  {} words kept, {} in the saved version{}",
+                            thousands(it.recovered_words),
+                            thousands(it.saved_words),
+                            when.unwrap_or_default()
+                        ),
+                        dim,
+                    ),
+                ]));
+            }
+            if items.len() > 8 {
+                lines.push(Line::from(Span::styled(format!("   and {} more", items.len() - 8), dim)));
+            }
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                " Restoring keeps the saved version in each scene's history.",
+                dim,
+            )));
+            lines.push(Line::from(""));
+            lines.push(Line::from(vec![
+                Span::styled(" y ", Style::default().fg(t.accent).add_modifier(Modifier::BOLD)),
+                Span::styled("restore them   ", Style::default().fg(t.text)),
+                Span::styled("n ", Style::default().fg(t.accent).add_modifier(Modifier::BOLD)),
+                Span::styled("keep the saved versions   ", Style::default().fg(t.text)),
+                Span::styled("esc decide later", dim),
+            ]));
+            f.render_widget(Paragraph::new(lines), inner);
+        }
+
+        Overlay::History { scene, title, versions, sel, scroll } => {
+            let box_area = centred(area, area.width.saturating_sub(4).min(118), area.height.saturating_sub(2).min(40));
+            f.render_widget(Clear, box_area);
+            let head = format!("HISTORY · {} · {} version{}", title.to_uppercase(), versions.len(), if versions.len() == 1 { "" } else { "s" });
+            let block = pane_block(&head, true, t);
+            let inner = block.inner(box_area);
+            f.render_widget(block, box_area);
+            let [list_area, _, diff_area] = Layout::horizontal([
+                Constraint::Length(34),
+                Constraint::Length(2),
+                Constraint::Min(20),
+            ])
+            .areas(inner);
+            let dim = Style::default().fg(t.dim);
+            let current = app
+                .project
+                .nodes
+                .iter()
+                .find(|n| &n.path == scene)
+                .map(|n| n.body.clone())
+                .unwrap_or_default();
+            let now_words = current.split_whitespace().count() as i64;
+
+            // The versions, newest first.
+            let room = list_area.height.saturating_sub(3) as usize;
+            let start = sel.saturating_sub(room.saturating_sub(1));
+            let mut left: Vec<Line> = vec![Line::from(Span::styled(" kept versions", dim)), Line::from("")];
+            for (i, v) in versions.iter().enumerate().skip(start).take(room) {
+                let on = i == *sel;
+                let words = v.words() as i64;
+                let delta = words - now_words;
+                let change = match delta {
+                    0 => "same length".to_string(),
+                    d if d < 0 => format!("{} fewer", thousands((-d) as usize)),
+                    d => format!("{} more", thousands(d as usize)),
+                };
+                let row = Line::from(vec![
+                    Span::styled(if on { " ▸ " } else { "   " }, Style::default().fg(t.accent)),
+                    Span::styled(format!("{:<17}", when_label(v.when)), Style::default().fg(if on { t.accent } else { t.text })),
+                    Span::styled(truncate(&change, 13), dim),
+                ]);
+                left.push(if on { row.style(Style::default().bg(t.sel)) } else { row });
+            }
+            f.render_widget(Paragraph::new(left), list_area);
+
+            // What changed between that version and now.
+            let v = &versions[*sel];
+            let old = v.body();
+            let pieces = crate::history::diff(&old, &current);
+            let width = diff_area.width.saturating_sub(1) as usize;
+            let (mut body, first_change) = diff_lines(&pieces, width, t);
+            let header = vec![
+                Line::from(vec![
+                    Span::styled(format!("{} · {} words", when_label(v.when), thousands(v.words())), Style::default().fg(t.accent)),
+                    Span::styled(format!("  ·  now {} words", thousands(now_words as usize)), dim),
+                ]),
+                Line::from(vec![
+                    Span::styled("struck", Style::default().fg(t.warn).add_modifier(Modifier::CROSSED_OUT)),
+                    Span::styled(" was in this version and is gone now · ", dim),
+                    Span::styled("underlined", Style::default().fg(t.accent).add_modifier(Modifier::UNDERLINED)),
+                    Span::styled(" is new since", dim),
+                ]),
+                Line::from(""),
+            ];
+            let room = (diff_area.height as usize).saturating_sub(header.len() + 2);
+            let top = first_change.saturating_sub(2) + *scroll;
+            let top = top.min(body.len().saturating_sub(1));
+            let mut lines = header;
+            if pieces.iter().all(|p| matches!(p, crate::history::Piece::Same(_))) {
+                lines.push(Line::from(Span::styled("identical to the scene as it is now", dim)));
+            } else {
+                lines.extend(body.drain(..).skip(top).take(room));
+            }
+            while lines.len() < (diff_area.height as usize).saturating_sub(1) {
+                lines.push(Line::from(""));
+            }
+            lines.push(Line::from(Span::styled(
+                "↑↓ pick a version   PgUp PgDn scroll   ↵ restore it   esc close",
+                dim,
+            )));
+            f.render_widget(Paragraph::new(lines), diff_area);
+        }
 
         Overlay::Menu { sel } => {
             let items = app.menu();
@@ -962,6 +1105,97 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             f.render_widget(Paragraph::new(lines), inner);
         }
     }
+}
+
+/// "Today 9:14 pm", "Yesterday 6:02 pm", "Tue 16 Sep 9:14 pm".
+fn when_label(dt: chrono::DateTime<chrono::Local>) -> String {
+    let today = chrono::Local::now().date_naive();
+    let clock = dt.format("%-I:%M %P").to_string();
+    let day = dt.date_naive();
+    if day == today {
+        format!("Today {clock}")
+    } else if Some(day) == today.pred_opt() {
+        format!("Yesterday {clock}")
+    } else {
+        format!("{} {clock}", dt.format("%a %-d %b"))
+    }
+}
+
+/// Lay a word diff out as wrapped lines. Returns the lines and the index of
+/// the first line with a change, so the view can open where it matters.
+fn diff_lines(pieces: &[crate::history::Piece], width: usize, t: &Theme) -> (Vec<Line<'static>>, usize) {
+    use crate::history::Piece;
+
+    struct Wrap {
+        width: usize,
+        lines: Vec<Line<'static>>,
+        cur: Vec<Span<'static>>,
+        used: usize,
+        changed: bool,
+        first_change: Option<usize>,
+    }
+    impl Wrap {
+        fn end_line(&mut self) {
+            if self.changed && self.first_change.is_none() {
+                self.first_change = Some(self.lines.len());
+            }
+            self.lines.push(Line::from(std::mem::take(&mut self.cur)));
+            self.used = 0;
+            self.changed = false;
+        }
+        fn push(&mut self, token: &str, style: Style, changed: bool) {
+            let w = token.chars().count();
+            let space = token.chars().all(char::is_whitespace);
+            if self.used + w > self.width && self.used > 0 {
+                self.end_line();
+                if space {
+                    return;
+                }
+            }
+            self.cur.push(Span::styled(token.to_string(), style));
+            self.used += w;
+            self.changed |= changed;
+        }
+    }
+
+    let mut wrap = Wrap { width: width.max(10), lines: Vec::new(), cur: Vec::new(), used: 0, changed: false, first_change: None };
+    let plain = Style::default().fg(t.text);
+    let gone = Style::default().fg(t.warn).add_modifier(Modifier::CROSSED_OUT);
+    let new = Style::default().fg(t.accent).add_modifier(Modifier::UNDERLINED);
+
+    for p in pieces {
+        let (text, style, changed) = match p {
+            Piece::Same(s) => (s.as_str(), plain, false),
+            Piece::Removed(s) => (s.as_str(), gone, true),
+            Piece::Added(s) => (s.as_str(), new, true),
+        };
+        let mut token = String::new();
+        for ch in text.chars() {
+            if ch == '\n' {
+                if !token.is_empty() {
+                    wrap.push(&token, style, changed);
+                    token.clear();
+                }
+                wrap.changed |= changed;
+                wrap.end_line();
+                continue;
+            }
+            let boundary = token.chars().last().is_some_and(|c| c.is_whitespace() != ch.is_whitespace());
+            if boundary {
+                wrap.push(&token, style, changed);
+                token.clear();
+            }
+            token.push(ch);
+        }
+        if !token.is_empty() {
+            wrap.push(&token, style, changed);
+        }
+    }
+    if !wrap.cur.is_empty() {
+        wrap.end_line();
+    }
+    let first = wrap.first_change.unwrap_or(0);
+    (wrap.lines, first)
 }
 
 /// A sub-range of a visual row, for painting selection runs.

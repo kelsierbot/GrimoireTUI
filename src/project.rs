@@ -88,6 +88,33 @@ impl Node {
     pub fn words(&self) -> usize {
         self.body.split_whitespace().count()
     }
+
+    /// The scene as it belongs on disk: its frontmatter block, untouched, then
+    /// the prose.
+    pub fn file_text(&self) -> String {
+        let mut out = String::new();
+        if let Some(f) = &self.front {
+            out.push_str("---\n");
+            out.push_str(f);
+            if !f.ends_with('\n') {
+                out.push('\n');
+            }
+            out.push_str("---\n\n");
+        }
+        out.push_str(&self.body);
+        if !out.ends_with('\n') {
+            out.push('\n');
+        }
+        out
+    }
+}
+
+/// What a save managed: the scenes written, and the ones that couldn't be
+/// with the reason. Every dirty scene is attempted even if one fails.
+#[derive(Debug, Default)]
+pub struct SaveReport {
+    pub saved: Vec<usize>,
+    pub failed: Vec<(usize, String)>,
 }
 
 pub struct Project {
@@ -351,40 +378,74 @@ impl Project {
         }
     }
 
-    pub fn save_all(&mut self) -> Result<usize> {
-        let mut count = 0;
+    /// Write every changed scene, each through a temporary file so a crash
+    /// mid-save can never leave half a scene behind.
+    pub fn save_dirty(&mut self) -> SaveReport {
+        let mut report = SaveReport::default();
         for i in 0..self.nodes.len() {
-            if self.nodes[i].dirty && self.nodes[i].kind == Kind::Scene {
-                let n = &self.nodes[i];
-                let mut out = String::new();
-                if let Some(f) = &n.front {
-                    out.push_str("---\n");
-                    out.push_str(f);
-                    if !f.ends_with('\n') {
-                        out.push('\n');
-                    }
-                    out.push_str("---\n\n");
+            if !(self.nodes[i].dirty && self.nodes[i].kind == Kind::Scene) {
+                continue;
+            }
+            let n = &self.nodes[i];
+            match write_atomic(&n.path, &n.file_text()) {
+                Ok(()) => {
+                    self.nodes[i].dirty = false;
+                    report.saved.push(i);
                 }
-                out.push_str(&n.body);
-                if !out.ends_with('\n') {
-                    out.push('\n');
-                }
-                fs::write(&n.path, out)
-                    .with_context(|| format!("writing {}", n.path.display()))?;
-                self.nodes[i].dirty = false;
-                count += 1;
+                // The reason, not the path: "Permission denied", "No space left".
+                Err(e) => report.failed.push((i, short_reason(&e))),
             }
         }
-        Ok(count)
+        report
     }
+
+
 
     pub fn dirty_count(&self) -> usize {
         self.nodes.iter().filter(|n| n.dirty).count()
     }
 }
 
+/// "Permission denied" rather than "writing /long/path: Permission denied (os error 13)".
+fn short_reason(e: &anyhow::Error) -> String {
+    let root = e.root_cause().to_string();
+    match root.find(" (os error") {
+        Some(i) => root[..i].to_string(),
+        None => root,
+    }
+}
+
+/// Write a whole file so that it is either the old version or the new one,
+/// never a torn mix: write a hidden sibling, flush it to disk, then rename it
+/// over. The sibling starts with a dot, so a crash that leaves one behind never
+/// shows up in the tree.
+pub fn write_atomic(path: &Path, text: &str) -> Result<()> {
+    use std::io::Write;
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "scene".into());
+    let tmp = path.with_file_name(format!(".{name}.saving"));
+    let written = (|| -> std::io::Result<()> {
+        let mut f = fs::File::create(&tmp)?;
+        f.write_all(text.as_bytes())?;
+        f.sync_all()
+    })();
+    if let Err(e) = written {
+        let _ = fs::remove_file(&tmp);
+        return Err(e).with_context(|| format!("writing {}", path.display()));
+    }
+    if fs::rename(&tmp, path).is_ok() {
+        return Ok(());
+    }
+    // Windows refuses to replace a file another program has open (a sync
+    // client, an editor). Writing in place is second best, but it saves.
+    let _ = fs::remove_file(&tmp);
+    fs::write(path, text).with_context(|| format!("writing {}", path.display()))
+}
+
 /// Split a `---` fenced YAML frontmatter block off the front of a file.
-fn split_frontmatter(raw: &str) -> (Option<String>, String) {
+pub fn split_frontmatter(raw: &str) -> (Option<String>, String) {
     let s = raw.strip_prefix("\u{feff}").unwrap_or(raw);
     let Some(rest) = s.strip_prefix("---\n") else {
         return (None, s.to_string());

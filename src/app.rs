@@ -2,17 +2,35 @@
 
 use anyhow::Result;
 use ratatui::layout::Rect;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use crate::create::{self, New, Plan};
-use crate::editor::Editor;
+use crate::editor::{self, Editor};
+use crate::history;
 use crate::manuscript;
+use crate::recovery;
 use crate::music::{self, Music};
 use crate::project::{self, Kind, Project};
 use crate::scene::{Mode, Pomodoro};
 use crate::theme::{self, Theme};
 use crate::visualizer::Visualizer;
+
+/// Save a couple of seconds after typing stops…
+const AUTOSAVE_IDLE: Duration = Duration::from_secs(2);
+/// …and never let unsaved words sit longer than this, however fast you type.
+const AUTOSAVE_MAX: Duration = Duration::from_secs(20);
+/// After a failed save, try again this often rather than on every tick.
+const RETRY: Duration = Duration::from_secs(10);
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum SaveState {
+    Clean,
+    Saved(Instant),
+    Failed(String),
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Focus {
@@ -66,6 +84,16 @@ pub struct App {
     pub create_hits: Vec<(Rect, New)>,
     pub theme: Theme,
     pub overlay: Overlay,
+    /// Autosave bookkeeping: the last keystroke that changed text, when the
+    /// oldest unsaved change was made, and how the last save went.
+    pub last_edit: Option<Instant>,
+    pub unsaved_since: Option<Instant>,
+    pub save_state: SaveState,
+    last_attempt: Option<Instant>,
+    /// Scenes whose pre-session text is already in history.
+    pre_snapshotted: HashSet<PathBuf>,
+    /// Undo for scenes that aren't open, so switching back still undoes.
+    undo_stash: HashMap<PathBuf, editor::History>,
 }
 
 /// Modal state. Only one can be up at a time.
@@ -106,6 +134,16 @@ pub enum Overlay {
         words: usize,
         /// It's already in the trash, so this one really is the end of it.
         permanent: bool,
+    },
+    /// Words that couldn't be saved last time, offered back on launch.
+    Recover { items: Vec<recovery::Pending> },
+    /// A scene's kept versions, with what changed since each.
+    History {
+        scene: PathBuf,
+        title: String,
+        versions: Vec<history::Version>,
+        sel: usize,
+        scroll: usize,
     },
     /// The music player: what's playing, the queue, playlists, and search.
     Player {
@@ -217,8 +255,18 @@ impl App {
             create_hits: Vec::new(),
             theme: theme::load(),
             overlay: Overlay::None,
+            last_edit: None,
+            unsaved_since: None,
+            save_state: SaveState::Clean,
+            last_attempt: None,
+            pre_snapshotted: HashSet::new(),
+            undo_stash: HashMap::new(),
         })
         .map(|mut app: App| {
+            let items = recovery::pending(&app.project);
+            if !items.is_empty() {
+                app.overlay = Overlay::Recover { items };
+            }
             if let Some(i) = first_scene {
                 app.editor = Editor::from_str(&app.project.nodes[i].body);
                 app.open = Some(i);
@@ -271,31 +319,237 @@ impl App {
     }
 
     /// Push editor contents back into the open node.
-    fn flush(&mut self) {
+    pub fn flush(&mut self) {
         if let Some(i) = self.open {
             let text = self.editor.text();
             if text != self.project.nodes[i].body {
                 self.project.nodes[i].body = text;
-                self.project.nodes[i].dirty = true;
+                self.mark_changed(i);
             }
         }
     }
 
+    /// A scene's text changed in memory; autosave will pick it up.
+    fn mark_changed(&mut self, i: usize) {
+        self.project.nodes[i].dirty = true;
+        let now = Instant::now();
+        self.last_edit = Some(now);
+        self.unsaved_since.get_or_insert(now);
+    }
+
     fn open_scene(&mut self, idx: usize) {
         self.flush();
+        // Park this scene's undo so coming back to it still undoes.
+        if let Some(i) = self.open {
+            let path = self.project.nodes[i].path.clone();
+            self.undo_stash.insert(path, self.editor.take_history());
+        }
         self.editor = Editor::from_str(&self.project.nodes[idx].body);
+        if let Some(h) = self.undo_stash.remove(&self.project.nodes[idx].path) {
+            self.editor.set_history(h);
+        }
         self.open = Some(idx);
         self.focus = Focus::Editor;
         self.msg.clear();
     }
 
+    /// Ctrl-S. Autosave does this on its own; pressing it is never wrong.
     pub fn save(&mut self) {
+        let before = self.project.dirty_count();
         self.flush();
-        match self.project.save_all() {
-            Ok(0) => self.msg = "nothing to save".into(),
-            Ok(n) => self.msg = format!("saved {n} scene{}", if n == 1 { "" } else { "s" }),
-            Err(e) => self.msg = format!("save failed: {e}"),
+        let pending = self.project.dirty_count().max(before);
+        if self.commit_saves() {
+            self.msg = match pending {
+                0 => "all saved".into(),
+                1 => "saved".into(),
+                n => format!("saved {n} scenes"),
+            };
         }
+    }
+
+    /// Write every changed scene, keeping history as it goes. On a failure
+    /// the words go to recovery and the status bar says so. True when
+    /// everything that needed saving was saved.
+    pub fn commit_saves(&mut self) -> bool {
+        self.flush();
+        self.last_attempt = Some(Instant::now());
+        let root = self.project.root.clone();
+        let dirty: Vec<usize> = (0..self.project.nodes.len())
+            .filter(|&i| self.project.nodes[i].dirty && self.project.nodes[i].kind == Kind::Scene)
+            .collect();
+        if dirty.is_empty() {
+            self.unsaved_since = None;
+            return true;
+        }
+        // The version from before this session first touched a scene always
+        // goes into history, so "how it was this morning" is never lost.
+        for &i in &dirty {
+            let path = self.project.nodes[i].path.clone();
+            if self.pre_snapshotted.insert(path.clone())
+                && let Ok(old) = fs::read_to_string(&path)
+            {
+                let _ = history::snapshot(&root, &path, &old, None);
+            }
+        }
+        let report = self.project.save_dirty();
+        for &i in &report.saved {
+            let n = &self.project.nodes[i];
+            let _ = history::snapshot(&root, &n.path, &n.file_text(), Some(history::GAP));
+            recovery::clear(&root, &n.path);
+        }
+        if report.failed.is_empty() {
+            self.save_state = SaveState::Saved(Instant::now());
+            self.unsaved_since = None;
+            return true;
+        }
+        let mut kept = true;
+        for (i, _) in &report.failed {
+            let n = &self.project.nodes[*i];
+            kept &= recovery::keep(&root, &n.path, &n.file_text()).is_ok();
+        }
+        let (i, why) = &report.failed[0];
+        let title = self.project.nodes[*i].title.clone();
+        self.save_state = SaveState::Failed(why.clone());
+        self.msg = if kept {
+            format!("couldn't save {title} ({why}) — your words are kept safe and will be offered back")
+        } else {
+            format!("couldn't save {title} ({why}) — and couldn't keep a copy either; copy your text somewhere")
+        };
+        false
+    }
+
+    /// Called every tick: save once typing has paused, or once changes have
+    /// waited too long.
+    pub fn autosave_tick(&mut self) {
+        if self.project.dirty_count() == 0 {
+            self.unsaved_since = None;
+            return;
+        }
+        let idle = self.last_edit.is_none_or(|t| t.elapsed() >= AUTOSAVE_IDLE);
+        let overdue = self.unsaved_since.is_some_and(|t| t.elapsed() >= AUTOSAVE_MAX);
+        let may_retry = match self.save_state {
+            SaveState::Failed(_) => self.last_attempt.is_none_or(|t| t.elapsed() >= RETRY),
+            _ => true,
+        };
+        if (idle || overdue) && may_retry {
+            self.commit_saves();
+        }
+    }
+
+    /// Save everything before quitting. False (with a message) if something
+    /// couldn't be saved — its words are in recovery either way.
+    pub fn try_quit(&mut self) -> bool {
+        self.commit_saves()
+    }
+
+    /// Last resort after a crash: keep every unsaved scene in recovery rather
+    /// than trusting a half-broken state to write the real files.
+    pub fn rescue(&mut self) {
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.flush()));
+        let root = self.project.root.clone();
+        for n in self.project.nodes.iter().filter(|n| n.dirty && n.kind == Kind::Scene) {
+            let _ = recovery::keep(&root, &n.path, &n.file_text());
+        }
+    }
+
+    // ---- undo, cut and paste -------------------------------------------
+
+    pub fn undo(&mut self) {
+        if self.focus != Focus::Editor || self.open.is_none() {
+            return;
+        }
+        if self.editor.undo() {
+            self.flush();
+        } else {
+            self.msg = "nothing to undo".into();
+        }
+    }
+
+    pub fn redo(&mut self) {
+        if self.focus != Focus::Editor || self.open.is_none() {
+            return;
+        }
+        if self.editor.redo() {
+            self.flush();
+        } else {
+            self.msg = "nothing to redo".into();
+        }
+    }
+
+    pub fn cut(&mut self) {
+        if self.focus != Focus::Editor || self.open.is_none() {
+            return;
+        }
+        match self.editor.selected_text() {
+            Some(text) if !text.is_empty() => {
+                if copy_to_clipboard(&text) {
+                    self.editor.delete_selection();
+                    self.flush();
+                    self.msg = "cut — undo puts it back".into();
+                } else {
+                    self.msg = "no clipboard tool found, so nothing was cut".into();
+                }
+            }
+            _ => self.msg = "nothing selected".into(),
+        }
+    }
+
+    /// Text pasted into the terminal arrives in one piece.
+    pub fn paste(&mut self, text: &str) {
+        if self.focus != Focus::Editor || self.open.is_none() {
+            return;
+        }
+        self.editor.delete_selection();
+        self.editor.insert_str(text);
+        self.flush();
+    }
+
+    // ---- scene history -------------------------------------------------
+
+    pub fn open_history(&mut self) {
+        let idx = match self.focus {
+            Focus::Editor => self.open,
+            _ => self.visible.get(self.sel).copied(),
+        };
+        let Some(idx) = idx.filter(|&i| self.project.nodes[i].kind == Kind::Scene) else {
+            self.msg = "pick a scene to see its history".into();
+            return;
+        };
+        // Keep what's there now, so the list always starts from here.
+        self.commit_saves();
+        let n = &self.project.nodes[idx];
+        let versions = history::versions(&self.project.root, &n.path);
+        if versions.is_empty() {
+            self.msg = format!("no history for {} yet — it's kept as you write", n.title);
+            return;
+        }
+        self.overlay = Overlay::History {
+            scene: n.path.clone(),
+            title: n.title.clone(),
+            versions,
+            sel: 0,
+            scroll: 0,
+        };
+    }
+
+    fn restore_version(&mut self, scene: &Path, text: &str) {
+        let root = self.project.root.clone();
+        let Some(idx) = self.project.nodes.iter().position(|n| n.path == scene) else {
+            return;
+        };
+        // What's there now goes into history first, so restoring is undoable
+        // from the history list as well as with Ctrl-Z.
+        let _ = history::snapshot(&root, scene, &self.project.nodes[idx].file_text(), None);
+        let (front, body) = crate::project::split_frontmatter(text);
+        if self.open != Some(idx) {
+            self.open_scene(idx);
+        }
+        self.project.nodes[idx].front = front;
+        self.editor.set_text(&body);
+        self.flush();
+        self.mark_changed(idx);
+        self.focus = Focus::Editor;
+        self.msg = "restored — Ctrl-Z undoes it".into();
     }
 
     // ---- creating scenes, chapters and parts -------------------------------
@@ -323,13 +577,10 @@ impl App {
     fn finish_create(&mut self, plan: Plan, name: String) {
         // Save first, so re-reading the tree can't lose an unsaved sentence.
         self.flush();
-        let saved = match self.project.save_all() {
-            Ok(n) => n,
-            Err(e) => {
-                self.msg = format!("couldn't save before creating: {e}");
-                return;
-            }
-        };
+        let saved = self.project.dirty_count();
+        if !self.commit_saves() {
+            return;
+        }
         let path = match project::create(&plan.dir, &name, plan.folder) {
             Ok(p) => p,
             Err(e) => {
@@ -419,8 +670,7 @@ impl App {
 
     fn finish_rename(&mut self, path: PathBuf, name: String) {
         self.flush();
-        if let Err(e) = self.project.save_all() {
-            self.msg = format!("couldn't save before renaming: {e}");
+        if !self.commit_saves() {
             return;
         }
         let to = match project::rename(&path, &name) {
@@ -430,10 +680,7 @@ impl App {
                 return;
             }
         };
-        // The open scene may have just moved under us.
-        if self.open.is_some_and(|i| self.project.nodes[i].path == path) {
-            self.project.nodes[self.open.unwrap()].path = to.clone();
-        }
+        self.follow_paths(&path, &to);
         if let Err(e) = self.reload_tree() {
             self.msg = format!("renamed, but couldn't re-read the tree: {e}");
             return;
@@ -460,8 +707,7 @@ impl App {
 
     fn finish_delete(&mut self, path: PathBuf, name: String, permanent: bool) {
         self.flush();
-        if let Err(e) = self.project.save_all() {
-            self.msg = format!("couldn't save before deleting: {e}");
+        if !self.commit_saves() {
             return;
         }
         let root = self.project.root.clone();
@@ -486,6 +732,31 @@ impl App {
                 self.msg = format!("deleted {name}{where_to}");
             }
             Err(e) => self.msg = format!("couldn't delete it: {e}"),
+        }
+    }
+
+    /// Something on disk moved from `from` to `to` (a scene or a whole folder):
+    /// its history, its parked undo and the session bookkeeping go with it.
+    fn follow_paths(&mut self, from: &Path, to: &Path) {
+        let root = self.project.root.clone();
+        history::follow(&root, from, to);
+        let moved = |p: &PathBuf| {
+            p.strip_prefix(from).ok().map(|rest| {
+                if rest.as_os_str().is_empty() { to.to_path_buf() } else { to.join(rest) }
+            })
+        };
+        self.undo_stash = std::mem::take(&mut self.undo_stash)
+            .into_iter()
+            .map(|(p, h)| (moved(&p).unwrap_or(p), h))
+            .collect();
+        self.pre_snapshotted = std::mem::take(&mut self.pre_snapshotted)
+            .into_iter()
+            .map(|p| moved(&p).unwrap_or(p))
+            .collect();
+        if let Some(i) = self.open
+            && let Some(p) = moved(&self.project.nodes[i].path)
+        {
+            self.project.nodes[i].path = p;
         }
     }
 
@@ -524,6 +795,7 @@ impl App {
             Key::Char('N') => self.start_create(New::Folder),
             Key::Char('r') => self.start_rename(),
             Key::Char('d') => self.start_delete(),
+            Key::Char('H') => self.open_history(),
             Key::Up => self.sel = self.sel.saturating_sub(1),
             Key::Down => {
                 if self.sel + 1 < self.visible.len() {
@@ -572,13 +844,19 @@ impl App {
     }
 
     pub fn on_editor_key(&mut self, key: Key) {
-        // Collapse the selection on any keystroke. Deliberately does NOT
-        // delete it — there is no undo yet, so a stray key must not eat text.
-        self.editor.clear_selection();
+        // With undo, a selection behaves the way it does everywhere else:
+        // typing replaces it and Backspace or Delete removes it. Anything else
+        // just lets go of it.
+        let replacing = matches!(key, Key::Char(_) | Key::Enter | Key::Backspace | Key::Delete)
+            && self.editor.delete_selection();
+        if !replacing {
+            self.editor.clear_selection();
+        }
         let rows = self.editor.layout(self.edit_width);
         match key {
             Key::Char(c) => self.editor.insert(c),
             Key::Enter => self.editor.newline(),
+            Key::Backspace | Key::Delete if replacing => {}
             Key::Backspace => self.editor.backspace(),
             Key::Delete => self.editor.delete(),
             Key::Left => self.editor.left(),
@@ -951,6 +1229,65 @@ impl App {
         match &mut self.overlay {
             Overlay::None => {}
 
+            Overlay::Recover { items } => match key {
+                Key::Char('y') | Key::Char('Y') | Key::Enter => {
+                    let items = std::mem::take(items);
+                    self.overlay = Overlay::None;
+                    let mut restored = 0;
+                    for it in &items {
+                        let Some(idx) = self.project.nodes.iter().position(|n| n.path == it.scene) else {
+                            continue;
+                        };
+                        let (front, body) = crate::project::split_frontmatter(&it.text);
+                        self.project.nodes[idx].front = front;
+                        if self.open == Some(idx) {
+                            self.editor.set_text(&body);
+                        }
+                        self.project.nodes[idx].body = body;
+                        self.mark_changed(idx);
+                        restored += 1;
+                    }
+                    if self.commit_saves() {
+                        self.msg = format!(
+                            "restored {restored} scene{} — the saved version is in its history",
+                            if restored == 1 { "" } else { "s" }
+                        );
+                    }
+                }
+                Key::Char('n') | Key::Char('N') => {
+                    for it in items.iter() {
+                        let _ = fs::remove_file(&it.file);
+                    }
+                    self.overlay = Overlay::None;
+                    self.msg = "kept the saved versions".into();
+                }
+                Key::Esc => {
+                    self.overlay = Overlay::None;
+                    self.msg = "left for now — offered again next time".into();
+                }
+                _ => {}
+            },
+
+            Overlay::History { scene, versions, sel, scroll, .. } => match key {
+                Key::Down | Key::Char('j') => {
+                    *sel = (*sel + 1).min(versions.len().saturating_sub(1));
+                    *scroll = 0;
+                }
+                Key::Up | Key::Char('k') => {
+                    *sel = sel.saturating_sub(1);
+                    *scroll = 0;
+                }
+                Key::PageDown | Key::Char(' ') => *scroll += 10,
+                Key::PageUp => *scroll = scroll.saturating_sub(10),
+                Key::Enter => {
+                    let (scene, text) = (scene.clone(), versions[*sel].text.clone());
+                    self.overlay = Overlay::None;
+                    self.restore_version(&scene, &text);
+                }
+                Key::Esc => self.overlay = Overlay::None,
+                _ => {}
+            },
+
             Overlay::Menu { sel } => {
                 let n = menu_len;
                 match key {
@@ -1278,11 +1615,11 @@ impl App {
                     .map(|(k, w)| format!("{k} {w}"))
                     .collect();
                 format!(
-                    "Tab pane  ↵ fold  {}  r rename  d delete  F1 menu  {m}S save  {m}Q quit ",
+                    "Tab pane  ↵ fold  {}  r rename  d delete  H history  F1 menu  {m}Q quit ",
                     keys.join("  ")
                 )
             }
-            Focus::Editor => format!("Tab pane  Esc tree  F1 menu  {m}S save  {m}Q quit "),
+            Focus::Editor => format!("Tab pane  Esc tree  {m}Z undo  {m}Y redo  F1 menu  {m}Q quit "),
             Focus::Clearing => format!("Tab pane  ←→ view  ↵ start/pause  r reset  {m}Q quit "),
             Focus::Music => format!("Tab pane  ↵ open player  space pause  ←→ track  {m}Q quit "),
         }
