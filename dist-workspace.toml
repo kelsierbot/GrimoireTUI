@@ -17,6 +17,8 @@ install-path = "CARGO_HOME"
 hosting = "github"
 # Whether to install an updater program
 install-updater = false
+# The bundled spellcheck dictionary's licence has to travel with the binary.
+include = ["assets/dict/DICTIONARY-LICENSE"]
 
 # Audio playback (the default `audio` feature) links ALSA on Linux.
 [dist.dependencies.apt]

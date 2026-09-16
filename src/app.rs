@@ -15,6 +15,8 @@ use crate::manuscript;
 use crate::palette::{self, Action};
 use crate::recovery;
 use crate::search;
+use crate::settings::Settings;
+use crate::spell;
 use crate::music::{self, Music};
 use crate::project::{self, Kind, Project};
 use crate::scene::{Mode, Pomodoro};
@@ -99,6 +101,9 @@ pub struct App {
     undo_stash: HashMap<PathBuf, editor::History>,
     /// Spellcheck underlines are showing.
     pub spell_on: bool,
+    /// The dictionary, once it has loaded in the background.
+    pub speller: Option<spell::Speller>,
+    speller_rx: Option<std::sync::mpsc::Receiver<spell::Speller>>,
     /// A tree row being dragged to a new place: (row it started on, row now under the pointer).
     pub tree_drag: Option<(usize, usize)>,
     /// The whole terminal's size at the last draw, for layouts that depend on it.
@@ -173,6 +178,15 @@ pub enum Overlay {
     },
     /// Near-miss spellings of notebook names.
     Names { drifts: Vec<search::Drift>, sel: usize },
+    /// Suggestions for one misspelt word, plus adding it to the book.
+    Spelling {
+        line: usize,
+        start: usize,
+        end: usize,
+        word: String,
+        suggestions: Vec<String>,
+        sel: usize,
+    },
     /// Index cards for one act, chapter by chapter.
     Cork {
         /// The act shown, by path (indices move when the tree reloads);
@@ -307,11 +321,14 @@ impl App {
             last_attempt: None,
             pre_snapshotted: HashSet::new(),
             undo_stash: HashMap::new(),
-            spell_on: false,
+            spell_on: Settings::load().spellcheck,
+            speller: None,
+            speller_rx: None,
             tree_drag: None,
             screen: (120, 40),
         })
         .map(|mut app: App| {
+            app.load_speller();
             let items = recovery::pending(&app.project);
             if !items.is_empty() {
                 app.overlay = Overlay::Recover { items };
@@ -344,6 +361,7 @@ impl App {
             5 => self.music.send(music::Cmd::PlayPause),
             6 => self.music.send(music::Cmd::Next),
             7 => self.open_player(),
+            8 => self.spelling(),
             _ => {}
         }
     }
@@ -646,6 +664,8 @@ impl App {
     fn run_feature(&mut self, action: Action) {
         match action {
             Action::Corkboard => self.open_cork(),
+            Action::Spellcheck => self.toggle_spellcheck(),
+            Action::SpellingSuggestions => self.spelling(),
             Action::MoveUp => self.move_selected(true),
             Action::MoveDown => self.move_selected(false),
             Action::FindInScene => self.open_find(),
@@ -830,9 +850,127 @@ impl App {
     }
 
     /// Whether a word is ordinary English, so it isn't mistaken for a
-    /// misspelt name. Without a dictionary loaded, nothing is.
-    fn is_dictionary_word(&self, _word: &str) -> bool {
-        false
+    /// misspelt name. Without a dictionary loaded, nothing is. Lowercased, so
+    /// "Reach" counts as the word "reach"; a name the writer has added to the
+    /// book's own list counts too, since it's meant.
+    fn is_dictionary_word(&self, word: &str) -> bool {
+        self.speller.as_ref().is_some_and(|s| s.is_correct(&word.to_lowercase()))
+    }
+
+    // ---- spelling --------------------------------------------------------
+
+    /// Build the dictionary off the UI thread, with the notebook's names and
+    /// the book's own word list already accepted.
+    fn load_speller(&mut self) {
+        let mut words = spell::names_from_titles(&self.note_titles());
+        words.extend(spell::book_words(&self.project.root));
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let mut s = spell::Speller::new();
+            s.add_words(words);
+            let _ = tx.send(s);
+        });
+        self.speller_rx = Some(rx);
+    }
+
+    fn note_titles(&self) -> Vec<String> {
+        self.project
+            .nodes
+            .iter()
+            .enumerate()
+            .filter(|(i, n)| n.kind == Kind::Scene && !n.in_manuscript && !self.project.in_trash(*i))
+            .map(|(_, n)| n.title.clone())
+            .collect()
+    }
+
+    /// Called every tick: pick up the dictionary when it's ready.
+    pub fn tick_speller(&mut self) {
+        if let Some(rx) = &self.speller_rx
+            && let Ok(s) = rx.try_recv()
+        {
+            self.speller = Some(s);
+            self.speller_rx = None;
+        }
+    }
+
+    /// New notes may have added names.
+    fn refresh_names(&mut self) {
+        let words = spell::names_from_titles(&self.note_titles());
+        if let Some(s) = &mut self.speller {
+            s.add_words(words);
+        }
+    }
+
+    pub fn toggle_spellcheck(&mut self) {
+        self.spell_on = !self.spell_on;
+        let _ = Settings { spellcheck: self.spell_on }.save();
+        self.msg = if self.spell_on { "spellcheck on".into() } else { "spellcheck off".into() };
+    }
+
+    /// Misspelt words in one paragraph of the open scene, leaving out the word
+    /// the cursor is in the middle of typing.
+    pub fn misspellings(&self, line: usize) -> Vec<(usize, usize)> {
+        let (Some(s), true) = (&self.speller, self.spell_on) else { return Vec::new() };
+        let Some(text) = self.editor.lines.get(line) else { return Vec::new() };
+        let typing = self.focus == Focus::Editor && self.editor.cy == line;
+        s.misspellings(text)
+            .into_iter()
+            .filter(|&(a, b)| !(typing && self.editor.cx >= a && self.editor.cx <= b))
+            .collect()
+    }
+
+    /// F8: suggestions for the misspelt word at the cursor, or, if the cursor
+    /// isn't on one, jump to the next misspelling and offer those.
+    pub fn spelling(&mut self) {
+        if self.open.is_none() {
+            self.msg = "open a scene to check its spelling".into();
+            return;
+        }
+        let Some(speller) = &self.speller else {
+            self.msg = "the dictionary is still loading".into();
+            return;
+        };
+        self.focus = Focus::Editor;
+        let (cy, cx) = (self.editor.cy, self.editor.cx);
+        let here = speller
+            .misspellings(&self.editor.lines[cy])
+            .into_iter()
+            .find(|&(a, b)| cx >= a && cx <= b)
+            .map(|(a, b)| (cy, a, b));
+        let target = here.or_else(|| {
+            let lines = &self.editor.lines;
+            (0..lines.len())
+                .map(|k| (cy + k) % lines.len())
+                .flat_map(|l| speller.misspellings(&lines[l]).into_iter().map(move |(a, b)| (l, a, b)))
+                .find(|&(l, a, _)| (l, a) > (cy, cx) || l < cy)
+        });
+        let Some((line, start, end)) = target else {
+            self.msg = "no misspellings in this scene".into();
+            return;
+        };
+        let word: String = self.editor.lines[line].chars().skip(start).take(end - start).collect();
+        let suggestions = rank_suggestions(&word, speller.suggest(&word, 8), 6);
+        self.editor.select((line, start), (line, end));
+        self.overlay = Overlay::Spelling { line, start, end, word, suggestions, sel: 0 };
+    }
+
+    fn apply_spelling(&mut self, line: usize, start: usize, end: usize, with: &str) {
+        self.editor.select((line, start), (line, end));
+        self.editor.delete_selection();
+        self.editor.insert_str(with);
+        self.flush();
+    }
+
+    fn add_to_book(&mut self, word: &str) {
+        match spell::add_book_word(&self.project.root, word) {
+            Ok(()) => {
+                if let Some(s) = &mut self.speller {
+                    s.add_words([word.to_string()]);
+                }
+                self.msg = format!("“{word}” added to this book's dictionary (dictionary.txt)");
+            }
+            Err(e) => self.msg = format!("couldn't add it: {e}"),
+        }
     }
 
     fn fix_name(&mut self, variant: &str, name: &str) {
@@ -1146,6 +1284,7 @@ impl App {
         self.parents = self.project.parents();
         self.open = open_path.and_then(|p| self.project.nodes.iter().position(|n| n.path == p));
         self.refresh_visible();
+        self.refresh_names();
         Ok(())
     }
 
@@ -1936,6 +2075,45 @@ impl App {
 
             Overlay::Cork { .. } => self.cork_key(key),
 
+            Overlay::Spelling { line, start, end, word, suggestions, sel } => {
+                // Rows: each suggestion, then "add to this book", then "leave it".
+                let rows = suggestions.len() + 2;
+                match key {
+                    Key::Down | Key::Char('j') => *sel = (*sel + 1).min(rows - 1),
+                    Key::Up | Key::Char('k') => *sel = sel.saturating_sub(1),
+                    Key::Char(c @ '1'..='9') if (c as usize - '1' as usize) < suggestions.len() => {
+                        let (l, s, e, with) = (*line, *start, *end, suggestions[c as usize - '1' as usize].clone());
+                        self.overlay = Overlay::None;
+                        self.apply_spelling(l, s, e, &with);
+                    }
+                    Key::Char('a') => {
+                        let w = word.clone();
+                        self.overlay = Overlay::None;
+                        self.add_to_book(&w);
+                    }
+                    Key::Enter => {
+                        let (l, s, e, i) = (*line, *start, *end, *sel);
+                        let (word, pick) = (word.clone(), suggestions.get(i).cloned());
+                        let n = suggestions.len();
+                        self.overlay = Overlay::None;
+                        match pick {
+                            Some(with) => self.apply_spelling(l, s, e, &with),
+                            None if i == n => self.add_to_book(&word),
+                            None => {}
+                        }
+                    }
+                    Key::F(8) => {
+                        // Leave this one and go on to the next.
+                        let (l, e) = (*line, *end);
+                        self.overlay = Overlay::None;
+                        self.editor.place(l, e);
+                        self.spelling();
+                    }
+                    Key::Esc => self.overlay = Overlay::None,
+                    _ => {}
+                }
+            }
+
             Overlay::Names { drifts, sel } => match key {
                 Key::Down | Key::Char('j') => *sel = (*sel + 1).min(drifts.len().saturating_sub(1)),
                 Key::Up | Key::Char('k') => *sel = sel.saturating_sub(1),
@@ -2350,7 +2528,7 @@ impl App {
                     keys.join("  ")
                 )
             }
-            Focus::Editor => format!("Tab pane  Esc tree  {m}Z undo  {m}Y redo  F1 menu  {m}Q quit "),
+            Focus::Editor => format!("Tab pane  Esc tree  {m}K find anything  {m}Z undo  F8 spelling  F1 menu  {m}Q quit "),
             Focus::Clearing => format!("Tab pane  ←→ view  ↵ start/pause  r reset  {m}Q quit "),
             Focus::Music => format!("Tab pane  ↵ open player  space pause  ←→ track  {m}Q quit "),
         }
@@ -2377,6 +2555,34 @@ pub enum Key {
     F(u8),
     Other,
 }
+
+/// Put the likeliest fix first: fewest edits (a swap counts as one), then the
+/// same letters rearranged, then the same length, then the same first letter.
+/// "Teh" offers "The" before "Ted" or "Eh".
+fn rank_suggestions(word: &str, mut found: Vec<String>, max: usize) -> Vec<String> {
+    let w = word.to_lowercase();
+    let len = w.chars().count() as isize;
+    let first = w.chars().next();
+    let letters = |s: &str| {
+        let mut v: Vec<char> = s.chars().collect();
+        v.sort_unstable();
+        v
+    };
+    let mine = letters(&w);
+    found.sort_by_key(|s| {
+        let l = s.to_lowercase();
+        (
+            search::distance(&w, &l),
+            // Same letters in a different order is the classic typo.
+            letters(&l) != mine,
+            (l.chars().count() as isize - len).unsigned_abs(),
+            l.chars().next() != first,
+        )
+    });
+    found.truncate(max);
+    found
+}
+
 
 /// Today's starting word count, so the status line can show a session delta.
 /// Stored in `.grimoire/progress.toml`, which belongs in .gitignore.
@@ -2474,5 +2680,15 @@ mod clipboard_tests {
             .output()
             .unwrap();
         assert_eq!(String::from_utf8_lossy(&out.stdout).trim_end(), line);
+    }
+}
+
+#[cfg(test)]
+mod spelling_tests {
+    #[test]
+    fn a_swapped_letter_beats_a_dropped_one() {
+        let ranked = super::rank_suggestions("Teh", vec!["Tet".into(), "Ted".into(), "Eh".into(), "The".into()], 3);
+        assert_eq!(ranked[0], "The");
+        assert_eq!(ranked.len(), 3);
     }
 }

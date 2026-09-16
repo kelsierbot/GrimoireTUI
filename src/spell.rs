@@ -1,6 +1,6 @@
 //! Spellcheck for prose.
 //!
-//! A bundled en_US Hunspell dictionary (SCOWL, see `assets/dict/LICENSE`) is
+//! A bundled en_US Hunspell dictionary (SCOWL, see `assets/dict/DICTIONARY-LICENSE`) is
 //! checked with `spellbook`, a pure-Rust Hunspell reimplementation, so there is
 //! nothing to install and nothing to link on any platform.
 //!

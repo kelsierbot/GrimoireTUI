@@ -13,6 +13,7 @@ mod project;
 mod recovery;
 mod scene;
 mod search;
+mod settings;
 mod spell;
 mod shutdown;
 mod theme;
@@ -297,6 +298,7 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
             return Ok(());
         }
         app.autosave_tick();
+        app.tick_speller();
         app.music.drain();
         app.tick_player();
         if app.pomo.tick() {

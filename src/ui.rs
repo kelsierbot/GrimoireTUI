@@ -476,6 +476,7 @@ fn draw_editor(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
     };
     let match_bg = blend(t.border, t.sun, 0.45);
     let mut line_matches: std::collections::HashMap<usize, Vec<(usize, usize)>> = std::collections::HashMap::new();
+    let mut line_spelling: std::collections::HashMap<usize, Vec<(usize, usize)>> = std::collections::HashMap::new();
     let visible: Vec<Line> = rows
         .iter()
         .skip(app.editor.scroll)
@@ -495,6 +496,13 @@ fn draw_editor(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
                     .or_insert_with(|| crate::search::matches(&app.editor.lines[r.line], q));
                 for &(s, e) in hits.iter() {
                     paint(s, e, &|st| st.bg(match_bg));
+                }
+            }
+            // Misspellings: a warn-coloured underline, never on the word being typed.
+            if app.spell_on {
+                let bad = line_spelling.entry(r.line).or_insert_with(|| app.misspellings(r.line));
+                for &(s, e) in bad.iter() {
+                    paint(s, e, &|st| st.underline_color(t.warn).add_modifier(Modifier::UNDERLINED));
                 }
             }
             if let Some((from, to)) = app.editor.row_selection(r) {
@@ -782,6 +790,45 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             } else {
                 Line::from(Span::styled(" ↑↓ choose   ↵ go to it   Tab replace   esc close", dim))
             });
+            f.render_widget(Paragraph::new(lines), inner);
+        }
+
+        Overlay::Spelling { word, suggestions, sel, line, end, .. } => {
+            // Sits just under the word, clamped to the screen.
+            let rows = app.editor.layout(app.edit_width);
+            let vis = rows.iter().position(|r| r.line == *line && *end >= r.start && *end <= r.end).unwrap_or(0);
+            let y = app.rect_editor.y + (vis.saturating_sub(app.editor.scroll)) as u16 + 1;
+            let h = suggestions.len() as u16 + 6;
+            let w = 44u16.min(area.width);
+            let y = y.min(area.height.saturating_sub(h));
+            let x = app.rect_editor.x.min(area.width.saturating_sub(w));
+            let box_area = Rect { x, y, width: w, height: h };
+            f.render_widget(Clear, box_area);
+            let title = format!("“{}”", truncate(word, 30));
+            let block = pane_block(&title, true, t);
+            let inner = block.inner(box_area);
+            f.render_widget(block, box_area);
+            let dim = Style::default().fg(t.dim);
+            let mut lines: Vec<Line> = Vec::new();
+            if suggestions.is_empty() {
+                lines.push(Line::from(Span::styled(" no suggestions", dim)));
+            }
+            let row = |i: usize, label: String, key: String, lines: &mut Vec<Line>| {
+                let on = i == *sel;
+                let l = Line::from(vec![
+                    Span::styled(if on { " ▸ " } else { "   " }, Style::default().fg(t.accent)),
+                    Span::styled(format!("{label:<30}"), Style::default().fg(if on { t.accent } else { t.text })),
+                    Span::styled(key, Style::default().fg(t.sun)),
+                ]);
+                lines.push(if on { l.style(Style::default().bg(t.sel)) } else { l });
+            };
+            for (i, s) in suggestions.iter().enumerate() {
+                row(i, truncate(s, 30), format!("{}", i + 1), &mut lines);
+            }
+            lines.push(Line::from(""));
+            row(suggestions.len(), "add to this book's dictionary".into(), "a".into(), &mut lines);
+            row(suggestions.len() + 1, "leave it".into(), "esc".into(), &mut lines);
+            lines.push(Line::from(Span::styled(" ↵ choose   F8 skip to the next", dim)));
             f.render_widget(Paragraph::new(lines), inner);
         }
 
