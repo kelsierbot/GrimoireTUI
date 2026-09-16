@@ -1,0 +1,44 @@
+name: windows
+
+# Nobody on the project runs Windows day to day, so this job is the Windows
+# machine: it builds Grimoire, runs the tests, and then does what a new user
+# would — `grimoire music-setup` — against the real YouTube Music installer.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustc --version
+
+      - name: Test
+        run: cargo test --locked
+
+      - name: Clipboard keeps Unicode intact (real Windows clipboard)
+        run: cargo test --locked -- --ignored clipboard
+
+      - name: Build
+        run: cargo build --release --locked
+
+      - name: A new manuscript scaffolds
+        shell: pwsh
+        run: |
+          $book = Join-Path $env:RUNNER_TEMP 'book'
+          ./target/release/grimoire.exe new $book
+          if (-not (Test-Path (Join-Path $book 'manuscript'))) { throw "no manuscript folder in $book" }
+
+      - name: music-setup installs YouTube Music, turns on its API server, and pairs
+        shell: pwsh
+        run: ./.github/scripts/windows-music-setup.ps1

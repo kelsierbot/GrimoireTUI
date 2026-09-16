@@ -116,8 +116,7 @@ impl Default for Config {
 
 impl Config {
     pub fn path() -> PathBuf {
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
-        PathBuf::from(home).join(".config/grimoire/music.toml")
+        crate::home().join(".config").join("grimoire").join("music.toml")
     }
 
     /// Missing or unreadable config just means "music off".
@@ -1445,22 +1444,40 @@ pub fn authenticate(host: &str, port: u16) -> Result<()> {
 
 const RELEASE_API: &str = "https://api.github.com/repos/th-ch/youtube-music/releases/latest";
 
+/// The Windows client's process name, for tasklist and taskkill.
+const WINDOWS_EXE: &str = "YouTube Music.exe";
+
 fn app_path() -> PathBuf {
     if cfg!(target_os = "macos") {
         PathBuf::from("/Applications/YouTube Music.app")
+    } else if cfg!(windows) {
+        // Where its per-user installer puts it — no admin prompt involved.
+        windows_folder("LOCALAPPDATA", "AppData/Local")
+            .join("Programs")
+            .join("youtube-music")
+            .join(WINDOWS_EXE)
     } else {
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
-        PathBuf::from(home).join(".local/bin/youtube-music")
+        crate::home().join(".local/bin/youtube-music")
     }
 }
 
 fn client_config_path() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
     if cfg!(target_os = "macos") {
-        PathBuf::from(home).join("Library/Application Support/YouTube Music/config.json")
+        crate::home().join("Library/Application Support/YouTube Music/config.json")
+    } else if cfg!(windows) {
+        windows_folder("APPDATA", "AppData/Roaming")
+            .join("YouTube Music")
+            .join("config.json")
     } else {
-        PathBuf::from(home).join(".config/YouTube Music/config.json")
+        crate::home().join(".config/YouTube Music/config.json")
     }
+}
+
+/// %LOCALAPPDATA% or %APPDATA%, falling back to where Windows keeps them.
+fn windows_folder(var: &str, under_home: &str) -> PathBuf {
+    std::env::var_os(var)
+        .map(PathBuf::from)
+        .unwrap_or_else(|| crate::home().join(under_home))
 }
 
 fn installed() -> bool {
@@ -1510,6 +1527,19 @@ fn machine_arch() -> &'static str {
             .filter(|o| o.status.success())
             .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
     };
+    if cfg!(windows) {
+        // PROCESSOR_ARCHITEW6432 is only set inside a 32-bit process on 64-bit
+        // Windows, and then it's the one telling the truth.
+        let cpu = std::env::var("PROCESSOR_ARCHITEW6432")
+            .or_else(|_| std::env::var("PROCESSOR_ARCHITECTURE"))
+            .unwrap_or_default();
+        return match cpu.to_uppercase().as_str() {
+            "AMD64" => "x86_64",
+            "ARM64" => "aarch64",
+            "X86" => "x86",
+            _ => std::env::consts::ARCH,
+        };
+    }
     if cfg!(target_os = "macos") {
         // Only Apple Silicon has this key; Intel Macs error out.
         return match run("sysctl", &["-n", "hw.optional.arm64"]).as_deref() {
@@ -1589,6 +1619,7 @@ fn prompt(label: &str, default: &str) -> String {
 
 /// Read without echoing. Falls back to a visible prompt if the terminal
 /// won't cooperate — better than refusing to run.
+#[cfg(not(windows))]
 fn prompt_secret(label: &str) -> String {
     use std::process::Command;
     let out = Command::new("sh")
@@ -1599,6 +1630,45 @@ fn prompt_secret(label: &str) -> String {
         Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).trim().to_string(),
         _ => prompt(label, ""),
     }
+}
+
+/// Windows has no `sh` or `stty`, so read the keys directly with the terminal
+/// in raw mode. Piped input (no console to put in raw mode) gets the visible
+/// prompt instead.
+#[cfg(windows)]
+fn prompt_secret(label: &str) -> String {
+    use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
+    use ratatui::crossterm::terminal;
+    use std::io::{Write, stdout};
+
+    if terminal::enable_raw_mode().is_err() {
+        return prompt(label, "");
+    }
+    print!("  {label}: ");
+    let _ = stdout().flush();
+    let mut secret = String::new();
+    while let Ok(ev) = event::read() {
+        let Event::Key(k) = ev else { continue };
+        if k.kind != KeyEventKind::Press {
+            continue;
+        }
+        match k.code {
+            KeyCode::Enter => break,
+            KeyCode::Backspace => {
+                secret.pop();
+            }
+            KeyCode::Char('c') if k.modifiers.contains(KeyModifiers::CONTROL) => {
+                let _ = terminal::disable_raw_mode();
+                println!();
+                std::process::exit(130);
+            }
+            KeyCode::Char(c) => secret.push(c),
+            _ => {}
+        }
+    }
+    let _ = terminal::disable_raw_mode();
+    println!();
+    secret
 }
 
 fn ask(prompt: &str) -> bool {
@@ -1671,6 +1741,23 @@ fn quit_client() {
         thread::sleep(Duration::from_secs(3));
         return;
     }
+    if cfg!(windows) {
+        if !windows_client_running() {
+            return;
+        }
+        // Without /F, taskkill asks the windows to close, and Electron quits
+        // the way it would if you closed it yourself. /F only if that fails.
+        let _ = Command::new("taskkill").args(["/IM", WINDOWS_EXE]).output();
+        for _ in 0..20 {
+            thread::sleep(Duration::from_millis(500));
+            if !windows_client_running() {
+                return;
+            }
+        }
+        let _ = Command::new("taskkill").args(["/F", "/T", "/IM", WINDOWS_EXE]).output();
+        thread::sleep(Duration::from_secs(1));
+        return;
+    }
 
     // Signal Electron's main process only. It closes its helpers and the
     // AppImage runtime unmounts after it. Signalling the runtime as well (what
@@ -1688,6 +1775,16 @@ fn quit_client() {
         }
     }
     let _ = Command::new("kill").arg("-9").args(client_pids(false)).status();
+}
+
+/// Windows: whether any YouTube Music process is up. Checked by looking for
+/// the image name in tasklist's output, not its "no tasks" message, which is
+/// translated.
+fn windows_client_running() -> bool {
+    std::process::Command::new("tasklist")
+        .args(["/FI", &format!("IMAGENAME eq {WINDOWS_EXE}"), "/NH"])
+        .output()
+        .is_ok_and(|o| String::from_utf8_lossy(&o.stdout).contains(WINDOWS_EXE))
 }
 
 /// Linux: pids of the running AppImage client. With `main_only`, just
@@ -1727,7 +1824,13 @@ fn download_and_install(arch: &str) -> Result<()> {
     let rel: serde_json::Value = res.body_mut().read_json()?;
     let tag = rel["tag_name"].as_str().unwrap_or("?").to_string();
 
-    let ext = if cfg!(target_os = "macos") { ".dmg" } else { ".AppImage" };
+    let ext = if cfg!(target_os = "macos") {
+        ".dmg"
+    } else if cfg!(windows) {
+        ".exe"
+    } else {
+        ".AppImage"
+    };
 
     let assets = rel["assets"].as_array().cloned().unwrap_or_default();
     let pick = pick_asset(&assets, ext, arch)
@@ -1746,7 +1849,11 @@ fn download_and_install(arch: &str) -> Result<()> {
     if have > 0 && have == expect {
         println!("  Already downloaded {name} — reusing it.");
     } else {
-        println!("  Downloading {name} ({mb} MB)…");
+        if mb > 0 {
+            println!("  Downloading {name} ({mb} MB)…");
+        } else {
+            println!("  Downloading {name}…");
+        }
         let mut res = agent.get(&url).header("User-Agent", APP_ID).call()?;
         let mut out = std::fs::File::create(&tmp)?;
         std::io::copy(&mut res.body_mut().as_reader(), &mut out)?;
@@ -1793,6 +1900,22 @@ fn download_and_install(arch: &str) -> Result<()> {
             .arg(app_path())
             .output();
         let _ = Command::new("hdiutil").args(["detach", "-quiet", &vol]).status();
+    } else if cfg!(windows) {
+        // The web installer fetches the package for this PC's CPU itself, then
+        // installs per-user. /S keeps it silent; it runs to completion before
+        // returning, so there is nothing to poll.
+        println!("  Installing — the installer downloads the app itself, so give it a minute…");
+        let status = Command::new(&tmp)
+            .arg("/S")
+            .status()
+            .with_context(|| format!("running {}", tmp.display()))?;
+        if !status.success() || !app_path().exists() {
+            anyhow::bail!(
+                "the installer finished ({status}) but {} isn't there",
+                app_path().display()
+            );
+        }
+        println!("  Installed to {}", app_path().display());
     } else {
         let dest = app_path();
         if let Some(d) = dest.parent() {
@@ -1829,6 +1952,16 @@ fn pick_asset<'a>(
         ("x64", "x86_64"),
         ("amd64", "x86_64"),
     ];
+    // Windows gets the web installer whatever the CPU: it carries no build of
+    // its own and downloads the right one. The other .exe is the portable
+    // build, which unpacks itself to a temp folder on every launch.
+    if ext == ".exe" {
+        return assets.iter().find(|a| {
+            a["name"]
+                .as_str()
+                .is_some_and(|n| n.contains("Web-Setup") && n.ends_with(".exe"))
+        });
+    }
     assets.iter().find(|a| {
         let Some(name) = a["name"].as_str() else {
             return false;
@@ -1859,6 +1992,9 @@ mod install_tests {
             "YouTube-Music-3.12.0-x86_64.flatpak",
             "YouTube-Music-3.12.0.AppImage",
             "YouTube-Music-3.12.0.dmg",
+            "YouTube-Music-3.12.0.exe",
+            "YouTube-Music-Web-Setup-3.12.0.exe",
+            "youtube-music-3.12.0-x64.nsis.7z",
         ]
         .iter()
         .map(|n| json!({ "name": n }))
@@ -1903,6 +2039,17 @@ mod install_tests {
     }
 
     #[test]
+    fn windows_gets_the_web_installer_whatever_the_cpu() {
+        for arch in ["x86_64", "aarch64", "x86"] {
+            assert_eq!(
+                picked(".exe", arch).as_deref(),
+                Some("YouTube-Music-Web-Setup-3.12.0.exe"),
+                "never the portable build, which unpacks itself on every launch"
+            );
+        }
+    }
+
+    #[test]
     fn a_native_build_detects_its_own_cpu() {
         assert_eq!(machine_arch(), std::env::consts::ARCH);
     }
@@ -1915,8 +2062,13 @@ mod install_tests {
 
     #[test]
     fn reads_the_cpu_out_of_an_elf_header() {
+        // The test binary itself is only ELF on Linux; Mach-O and PE get no opinion.
         let exe = std::env::current_exe().unwrap();
-        assert_eq!(elf_arch(&exe), Some(std::env::consts::ARCH));
+        if cfg!(target_os = "linux") {
+            assert_eq!(elf_arch(&exe), Some(std::env::consts::ARCH));
+        } else {
+            assert_eq!(elf_arch(&exe), None);
+        }
         assert!(!built_for_another_cpu(&exe));
 
         // First 20 bytes of the armv7l AppImage that was installed on bazzite.
@@ -1941,6 +2093,14 @@ mod install_tests {
 pub fn setup_for(source: Source) -> Result<()> {
     match source {
         Source::YouTubeMusic => setup(),
+        Source::Spotify if cfg!(windows) => {
+            println!("Spotify isn't supported on Windows yet — Grimoire drives it through");
+            println!("AppleScript on macOS and MPRIS on Linux, and Windows has neither.");
+            println!();
+            println!("  YouTube Music, Jellyfin and Plex all work here:");
+            println!("    grimoire music-setup youtube-music");
+            Ok(())
+        }
         Source::Spotify => {
             let mut cfg = Config::load();
             cfg.source = Source::Spotify;
@@ -2058,7 +2218,13 @@ pub fn setup() -> Result<()> {
             println!("\nNothing installed. Re-run `grimoire music-setup` when you're ready.");
             return Ok(());
         }
-        let arch = ask_arch(machine_arch());
+        let arch = if cfg!(windows) {
+            println!("\n  The Windows installer carries both the x86 and the ARM build and");
+            println!("  installs whichever this PC needs, so there's nothing to choose.");
+            machine_arch()
+        } else {
+            ask_arch(machine_arch())
+        };
         download_and_install(arch)?;
         println!("  installed.");
     }
@@ -2067,7 +2233,10 @@ pub fn setup() -> Result<()> {
     if !client_config_path().exists() {
         println!("  no config yet — starting the app once to create it.");
         launch_client();
-        for _ in 0..30 {
+        // Up to a minute. A first launch is slow — Windows Defender scans a
+        // freshly installed Electron app before it lets it start — and this
+        // returns the moment the file appears, so fast machines never wait.
+        for _ in 0..120 {
             if client_config_path().exists() {
                 break;
             }
@@ -2090,7 +2259,7 @@ pub fn setup() -> Result<()> {
         launch_client();
     }
     let mut up = false;
-    for _ in 0..40 {
+    for _ in 0..120 {
         if port_open(&cfg.host, port) {
             up = true;
             break;

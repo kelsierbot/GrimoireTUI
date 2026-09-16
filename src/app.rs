@@ -1314,6 +1314,13 @@ fn copy_to_clipboard(text: &str) -> bool {
         ("wl-copy", &[]),                             // Wayland
         ("xclip", &["-selection", "clipboard"]),      // X11
         ("xsel", &["--clipboard", "--input"]),        // X11 alternative
+        // Windows. clip.exe mangles anything outside the console code page —
+        // every em dash and curly quote in a manuscript — so PowerShell reads
+        // stdin as UTF-8 and sets the clipboard itself.
+        ("powershell", &[
+            "-NoProfile", "-NonInteractive", "-Command",
+            "[Console]::InputEncoding = [Text.Encoding]::UTF8; Set-Clipboard -Value ([Console]::In.ReadToEnd())",
+        ]),
     ];
 
     for (cmd, args) in TOOLS {
@@ -1339,5 +1346,27 @@ fn commit(t: &mut Theme, field: usize, buf: &str) {
     if let Some(c) = theme::parse_hex(buf) {
         t.set_role(field, c);
         t.name = "Custom".into();
+    }
+}
+
+#[cfg(all(test, windows))]
+mod clipboard_tests {
+    /// Uses the real clipboard, so it only runs when asked for:
+    /// `cargo test -- --ignored clipboard`. The Windows CI job asks.
+    #[test]
+    #[ignore]
+    fn clipboard_keeps_a_manuscript_line_intact() {
+        let line = "\u{201c}Not yet,\u{201d} she said \u{2014} and meant it. Caf\u{e9}.";
+        assert!(super::copy_to_clipboard(line));
+        let out = std::process::Command::new("powershell")
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "[Console]::OutputEncoding = [Text.Encoding]::UTF8; Get-Clipboard -Raw",
+            ])
+            .output()
+            .unwrap();
+        assert_eq!(String::from_utf8_lossy(&out.stdout).trim_end(), line);
     }
 }

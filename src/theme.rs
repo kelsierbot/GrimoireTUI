@@ -150,8 +150,7 @@ pub fn default_theme() -> Theme {
 }
 
 pub fn config_path() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
-    PathBuf::from(home).join(".config/grimoire/theme.toml")
+    crate::home().join(".config").join("grimoire").join("theme.toml")
 }
 
 /// Load the saved theme. A named preset is looked up fresh so preset tweaks

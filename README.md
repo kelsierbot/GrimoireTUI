@@ -1,6 +1,6 @@
 <img src="assets/banner.svg" alt="grimoire — a terminal writing desk for novels" width="820">
 
-**[grimoire.joshking.ai](https://grimoire.joshking.ai)** · Rust + [Ratatui](https://ratatui.rs) · MIT · macOS and Linux
+**[grimoire.joshking.ai](https://grimoire.joshking.ai)** · Rust + [Ratatui](https://ratatui.rs) · MIT · macOS, Linux and Windows
 
 A writing desk for novels that lives in your terminal. It knows what a
 manuscript is — parts, chapters, scenes, word targets — and it keeps every word
@@ -34,6 +34,11 @@ grimoire
 
 The crate is `grimoire-tui`; the binary it installs is `grimoire`. Make sure
 `~/.cargo/bin` is on your `PATH`. A crates.io release is coming.
+
+**On Windows**, install Rust with [rustup](https://rustup.rs) — it offers to
+install the Visual Studio C++ build tools it needs; say yes — then run the same
+commands in Windows Terminal. Settings live in `%USERPROFILE%\.config\grimoire`
+and a first manuscript goes in `Documents\Grimoire`, as on the other two.
 
 ```sh
 grimoire                          open your manuscript
@@ -206,7 +211,7 @@ Four sources, chosen from the menu (`F1` → Music source) and remembered.
 | Source | How it works | Setup |
 |---|---|---|
 | **YouTube Music** | drives [th-ch/youtube-music](https://github.com/th-ch/youtube-music)'s API Server | `grimoire music-setup youtube-music` |
-| **Spotify** | drives the desktop app — AppleScript on macOS, MPRIS on Linux | nothing to do |
+| **Spotify** | drives the desktop app — AppleScript on macOS, MPRIS on Linux (not Windows yet) | nothing to do |
 | **Jellyfin** | **Grimoire plays it** — your files, your server | `grimoire music-setup jellyfin` |
 | **Plex** | **Grimoire plays it** — your files, your server | `grimoire music-setup plex` |
 
@@ -245,7 +250,12 @@ itself and nothing else has to be running.
 **Spotify needs no setup at all.** Its Web API would mean OAuth, a registered
 application and a refresh-token dance for the privilege of pressing pause. Both
 platforms already expose the running player locally, so there is nothing to
-sign into and no token to store. On Linux it wants `playerctl`.
+sign into and no token to store. On Linux it wants `playerctl`. Windows has
+no equivalent Grimoire can use yet, so Spotify is macOS and Linux only.
+
+**YouTube Music setup** installs the app for you on all three. On macOS and
+Linux it asks whether the machine is x86 or ARM (Enter takes what it detects);
+on Windows the installer picks the right build itself, so it doesn't ask.
 
 **Jellyfin** signs in with the same username and password you use for the web
 UI — no hunting through the dashboard for an API key. **Plex** needs an

@@ -131,37 +131,49 @@ fn main() -> Result<()> {
     // sequence ignore it. We deliberately do NOT call
     // supports_keyboard_enhancement(): it queries the terminal and blocks for a
     // full 2s when nothing answers, which is most of them.
+    //
+    // Mouse capture goes in a call of its own, first. Windows refuses the
+    // keyboard flags outright, and inside one execute! that error would stop
+    // the mouse being turned on at all.
+    let _ = execute!(std::io::stdout(), EnableMouseCapture);
     let _ = execute!(
         std::io::stdout(),
         PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES),
-        EnableMouseCapture,
     );
     app.super_keys = cmd_is_reachable();
 
     let res = run(&mut terminal, &mut app);
 
-    let _ = execute!(std::io::stdout(), DisableMouseCapture, PopKeyboardEnhancementFlags);
+    let _ = execute!(std::io::stdout(), DisableMouseCapture);
+    let _ = execute!(std::io::stdout(), PopKeyboardEnhancementFlags);
     ratatui::restore();
     res
 }
 
 
+/// The user's home folder. `$HOME` on macOS and Linux; on Windows, where
+/// `HOME` usually isn't set at all, the profile folder (`C:\Users\name`).
+pub fn home() -> PathBuf {
+    std::env::home_dir().unwrap_or_else(|| PathBuf::from("."))
+}
+
 /// Where a first-time manuscript goes if the user never names one.
 fn default_root() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
-    PathBuf::from(home).join("Documents/Grimoire")
+    home().join("Documents").join("Grimoire")
 }
 
 fn state_path() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
-    PathBuf::from(home).join(".config/grimoire/state.toml")
+    home().join(".config").join("grimoire").join("state.toml")
 }
 
-/// Shorten $HOME to ~ so printed paths stay readable.
+/// Shorten the home folder to ~ so printed paths stay readable.
 fn pretty(p: &Path) -> String {
     let s = p.display().to_string();
-    match std::env::var("HOME") {
-        Ok(h) if !h.is_empty() && s.starts_with(&h) => format!("~{}", &s[h.len()..]),
+    // Windows canonicalises to the \\?\C:\… form; nobody wants to read that.
+    let s = s.strip_prefix(r"\\?\").map(str::to_string).unwrap_or(s);
+    let h = home().display().to_string();
+    match s.strip_prefix(&h) {
+        Some(rest) if h != "." => format!("~{rest}"),
         _ => s,
     }
 }
