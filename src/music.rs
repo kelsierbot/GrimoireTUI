@@ -1493,7 +1493,76 @@ fn elf_arch(path: &std::path::Path) -> Option<&'static str> {
 }
 
 fn built_for_another_cpu(path: &std::path::Path) -> bool {
-    elf_arch(path).is_some_and(|a| a != std::env::consts::ARCH)
+    elf_arch(path).is_some_and(|a| a != machine_arch())
+}
+
+/// The CPU this machine actually has, spelled like `std::env::consts::ARCH`.
+/// Asked of the OS rather than taken from the build target, because an Intel
+/// build of Grimoire running under Rosetta on an Apple Silicon Mac would
+/// otherwise report — and fetch — Intel.
+fn machine_arch() -> &'static str {
+    use std::process::Command;
+    let run = |cmd: &str, args: &[&str]| {
+        Command::new(cmd)
+            .args(args)
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+    };
+    if cfg!(target_os = "macos") {
+        // Only Apple Silicon has this key; Intel Macs error out.
+        return match run("sysctl", &["-n", "hw.optional.arm64"]).as_deref() {
+            Some("1") => "aarch64",
+            _ => std::env::consts::ARCH,
+        };
+    }
+    match run("uname", &["-m"]).as_deref() {
+        Some("x86_64" | "amd64") => "x86_64",
+        Some("aarch64" | "arm64") => "aarch64",
+        Some(m) if m.starts_with("armv") => "arm",
+        _ => std::env::consts::ARCH,
+    }
+}
+
+/// Ask which kind of computer this is, so the right build gets installed.
+/// What the machine reports is the default, and Enter takes it — someone who
+/// doesn't know the answer can't choose wrong by not choosing.
+fn ask_arch(detected: &'static str) -> &'static str {
+    use std::io::{Write, stdin, stdout};
+    let (default, family) = if detected == "aarch64" || detected == "arm" {
+        ("2", "ARM")
+    } else {
+        ("1", "x86")
+    };
+    println!("\n  Which kind of computer is this?");
+    println!("    1) x86 — Intel or AMD: most Windows and Linux PCs, Intel Macs");
+    println!("    2) ARM — Apple Silicon Macs (M1 and later), ARM Linux devices");
+    println!("  This one reports {family}, so Enter picks {default}.");
+    loop {
+        print!("  1 or 2 [{default}]: ");
+        let _ = stdout().flush();
+        let mut s = String::new();
+        if stdin().read_line(&mut s).unwrap_or(0) == 0 {
+            return detected;
+        }
+        match parse_arch_answer(&s, detected) {
+            Some(arch) => return arch,
+            None => println!("  Type 1 for x86 or 2 for ARM, or just press Enter."),
+        }
+    }
+}
+
+fn parse_arch_answer(answer: &str, detected: &'static str) -> Option<&'static str> {
+    match answer.trim().to_lowercase().as_str() {
+        "" => Some(detected),
+        "1" | "x86" | "x64" | "x86_64" | "amd64" | "intel" | "amd" => Some("x86_64"),
+        // ARM means 64-bit unless this machine is itself 32-bit ARM.
+        "2" | "arm" | "arm64" | "aarch64" | "apple" => {
+            Some(if detected == "arm" { "arm" } else { "aarch64" })
+        }
+        _ => None,
+    }
 }
 
 fn port_open(host: &str, port: u16) -> bool {
@@ -1641,7 +1710,7 @@ fn client_pids(main_only: bool) -> Vec<String> {
         .collect()
 }
 
-fn download_and_install() -> Result<()> {
+fn download_and_install(arch: &str) -> Result<()> {
     use std::process::Command;
 
     let agent = ureq::Agent::config_builder()
@@ -1659,7 +1728,6 @@ fn download_and_install() -> Result<()> {
     let tag = rel["tag_name"].as_str().unwrap_or("?").to_string();
 
     let ext = if cfg!(target_os = "macos") { ".dmg" } else { ".AppImage" };
-    let arch = std::env::consts::ARCH;
 
     let assets = rel["assets"].as_array().cloned().unwrap_or_default();
     let pick = pick_asset(&assets, ext, arch)
@@ -1812,6 +1880,34 @@ mod install_tests {
     }
 
     #[test]
+    fn the_cpu_answer_decides_the_build() {
+        // Enter keeps what the machine reports.
+        assert_eq!(parse_arch_answer("\n", "x86_64"), Some("x86_64"));
+        assert_eq!(parse_arch_answer("", "aarch64"), Some("aarch64"));
+        // An explicit answer overrides it, either way round.
+        assert_eq!(parse_arch_answer("2\n", "x86_64"), Some("aarch64"));
+        assert_eq!(parse_arch_answer(" 1 ", "aarch64"), Some("x86_64"));
+        assert_eq!(parse_arch_answer("ARM", "x86_64"), Some("aarch64"));
+        assert_eq!(parse_arch_answer("intel", "aarch64"), Some("x86_64"));
+        // ARM on a 32-bit ARM board stays 32-bit.
+        assert_eq!(parse_arch_answer("2", "arm"), Some("arm"));
+        // Anything else is asked again, never guessed.
+        assert_eq!(parse_arch_answer("3", "x86_64"), None);
+        assert_eq!(parse_arch_answer("mac", "x86_64"), None);
+
+        let installs = |answer: &str, detected| {
+            picked(".AppImage", parse_arch_answer(answer, detected).unwrap())
+        };
+        assert_eq!(installs("", "x86_64").as_deref(), Some("YouTube-Music-3.12.0.AppImage"));
+        assert_eq!(installs("2", "x86_64").as_deref(), Some("YouTube-Music-3.12.0-arm64.AppImage"));
+    }
+
+    #[test]
+    fn a_native_build_detects_its_own_cpu() {
+        assert_eq!(machine_arch(), std::env::consts::ARCH);
+    }
+
+    #[test]
     fn no_build_for_this_cpu_means_none_not_a_wrong_one() {
         assert_eq!(picked(".AppImage", "riscv64"), None);
         assert_eq!(picked(".dmg", "arm"), None);
@@ -1946,7 +2042,7 @@ pub fn setup() -> Result<()> {
             println!(
                 "  found {}, but it's built for {cpu} and this machine is {}.",
                 app_path().display(),
-                std::env::consts::ARCH
+                machine_arch()
             );
             println!("  It can never start here — replacing it.\n");
         } else {
@@ -1962,7 +2058,8 @@ pub fn setup() -> Result<()> {
             println!("\nNothing installed. Re-run `grimoire music-setup` when you're ready.");
             return Ok(());
         }
-        download_and_install()?;
+        let arch = ask_arch(machine_arch());
+        download_and_install(arch)?;
         println!("  installed.");
     }
 
