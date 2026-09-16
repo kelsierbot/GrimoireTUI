@@ -4,6 +4,7 @@ mod app;
 mod cork;
 mod create;
 mod editor;
+mod export;
 mod history;
 mod library;
 mod manuscript;
@@ -63,10 +64,13 @@ fn main() -> Result<()> {
                     String::new()
                 }
             );
-            println!("\nFor DOCX or PDF:");
-            println!("  pandoc \"{}\" -o manuscript.docx", c.path.display());
+            println!("\nFor DOCX or EPUB:  grimoire export");
         }
         return Ok(());
+    }
+
+    if first.as_deref() == Some("export") {
+        return export_command(args);
     }
 
     if first.as_deref() == Some("music-setup") {
@@ -99,6 +103,9 @@ fn main() -> Result<()> {
         println!("  grimoire new <dir>          start a new one");
         println!("  grimoire index              refresh project.md, the project map");
         println!("  grimoire compile            assemble the manuscript");
+        println!("  grimoire export [dir]       DOCX + EPUB into exports/; pick formats");
+        println!("                              with --docx --epub --md, and parts");
+        println!("                              with --parts 1,3");
         println!("  grimoire music-setup <src>  connect music: youtube-music |");
         println!("                              spotify | jellyfin | plex");
         println!("  grimoire music-auth         re-pair only");
@@ -176,6 +183,101 @@ fn main() -> Result<()> {
     res
 }
 
+const EXPORT_USAGE: &str = "grimoire export [dir] [--docx] [--epub] [--md] [--parts 1,3]";
+
+/// `grimoire export [dir] [--docx] [--epub] [--md] [--parts 1,3]`. With no
+/// format named it writes DOCX and EPUB.
+fn export_command(mut args: impl Iterator<Item = String>) -> Result<()> {
+    let mut dir = None;
+    let (mut docx, mut epub, mut markdown) = (false, false, false);
+    let mut numbers: Option<Vec<usize>> = None;
+    while let Some(a) = args.next() {
+        match a.as_str() {
+            "--docx" => docx = true,
+            "--epub" => epub = true,
+            "--md" | "--markdown" => markdown = true,
+            "--parts" => {
+                let list = args
+                    .next()
+                    .with_context(|| format!("--parts needs numbers, like --parts 1,3\n\n  {EXPORT_USAGE}"))?;
+                numbers = Some(part_numbers(&list)?);
+            }
+            s if s.starts_with("--parts=") => numbers = Some(part_numbers(&s["--parts=".len()..])?),
+            s if s.starts_with('-') => anyhow::bail!("unknown option '{s}'\n\n  {EXPORT_USAGE}"),
+            _ if dir.is_none() => dir = Some(PathBuf::from(a)),
+            _ => anyhow::bail!("one book at a time — '{a}' is a second folder\n\n  {EXPORT_USAGE}"),
+        }
+    }
+    if !(docx || epub || markdown) {
+        (docx, epub) = (true, true);
+    }
+
+    let (root, _) = resolve_project(dir)?;
+    let project = Project::load(&root).context("loading project")?;
+
+    // 1-based on the command line; node indices underneath.
+    let parts = match numbers {
+        None => None,
+        Some(numbers) => {
+            let all = export::parts(&project);
+            let noun = project.meta.part_noun();
+            if all.is_empty() {
+                anyhow::bail!("this book has no {noun}s to choose from — leave out --parts");
+            }
+            let mut chosen = Vec::new();
+            for n in numbers {
+                match all.get(n.wrapping_sub(1)) {
+                    Some((idx, _)) => chosen.push(*idx),
+                    None => anyhow::bail!(
+                        "there is no {noun} {n} — this book has {}:\n{}",
+                        all.len(),
+                        all.iter()
+                            .enumerate()
+                            .map(|(i, (_, t))| format!("  {}  {t}", i + 1))
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    ),
+                }
+            }
+            Some(chosen)
+        }
+    };
+
+    let out = export::export(&project, &export::ExportOptions { docx, epub, markdown, parts })?;
+    for f in &out.files {
+        println!("Wrote {}", pretty(f));
+    }
+    let plural = |n: usize, word: &str| format!("{n} {word}{}", if n == 1 { "" } else { "s" });
+    println!(
+        "  {} · about {} words · {}",
+        plural(out.chapters, "chapter"),
+        manuscript::commas(manuscript::rounded_words(out.words)),
+        plural(out.pages, "page")
+    );
+    Ok(())
+}
+
+/// "1,3" or "1-3" into part numbers.
+fn part_numbers(list: &str) -> Result<Vec<usize>> {
+    let bad = || anyhow::anyhow!("--parts takes numbers like 1,3 or 2-3, not '{list}'");
+    let mut out = Vec::new();
+    for item in list.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+        match item.split_once('-') {
+            Some((a, b)) => {
+                let (a, b): (usize, usize) = (a.trim().parse().map_err(|_| bad())?, b.trim().parse().map_err(|_| bad())?);
+                if a > b {
+                    return Err(bad());
+                }
+                out.extend(a..=b);
+            }
+            None => out.push(item.parse().map_err(|_| bad())?),
+        }
+    }
+    if out.is_empty() {
+        return Err(bad());
+    }
+    Ok(out)
+}
 
 /// The user's home folder. `$HOME` on macOS and Linux; on Windows, where
 /// `HOME` usually isn't set at all, the profile folder (`C:\Users\name`).
