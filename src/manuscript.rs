@@ -106,7 +106,7 @@ fn rel(root: &Path, p: &Path) -> String {
         .to_string()
 }
 
-fn commas(n: usize) -> String {
+pub fn commas(n: usize) -> String {
     let s = n.to_string();
     let mut out = String::new();
     for (i, c) in s.chars().enumerate() {
@@ -324,133 +324,26 @@ pub struct Compiled {
 }
 
 /// Assemble the draft into one Markdown file in standard manuscript shape.
+///
+/// The walk lives in `export`, which draws DOCX, EPUB and this same Markdown
+/// from one model of the book — so compile and export can't drift apart.
+/// Front matter owns the title page, as in Scrivener: it's emitted verbatim
+/// rather than having a generated one stacked on top of it.
 pub fn compile(p: &Project) -> Result<Compiled> {
-    let m = &p.meta;
-    let mut out = String::new();
-    let mut words = 0usize;
-    let mut chapters = 0usize;
-    let mut scenes = 0usize;
-    let mut skipped = 0usize;
-
-    let total: usize = p
-        .nodes
-        .iter()
-        .filter(|n| n.kind == Kind::Scene && n.in_manuscript && n.compile)
-        .map(|n| n.words())
-        .sum();
-
-    let front: Vec<&crate::project::Node> = p
-        .nodes
-        .iter()
-        .filter(|n| n.kind == Kind::Scene && n.front_matter && !n.body.trim().is_empty())
-        .collect();
-
-    if front.is_empty() {
-        // No front matter, so generate a Shunn title page.
-        if !m.author.is_empty() {
-            let _ = writeln!(out, "{}  ", m.author);
-        }
-        let _ = writeln!(out, "\nabout {} words\n", commas(rounded_words(total)));
-        let _ = writeln!(out, "# {}\n", m.title.to_uppercase());
-        if !m.author.is_empty() {
-            let _ = writeln!(out, "by {}\n", m.author);
-        }
-    } else {
-        // Front matter owns the title page — same rule Scrivener uses. Emit it
-        // verbatim rather than duplicating a generated one on top of it.
-        for n in front {
-            let _ = writeln!(out, "{}\n", n.body.trim());
-        }
-        let _ = writeln!(out, "\nabout {} words\n", commas(rounded_words(total)));
-    }
-
-    for &r in &p.roots {
-        if p.nodes[r].in_manuscript && p.nodes[r].kind != Kind::Divider {
-            walk(p, r, &mut out, &mut words, &mut chapters, &mut scenes, &mut skipped);
-        }
-    }
-
-    let _ = writeln!(out, "\nTHE END");
-
-    let slug: String = m
-        .title
-        .to_lowercase()
-        .chars()
-        .map(|c| if c.is_alphanumeric() { c } else { '-' })
-        .collect();
-    let slug = slug.trim_matches('-').replace("--", "-");
-    let path = p.root.join(format!("{slug}-manuscript.md"));
-    std::fs::write(&path, out).with_context(|| format!("writing {}", path.display()))?;
+    let book = crate::export::book(p, None)?;
+    let path = p
+        .root
+        .join(format!("{}-manuscript.md", crate::export::slug(book.title)));
+    std::fs::write(&path, crate::export::markdown(&book))
+        .with_context(|| format!("writing {}", path.display()))?;
 
     Ok(Compiled {
         path,
-        words,
-        chapters,
-        scenes,
-        skipped,
+        words: book.words,
+        chapters: book.chapters,
+        scenes: book.scenes,
+        skipped: book.skipped,
     })
-}
-
-fn walk(
-    p: &Project,
-    idx: usize,
-    out: &mut String,
-    words: &mut usize,
-    chapters: &mut usize,
-    scenes: &mut usize,
-    skipped: &mut usize,
-) {
-    let n = &p.nodes[idx];
-    match section_of(p, idx) {
-        Section::Part => {
-            let _ = writeln!(out, "\n# {}\n", n.title.to_uppercase());
-            for &c in &n.children {
-                walk(p, c, out, words, chapters, scenes, skipped);
-            }
-        }
-        Section::Chapter => {
-            let any = n
-                .children
-                .iter()
-                .any(|&c| p.nodes[c].kind == Kind::Scene && p.nodes[c].compile);
-            if !any {
-                return;
-            }
-            *chapters += 1;
-            let _ = writeln!(out, "\n## CHAPTER {}\n", spell(*chapters));
-
-            let mut first = true;
-            for &c in &n.children {
-                let s = &p.nodes[c];
-                if s.kind != Kind::Scene {
-                    continue;
-                }
-                if !s.compile {
-                    *skipped += 1;
-                    continue;
-                }
-                // Shunn: a scene break is `#` alone on a line. Escaped so
-                // Markdown renders a literal hash instead of an empty heading.
-                if !first {
-                    let _ = writeln!(out, "\n\\#\n");
-                }
-                first = false;
-                let _ = writeln!(out, "{}", s.body.trim());
-                *words += s.words();
-                *scenes += 1;
-            }
-        }
-        Section::Scene => {
-            let s = &p.nodes[idx];
-            if !s.compile {
-                *skipped += 1;
-                return;
-            }
-            let _ = writeln!(out, "{}", s.body.trim());
-            *words += s.words();
-            *scenes += 1;
-        }
-    }
 }
 
 #[cfg(test)]

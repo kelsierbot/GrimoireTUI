@@ -28,6 +28,14 @@ serde_json = "1.0.151"
 toml = "1.1.6"
 unicode-width = "0.2.2"
 ureq = { version = "3.4.1", features = ["json"] }
+# DOCX and EPUB are zip files. Deflate only, through flate2's pure-Rust backend
+# (miniz_oxide), so export builds the same everywhere with no C compiler.
+zip = { version = "8.6", default-features = false, features = ["deflate-flate2"] }
+flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
+
+[dev-dependencies]
+# The export tests parse the XML they write, to prove it is well-formed.
+roxmltree = "0.21"
 
 [profile.release]
 opt-level = 3
