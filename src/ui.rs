@@ -30,8 +30,16 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     let [left, edit_area] =
         Layout::horizontal([Constraint::Length(LEFT_W), Constraint::Min(24)]).areas(main);
 
-    // Give up the ornaments before the tree gets unusable.
-    let (tree_area, scene_area, music_area) = if left.height >= SCENE_H + MUSIC_H + MIN_TREE {
+    // Give up the ornaments before the tree gets unusable. With music switched
+    // off there is no music pane at all, and the tree has that room.
+    let music_h = if app.music.enabled { MUSIC_H } else { 0 };
+    let (tree_area, scene_area, music_area) = if !app.music.enabled && left.height >= SCENE_H + MIN_TREE {
+        let [a, b] =
+            Layout::vertical([Constraint::Min(MIN_TREE), Constraint::Length(SCENE_H)]).areas(left);
+        (a, b, Rect::default())
+    } else if !app.music.enabled {
+        (left, Rect::default(), Rect::default())
+    } else if left.height >= SCENE_H + music_h + MIN_TREE {
         let [a, b, c] = Layout::vertical([
             Constraint::Min(MIN_TREE),
             Constraint::Length(SCENE_H),

@@ -89,6 +89,9 @@ const HTTP_TIMEOUT: Duration = Duration::from_millis(1200);
 
 #[derive(Debug, Clone)]
 pub struct Config {
+    /// Off unless you turn it on. Music is an extra, not part of the desk, so
+    /// a new install never polls a player or shows a music pane until asked.
+    pub enabled: bool,
     pub source: Source,
     /// YouTube Music: where its API Server listens.
     pub host: String,
@@ -103,6 +106,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            enabled: false,
             source: Source::YouTubeMusic,
             host: "127.0.0.1".into(),
             port: DEFAULT_PORT,
@@ -121,16 +125,21 @@ impl Config {
 
     /// Missing or unreadable config just means "music off".
     pub fn load() -> Config {
+        match std::fs::read_to_string(Config::path()) {
+            Ok(s) => Config::parse(&s),
+            Err(_) => Config::default(),
+        }
+    }
+
+    fn parse(s: &str) -> Config {
         let mut cfg = Config::default();
-        let Ok(s) = std::fs::read_to_string(Config::path()) else {
-            return cfg;
-        };
         for line in s.lines() {
             let Some((k, v)) = line.split_once('=') else {
                 continue;
             };
             let v = v.trim().trim_matches('"').to_string();
             match k.trim() {
+                "enabled" => cfg.enabled = v == "true",
                 "source" => {
                     if let Some(x) = Source::parse(&v) {
                         cfg.source = x;
@@ -158,8 +167,10 @@ impl Config {
             std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
         }
         let body = format!(
-            "source = \"{}\"\nhost = \"{}\"\nport = {}\ntoken = \"{}\"\n\
+            "# Music is off until this says true. Turn it on or off from the F1 menu.\n\
+             enabled = {}\nsource = \"{}\"\nhost = \"{}\"\nport = {}\ntoken = \"{}\"\n\
              server = \"{}\"\napi_key = \"{}\"\nuser_id = \"{}\"\n",
+            self.enabled,
             self.source.slug(),
             self.host,
             self.port,
@@ -252,6 +263,8 @@ enum Update {
 }
 
 pub struct Music {
+    /// False when music is switched off: no pane, no poller, no network.
+    pub enabled: bool,
     pub state: State,
     pub source: Source,
     /// The last queue fetched, and the last search's results.
@@ -294,7 +307,8 @@ impl Music {
     /// network or shell out.
     pub fn spawn(cfg: Config) -> Music {
         let source = cfg.source;
-        let backend: Option<Box<dyn Backend>> = match source {
+        // Switched off means inert: nothing is spawned, nothing is polled.
+        let backend: Option<Box<dyn Backend>> = if !cfg.enabled { None } else { match source {
             Source::YouTubeMusic => cfg
                 .token
                 .clone()
@@ -313,10 +327,11 @@ impl Music {
                     token: cfg.api_key.clone(),
                 }))) as Box<dyn Backend>
             }),
-        };
+        } };
 
         let Some(mut backend) = backend else {
             return Music {
+                enabled: cfg.enabled,
                 state: State::NoToken,
                 source,
                 queue: Vec::new(),
@@ -385,6 +400,7 @@ impl Music {
         });
 
         Music {
+            enabled: true,
             state: State::Offline,
             source,
             queue: Vec::new(),
@@ -1421,7 +1437,9 @@ pub fn authenticate(host: &str, port: u16) -> Result<()> {
         .as_str()
         .ok_or_else(|| anyhow!("no accessToken in response: {v}"))?;
 
+    // Pairing is asking for music, so it switches music on.
     Config {
+        enabled: true,
         source: Source::YouTubeMusic,
         host: host.to_string(),
         port,
@@ -1978,6 +1996,23 @@ fn pick_asset<'a>(
 }
 
 #[cfg(test)]
+mod config_tests {
+    use super::*;
+
+    #[test]
+    fn music_is_off_unless_the_file_turns_it_on() {
+        assert!(!Config::default().enabled, "a new install has no music");
+        // A music.toml written before the switch existed has no `enabled`
+        // line, and stays off.
+        let old = Config::parse("source = \"youtube-music\"\ntoken = \"abc\"\n");
+        assert!(!old.enabled);
+        assert_eq!(old.token.as_deref(), Some("abc"));
+        assert!(Config::parse("enabled = true\n").enabled);
+        assert!(!Config::parse("enabled = false\n").enabled);
+    }
+}
+
+#[cfg(test)]
 mod install_tests {
     use super::*;
     use serde_json::json;
@@ -2104,6 +2139,7 @@ pub fn setup_for(source: Source) -> Result<()> {
         Source::Spotify => {
             let mut cfg = Config::load();
             cfg.source = Source::Spotify;
+            cfg.enabled = true;
             cfg.save()?;
             println!("Spotify needs no setup — Grimoire drives the desktop app directly.");
             println!();
@@ -2133,6 +2169,7 @@ fn setup_jellyfin() -> Result<()> {
     let (token, uid) = crate::library::Jellyfin::login(&server, &user, &pass)?;
 
     cfg.source = Source::Jellyfin;
+    cfg.enabled = true;
     cfg.server = server;
     cfg.api_key = token;
     cfg.user_id = uid;
@@ -2166,6 +2203,7 @@ fn setup_plex() -> Result<()> {
     let token = prompt("X-Plex-Token", "");
 
     cfg.source = Source::Plex;
+    cfg.enabled = true;
     cfg.server = server;
     cfg.api_key = token;
     cfg.user_id = String::new();

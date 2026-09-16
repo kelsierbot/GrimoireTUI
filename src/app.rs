@@ -233,6 +233,10 @@ impl App {
     /// Function keys drive the timer and the music, from either pane, so they
     /// never collide with typing.
     pub fn on_function_key(&mut self, n: u8) {
+        if matches!(n, 4..=7) && !self.music.enabled {
+            self.msg = "music is off — turn it on from the menu (F1)".into();
+            return;
+        }
         match n {
             2 => self.pomo.toggle(),
             3 => {
@@ -775,6 +779,7 @@ impl App {
     /// this book calls its parts.
     pub fn menu(&self) -> Vec<String> {
         let row = |label: String, key: &str| format!("{label:<20}{key}");
+        let music = if self.music.enabled { "Turn music off" } else { "Turn music on" };
         vec![
             row("New scene…".into(), "(n)"),
             row("New chapter…".into(), "(c)"),
@@ -786,6 +791,7 @@ impl App {
             "Compile manuscript".into(),
             row("Music player…".into(), "(F7)"),
             "Music source…".into(),
+            music.into(),
             "Themes…".into(),
             "Close".into(),
         ]
@@ -871,15 +877,45 @@ impl App {
                 }
                 self.overlay = Overlay::None;
             }
+            8 if !self.music.enabled => {
+                self.overlay = Overlay::None;
+                self.msg = "music is off — turn it on first".into();
+            }
             8 => self.open_player(),
             9 => {
                 let cur = self.music.source;
                 let sel = music::Source::ALL.iter().position(|s| *s == cur).unwrap_or(0);
                 self.overlay = Overlay::Sources { sel };
             }
-            10 => self.open_theme_picker(),
+            10 => {
+                self.overlay = Overlay::None;
+                self.set_music(!self.music.enabled);
+            }
+            11 => self.open_theme_picker(),
             _ => self.overlay = Overlay::None,
         }
+    }
+
+    /// Switch music on or off, remember it, and start or stop the poller.
+    pub fn set_music(&mut self, on: bool) {
+        let mut cfg = music::Config::load();
+        cfg.enabled = on;
+        if let Err(e) = cfg.save() {
+            self.msg = format!("couldn't save the music setting: {e}");
+            return;
+        }
+        self.music = Music::spawn(cfg);
+        if !on && self.focus == Focus::Music {
+            self.focus = Focus::Tree;
+        }
+        self.msg = if on {
+            match self.music.state {
+                music::State::NoToken => "music on — run grimoire music-setup to connect a player".into(),
+                _ => format!("music on · {}", self.music.source.label()),
+            }
+        } else {
+            "music off".into()
+        };
     }
 
     /// Push unsaved editor text into the tree so generated files see it.
@@ -938,6 +974,8 @@ impl App {
                         let chosen = music::Source::ALL[*sel];
                         let mut cfg = music::Config::load();
                         cfg.source = chosen;
+                        // Choosing a source is asking for music.
+                        cfg.enabled = true;
                         let _ = cfg.save();
                         // Restart the poller against the new source.
                         self.music = Music::spawn(cfg);
