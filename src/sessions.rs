@@ -169,6 +169,17 @@ pub fn unpushed(root: &Path) -> Option<usize> {
         .and_then(|n| n.parse().ok())
 }
 
+/// Whether the book has anywhere to back sessions up to.
+pub fn has_remote(root: &Path) -> bool {
+    is_enabled(root) && git(root, ["remote"]).text().is_ok_and(|s| !s.is_empty())
+}
+
+/// Whether anything a session is about — scenes, notes, the book's settings —
+/// has changed since the last one, as opposed to only resume.md.
+pub fn has_writing(root: &Path) -> bool {
+    pending_label(root, Local::now()).ok().flatten().is_some_and(|l| l.contains(" · "))
+}
+
 /// One saved session.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Session {
@@ -1168,6 +1179,19 @@ mod tests {
 
     /// A folder shaped like `grimoire new` leaves it, or `None` (with a note)
     /// when there's no git to test against.
+    #[test]
+    fn moving_the_cursor_alone_is_not_a_session() {
+        let Some(d) = book("cursor-only") else { return };
+        enable(&d).unwrap();
+        assert!(!has_writing(&d), "nothing yet");
+        write(&d, ".grimoire/resume.md", "---\nscene: x\nline: 3\n---\n");
+        assert!(!has_writing(&d), "only where the cursor is");
+        write(&d, A1, &scene(12));
+        assert!(has_writing(&d), "words changed");
+        assert!(!has_remote(&d));
+        let _ = fs::remove_dir_all(&d);
+    }
+
     fn book(tag: &str) -> Option<PathBuf> {
         if !git_available() {
             eprintln!("skipping {tag}: git isn't installed");

@@ -16,6 +16,8 @@ use crate::history;
 use crate::manuscript;
 use crate::palette::{self, Action};
 use crate::recovery;
+use crate::resume;
+use crate::sessions;
 use crate::search;
 use crate::settings::Settings;
 use crate::spell;
@@ -117,6 +119,13 @@ pub struct App {
     /// A note open beside the scene.
     pub codex: Option<CodexPane>,
     pub rect_codex: Rect,
+    /// The last place written to resume.md, so it's only rewritten on a move.
+    last_resume: Option<(PathBuf, usize)>,
+    /// Session history is on for this book (checked once at launch).
+    pub sessions_on: bool,
+    /// A background push of saved sessions, and how the last one went.
+    backup_rx: Option<std::sync::mpsc::Receiver<sessions::PushOutcome>>,
+    pub backup_note: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -195,6 +204,20 @@ pub enum Overlay {
     },
     /// Near-miss spellings of notebook names.
     Names { drifts: Vec<search::Drift>, sel: usize },
+    /// Session history isn't on yet: offer to turn it on.
+    SessionsOff,
+    /// Every saved writing session, newest first; Enter shows what changed.
+    Sessions {
+        list: Vec<sessions::Session>,
+        sel: usize,
+        /// What the next session would be saved as, if anything has changed.
+        pending: Option<String>,
+        backup: String,
+        /// The scenes one session changed, and which is selected.
+        changes: Option<(usize, Vec<sessions::Change>, usize)>,
+    },
+    /// One scene's changes in one session, as a word diff.
+    SessionDiff { title: String, label: String, before: String, after: String, scroll: usize },
     /// Export for readers: formats, which acts, then the result.
     Export {
         /// Word, EPUB, Markdown.
@@ -356,10 +379,18 @@ impl App {
             codex_index: Vec::new(),
             codex: None,
             rect_codex: Rect::default(),
+            last_resume: None,
+            sessions_on: false,
+            backup_rx: None,
+            backup_note: None,
         })
         .map(|mut app: App| {
             app.load_speller();
             app.rebuild_codex();
+            app.sessions_on = sessions::git_available() && sessions::is_enabled(&app.project.root);
+            if app.sessions_on {
+                app.back_up();
+            }
             let items = recovery::pending(&app.project);
             if !items.is_empty() {
                 app.overlay = Overlay::Recover { items };
@@ -371,6 +402,7 @@ impl App {
                     app.sel = pos;
                 }
             }
+            app.resume_where_left();
             app
         })
     }
@@ -437,6 +469,7 @@ impl App {
 
     fn open_scene(&mut self, idx: usize) {
         self.flush();
+        self.save_resume(false);
         // Park this scene's undo so coming back to it still undoes.
         if let Some(i) = self.open {
             let path = self.project.nodes[i].path.clone();
@@ -502,6 +535,7 @@ impl App {
         if report.failed.is_empty() {
             self.save_state = SaveState::Saved(Instant::now());
             self.unsaved_since = None;
+            self.save_resume(false);
             return true;
         }
         let mut kept = true;
@@ -538,10 +572,19 @@ impl App {
         }
     }
 
-    /// Save everything before quitting. False (with a message) if something
-    /// couldn't be saved — its words are in recovery either way.
+    /// Save everything before quitting — and where you were, and the session
+    /// if session history is on. False (with a message) if something couldn't
+    /// be saved; its words are in recovery either way.
     pub fn try_quit(&mut self) -> bool {
-        self.commit_saves()
+        if !self.commit_saves() {
+            return false;
+        }
+        self.save_resume(true);
+        if self.sessions_on && sessions::has_writing(&self.project.root) {
+            // Local and quick; backing up happens next launch.
+            let _ = sessions::commit_session(&self.project.root, chrono::Local::now());
+        }
+        true
     }
 
     /// Last resort after a crash: keep every unsaved scene in recovery rather
@@ -701,6 +744,14 @@ impl App {
             Action::Corkboard => self.open_cork(),
             Action::OpenCodex => self.open_codex(),
             Action::Export => self.open_export(),
+            Action::Sessions => self.open_sessions(),
+            Action::SaveSession => {
+                if !self.sessions_on {
+                    self.open_sessions();
+                } else if let Some(label) = self.save_session() {
+                    self.msg = format!("session saved: {label}");
+                }
+            }
             Action::Spellcheck => self.toggle_spellcheck(),
             Action::SpellingSuggestions => self.spelling(),
             Action::MoveUp => self.move_selected(true),
@@ -995,6 +1046,164 @@ impl App {
             s.add_words(words);
         }
         self.rebuild_codex();
+    }
+
+    // ---- picking up where you left off ----------------------------------
+
+    /// Land on the sentence recorded in resume.md, if its scene still exists.
+    fn resume_where_left(&mut self) {
+        let root = self.project.root.clone();
+        let Some(r) = resume::read(&root) else { return };
+        let scene = root.join(&r.scene);
+        let Some(i) = self.project.nodes.iter().position(|n| n.kind == Kind::Scene && n.path == scene) else {
+            return;
+        };
+        self.reveal(i);
+        self.editor = Editor::from_str(&self.project.nodes[i].body);
+        self.open = Some(i);
+        self.editor.place(r.line, r.column);
+        self.focus = Focus::Editor;
+        self.last_resume = Some((scene, r.line));
+        let place = self.parents[i].map(|p| search::place_of(&self.project, &self.parents, p)).unwrap_or_default();
+        let here = resume::machine_name();
+        let who = if r.machine == here { "here".to_string() } else { format!("on {}", r.machine) };
+        let when = r.when.format("%a %-I:%M %P");
+        self.msg = format!(
+            "resuming {} · {}{}paragraph {} · last written {who}, {when}",
+            self.project.nodes[i].title,
+            place,
+            if place.is_empty() { "" } else { " · " },
+            r.line + 1
+        );
+    }
+
+    /// Record where the cursor is, if it has moved to another paragraph or
+    /// scene since the last time (or always, when leaving).
+    fn save_resume(&mut self, force: bool) {
+        let Some(i) = self.open else { return };
+        let n = &self.project.nodes[i];
+        if !n.in_manuscript && !n.front_matter {
+            return;
+        }
+        let here = (n.path.clone(), self.editor.cy);
+        if !force && self.last_resume.as_ref() == Some(&here) {
+            return;
+        }
+        let root = self.project.root.clone();
+        let r = resume::Resume {
+            scene: resume::relative(&root, &n.path),
+            line: self.editor.cy,
+            column: self.editor.cx,
+            machine: resume::machine_name(),
+            when: chrono::Local::now(),
+        };
+        let place = self.parents[i].map(|p| search::place_of(&self.project, &self.parents, p)).unwrap_or_default();
+        if resume::write(&root, &r, &n.title, &place).is_ok() {
+            self.last_resume = Some(here);
+        }
+    }
+
+    // ---- writing sessions ------------------------------------------------
+
+    /// Push saved sessions off-site in the background, if there's a remote.
+    fn back_up(&mut self) {
+        if self.backup_rx.is_some() {
+            return;
+        }
+        let root = self.project.root.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            // No upstream yet (a remote just connected) counts as "not pushed".
+            if sessions::has_remote(&root) && sessions::unpushed(&root).is_none_or(|n| n > 0) {
+                let _ = tx.send(sessions::push(&root));
+            }
+        });
+        self.backup_rx = Some(rx);
+    }
+
+    pub fn tick_backup(&mut self) {
+        if let Some(rx) = &self.backup_rx {
+            match rx.try_recv() {
+                Ok(outcome) => {
+                    self.backup_note = Some(match outcome {
+                        sessions::PushOutcome::Pushed => "backed up ✓".into(),
+                        sessions::PushOutcome::NoRemote => "no remote — sessions stay on this computer".into(),
+                        sessions::PushOutcome::Failed(why) => format!("couldn't back up: {why}"),
+                    });
+                    self.backup_rx = None;
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => self.backup_rx = None,
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+            }
+        }
+    }
+
+    /// Save this session as a snapshot now. Returns its label.
+    fn save_session(&mut self) -> Option<String> {
+        if !self.commit_saves() {
+            return None;
+        }
+        self.save_resume(true);
+        let root = self.project.root.clone();
+        // Moving the cursor isn't a session; it rides along with the next one.
+        if !sessions::has_writing(&root) {
+            self.msg = "nothing new since the last session".into();
+            return None;
+        }
+        let label = sessions::pending_label(&root, chrono::Local::now()).ok().flatten();
+        match sessions::commit_session(&root, chrono::Local::now()) {
+            Ok(Some(_)) => {
+                self.back_up();
+                label
+            }
+            Ok(None) => {
+                self.msg = "nothing new since the last session".into();
+                None
+            }
+            Err(e) => {
+                self.msg = format!("couldn't save the session: {e}");
+                None
+            }
+        }
+    }
+
+    /// Back from a diff to the sessions list (the list is re-read; it's cheap).
+    fn open_sessions_keeping_place(&mut self) {
+        self.overlay = Overlay::None;
+        self.open_sessions();
+    }
+
+    pub fn open_sessions(&mut self) {
+        if !sessions::git_available() {
+            self.msg = "writing sessions need Git — install it from git-scm.com, then try again".into();
+            return;
+        }
+        if !self.sessions_on {
+            self.overlay = Overlay::SessionsOff;
+            return;
+        }
+        self.commit_saves();
+        let root = self.project.root.clone();
+        match sessions::sessions(&root, 200) {
+            Ok(list) => {
+                let pending = sessions::pending_label(&root, chrono::Local::now()).ok().flatten().filter(|l| l.contains(" · "));
+                let backup = if !sessions::has_remote(&root) {
+                    "only on this computer — connect a remote (git remote add origin …) to back sessions up".to_string()
+                } else if self.backup_rx.is_some() {
+                    "backing up…".to_string()
+                } else {
+                    match (sessions::unpushed(&root), &self.backup_note) {
+                        (Some(0), _) => "backed up ✓".to_string(),
+                        (_, Some(note)) if note.starts_with("couldn't") => note.clone(),
+                        (None, _) => "not backed up yet — it happens in the background".to_string(),
+                        (Some(1), _) => "1 session waiting to back up".to_string(),
+                        (Some(n), _) => format!("{n} sessions waiting to back up"),
+                    }
+                };
+                self.overlay = Overlay::Sessions { list, sel: 0, pending, backup, changes: None };
+            }
+            Err(e) => self.msg = format!("couldn't read the sessions: {e}"),
+        }
     }
 
     // ---- the codex -------------------------------------------------------
@@ -2269,6 +2478,82 @@ impl App {
             }
 
             Overlay::Cork { .. } => self.cork_key(key),
+
+            Overlay::SessionsOff => match key {
+                Key::Char('y') | Key::Char('Y') => {
+                    self.overlay = Overlay::None;
+                    self.commit_saves();
+                    self.save_resume(true);
+                    match sessions::enable(&self.project.root) {
+                        Ok(()) => {
+                            self.sessions_on = true;
+                            self.msg = "session history is on — each session is kept when you quit".into();
+                            self.open_sessions();
+                        }
+                        Err(e) => self.msg = format!("couldn't turn on session history: {e}"),
+                    }
+                }
+                _ => self.overlay = Overlay::None,
+            },
+
+            Overlay::Sessions { list, sel, changes, .. } => {
+                if let Some((which, items, csel)) = changes {
+                    match key {
+                        Key::Down | Key::Char('j') => *csel = (*csel + 1).min(items.len().saturating_sub(1)),
+                        Key::Up | Key::Char('k') => *csel = csel.saturating_sub(1),
+                        Key::Enter => {
+                            if let (Some(s), Some(c)) = (list.get(*which).cloned(), items.get(*csel).cloned()) {
+                                let root = self.project.root.clone();
+                                let parent = format!("{}^", s.hash);
+                                let old_path = match &c.kind {
+                                    sessions::ChangeKind::Renamed { from } => from.clone(),
+                                    _ => c.path.clone(),
+                                };
+                                let before = sessions::file_at(&root, &parent, &old_path).ok().flatten().unwrap_or_default();
+                                let after = sessions::file_at(&root, &s.hash, &c.path).ok().flatten().unwrap_or_default();
+                                let title = c.path.file_stem().map(|x| x.to_string_lossy().to_string()).unwrap_or_default();
+                                self.overlay = Overlay::SessionDiff {
+                                    title,
+                                    label: s.label.clone(),
+                                    before: crate::project::split_frontmatter(&before).1,
+                                    after: crate::project::split_frontmatter(&after).1,
+                                    scroll: 0,
+                                };
+                            }
+                        }
+                        Key::Esc | Key::Left | Key::Char('h') => *changes = None,
+                        _ => {}
+                    }
+                    return;
+                }
+                match key {
+                    Key::Down | Key::Char('j') => *sel = (*sel + 1).min(list.len().saturating_sub(1)),
+                    Key::Up | Key::Char('k') => *sel = sel.saturating_sub(1),
+                    Key::Enter | Key::Right | Key::Char('h') => {
+                        if let Some(s) = list.get(*sel) {
+                            match sessions::changes(&self.project.root, &s.hash) {
+                                Ok(items) => *changes = Some((*sel, items, 0)),
+                                Err(e) => self.msg = format!("couldn't read that session: {e}"),
+                            }
+                        }
+                    }
+                    Key::Char('s') => {
+                        self.overlay = Overlay::None;
+                        if let Some(label) = self.save_session() {
+                            self.msg = format!("session saved: {label}");
+                        }
+                        self.open_sessions();
+                    }
+                    Key::Esc => self.overlay = Overlay::None,
+                    _ => {}
+                }
+            }
+
+            Overlay::SessionDiff { scroll, .. } => match key {
+                Key::Down | Key::PageDown | Key::Char(' ') => *scroll += 5,
+                Key::Up | Key::PageUp => *scroll = scroll.saturating_sub(5),
+                _ => self.open_sessions_keeping_place(),
+            },
 
             Overlay::Export { formats, parts, sel, done } => {
                 if done.is_some() {

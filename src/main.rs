@@ -13,6 +13,7 @@ mod music;
 mod palette;
 mod project;
 mod recovery;
+mod resume;
 mod scene;
 mod search;
 mod sessions;
@@ -403,6 +404,7 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
         }
         app.autosave_tick();
         app.tick_speller();
+        app.tick_backup();
         app.music.drain();
         app.tick_player();
         if app.pomo.tick() {
