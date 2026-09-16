@@ -98,6 +98,8 @@ pub struct App {
     undo_stash: HashMap<PathBuf, editor::History>,
     /// Spellcheck underlines are showing.
     pub spell_on: bool,
+    /// A tree row being dragged to a new place: (row it started on, row now under the pointer).
+    pub tree_drag: Option<(usize, usize)>,
 }
 
 /// Modal state. Only one can be up at a time.
@@ -283,6 +285,7 @@ impl App {
             pre_snapshotted: HashSet::new(),
             undo_stash: HashMap::new(),
             spell_on: false,
+            tree_drag: None,
         })
         .map(|mut app: App| {
             let items = recovery::pending(&app.project);
@@ -618,6 +621,8 @@ impl App {
     /// Actions that belong to a feature with its own section below.
     fn run_feature(&mut self, action: Action) {
         match action {
+            Action::MoveUp => self.move_selected(true),
+            Action::MoveDown => self.move_selected(false),
             Action::FindInScene => self.open_find(),
             Action::FindInBook => self.open_find_book(String::new()),
             Action::CheckNames => self.check_names(),
@@ -1064,11 +1069,20 @@ impl App {
     /// Something on disk moved from `from` to `to` (a scene or a whole folder):
     /// its history, its parked undo and the session bookkeeping go with it.
     fn follow_paths(&mut self, from: &Path, to: &Path) {
+        self.follow_many(&[(from.to_path_buf(), to.to_path_buf())]);
+    }
+
+    /// Several things moved at once (a swap, a shift along). Every path is
+    /// mapped from where it was before any of them moved, so a swap can't map
+    /// something twice.
+    fn follow_many(&mut self, renames: &[(PathBuf, PathBuf)]) {
         let root = self.project.root.clone();
-        history::follow(&root, from, to);
+        history::follow_all(&root, renames);
         let moved = |p: &PathBuf| {
-            p.strip_prefix(from).ok().map(|rest| {
-                if rest.as_os_str().is_empty() { to.to_path_buf() } else { to.join(rest) }
+            renames.iter().find_map(|(from, to)| {
+                p.strip_prefix(from).ok().map(|rest| {
+                    if rest.as_os_str().is_empty() { to.to_path_buf() } else { to.join(rest) }
+                })
             })
         };
         self.undo_stash = std::mem::take(&mut self.undo_stash)
@@ -1110,6 +1124,83 @@ impl App {
         Ok(())
     }
 
+    // ---- moving scenes and chapters -------------------------------------
+
+    /// Alt-↑ / Alt-↓: move the selected scene or folder one place.
+    pub fn move_selected(&mut self, up: bool) {
+        self.select_open_scene();
+        let Some(idx) = self.selected_file() else { return };
+        if self.project.in_trash(idx) {
+            self.msg = "things in the trash stay where they are".into();
+            return;
+        }
+        let name = self.project.nodes[idx].title.clone();
+        let noun = self.noun_of(idx);
+        if !self.commit_saves() {
+            return;
+        }
+        let root = self.project.root.clone();
+        let path = self.project.nodes[idx].path.clone();
+        let moved = match project::move_item(&root, &path, up) {
+            Ok(m) => m,
+            Err(e) => {
+                self.msg = format!("couldn't move {name}: {e}");
+                return;
+            }
+        };
+        self.follow_many(&moved.renames);
+        if let Err(e) = self.reload_tree() {
+            self.msg = format!("moved, but couldn't re-read the tree: {e}");
+            return;
+        }
+        // Rewritten links may have changed the open scene on disk.
+        if let Some(i) = self.open
+            && self.editor.text() != self.project.nodes[i].body
+        {
+            let body = self.project.nodes[i].body.clone();
+            self.editor.set_text(&body);
+        }
+        if let Some(i) = self.project.nodes.iter().position(|n| n.path == moved.target) {
+            self.reveal(i);
+        }
+        let links = match moved.links {
+            0 => String::new(),
+            1 => " · links in 1 file updated".into(),
+            n => format!(" · links in {n} files updated"),
+        };
+        self.msg = format!("moved {noun} {name} {}{links}", if up { "up" } else { "down" });
+    }
+
+    /// A drag in the tree ended on another row: move there one step at a
+    /// time, so crossing chapters works exactly as it does from the keyboard.
+    pub fn drop_tree_drag(&mut self) {
+        let Some((from, to)) = self.tree_drag.take() else { return };
+        if from == to || from >= self.visible.len() {
+            return;
+        }
+        let idx = self.visible[from];
+        if self.project.nodes[idx].kind == Kind::Divider {
+            return;
+        }
+        let up = to < from;
+        let mut path = self.project.nodes[idx].path.clone();
+        for _ in 0..40 {
+            let Some(i) = self.project.nodes.iter().position(|n| n.path == path) else { return };
+            let Some(pos) = self.visible.iter().position(|&v| v == i) else { return };
+            if (up && pos <= to) || (!up && pos >= to) {
+                return;
+            }
+            self.sel = pos;
+            self.focus = Focus::Tree;
+            self.move_selected(up);
+            // Follow the dragged thing under its new name.
+            match self.visible.get(self.sel).map(|&v| self.project.nodes[v].path.clone()) {
+                Some(p) if p != path => path = p,
+                _ => return,
+            }
+        }
+    }
+
     // ---- key handling -----------------------------------------------------
 
     pub fn on_tree_key(&mut self, key: Key) {
@@ -1122,6 +1213,8 @@ impl App {
             Key::Char('r') => self.start_rename(),
             Key::Char('d') => self.start_delete(),
             Key::Char('H') => self.open_history(),
+            Key::Char('K') => self.move_selected(true),
+            Key::Char('J') => self.move_selected(false),
             Key::Char('/') => self.open_find_book(String::new()),
             Key::Up => self.sel = self.sel.saturating_sub(1),
             Key::Down => {
@@ -1286,6 +1379,7 @@ impl App {
             self.focus = Focus::Tree;
             let row = self.tree_scroll + (y - self.rect_tree.y) as usize;
             if row < self.visible.len() {
+                self.tree_drag = Some((row, row));
                 self.sel = row;
                 let idx = self.visible[row];
                 match self.project.nodes[idx].kind {
@@ -1318,8 +1412,16 @@ impl App {
         }
     }
 
-    /// Extend the editor selection while the left button is held.
+    /// Extend the editor selection while the left button is held — or, in the
+    /// tree, track where a dragged row would land.
     pub fn on_drag(&mut self, x: u16, y: u16) {
+        if let Some((from, _)) = self.tree_drag {
+            let r = self.rect_tree;
+            let cy = y.clamp(r.y, r.y + r.height.saturating_sub(1));
+            let row = (self.tree_scroll + (cy - r.y) as usize).min(self.visible.len().saturating_sub(1));
+            self.tree_drag = Some((from, row));
+            return;
+        }
         if self.focus != Focus::Editor || self.open.is_none() {
             return;
         }

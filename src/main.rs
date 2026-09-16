@@ -355,6 +355,7 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
 
         if let Event::Mouse(m) = ev {
             match m.kind {
+                MouseEventKind::Up(MouseButton::Left) => app.drop_tree_drag(),
                 MouseEventKind::Down(MouseButton::Left) => app.on_click(m.column, m.row),
                 MouseEventKind::Drag(MouseButton::Left) => app.on_drag(m.column, m.row),
                 MouseEventKind::ScrollDown => app.on_scroll(m.column, m.row, true),
@@ -421,6 +422,17 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
         if confirm_quit {
             confirm_quit = false;
             app.msg.clear();
+        }
+
+        // Alt-↑ / Alt-↓ move the selected scene or folder (or the one being
+        // written). Terminals that keep Alt-arrows for themselves: K / J in the tree.
+        if k.modifiers.contains(KeyModifiers::ALT)
+            && matches!(k.code, KeyCode::Up | KeyCode::Down)
+            && matches!(app.overlay, Overlay::None)
+            && matches!(app.focus, Focus::Tree | Focus::Editor)
+        {
+            app.move_selected(k.code == KeyCode::Up);
+            continue;
         }
 
         let mut key = match k.code {

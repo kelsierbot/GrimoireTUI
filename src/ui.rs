@@ -171,7 +171,10 @@ fn draw_tree(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
             _ if Some(idx) == app.open => Style::default().fg(t.accent),
             _ => Style::default().fg(t.text),
         };
-        let base = if selected && focused {
+        let dragging_to = app.tree_drag.is_some_and(|(from, to)| from != to && row == to);
+        let base = if dragging_to {
+            Style::default().bg(t.sel).add_modifier(Modifier::UNDERLINED)
+        } else if selected && focused {
             Style::default().bg(t.sel)
         } else {
             Style::default()

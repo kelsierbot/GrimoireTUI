@@ -300,14 +300,6 @@ impl Editor {
         rows
     }
 
-    pub fn row_text(&self, r: VisRow) -> String {
-        self.lines[r.line]
-            .chars()
-            .skip(r.start)
-            .take(r.end - r.start)
-            .collect()
-    }
-
     /// Which visual row the cursor sits on, and its display column.
     pub fn cursor_vis(&self, rows: &[VisRow]) -> (usize, usize) {
         let mut best = 0usize;

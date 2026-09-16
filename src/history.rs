@@ -98,19 +98,30 @@ fn snapshot_at(root: &Path, scene: &Path, text: &str, gap: Option<Duration>, now
     Ok(true)
 }
 
-/// A scene moved or was renamed: its history goes with it. Folders carry
-/// everything beneath them.
-pub fn follow(root: &Path, from: &Path, to: &Path) {
-    let old = dir_for(root, from);
-    if !old.exists() {
-        return;
-    }
-    let new = dir_for(root, to);
-    if let Some(parent) = new.parent() {
-        let _ = fs::create_dir_all(parent);
-    }
-    if !new.exists() {
-        let _ = fs::rename(&old, &new);
+/// Scenes or folders moved or were renamed: their history goes with them.
+/// Several at once (a swap) go through temporary names, so two histories
+/// trading places can't land on each other.
+pub fn follow_all(root: &Path, renames: &[(PathBuf, PathBuf)]) {
+    let staged: Vec<(PathBuf, PathBuf)> = renames
+        .iter()
+        .enumerate()
+        .filter_map(|(i, (from, to))| {
+            let old = dir_for(root, from);
+            if !old.exists() {
+                return None;
+            }
+            let tmp = old.with_file_name(format!(".moving-{i}"));
+            fs::rename(&old, &tmp).ok()?;
+            Some((tmp, dir_for(root, to)))
+        })
+        .collect();
+    for (tmp, new) in staged {
+        if let Some(parent) = new.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        if !new.exists() {
+            let _ = fs::rename(&tmp, &new);
+        }
     }
 }
 
@@ -196,9 +207,11 @@ mod tests {
         let from = d.join("manuscript/01-Gravel.md");
         let to = d.join("manuscript/02-Gravel.md");
         snapshot(&d, &from, "kept", None).unwrap();
-        follow(&d, &from, &to);
-        assert!(versions(&d, &from).is_empty());
+        snapshot(&d, &to, "other", None).unwrap();
+        // A swap: each takes the other's name, and neither history is lost.
+        follow_all(&d, &[(from.clone(), to.clone()), (to.clone(), from.clone())]);
         assert_eq!(versions(&d, &to)[0].text, "kept");
+        assert_eq!(versions(&d, &from)[0].text, "other");
         fs::remove_dir_all(&d).unwrap();
     }
 
