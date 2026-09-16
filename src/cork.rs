@@ -196,8 +196,8 @@ mod tests {
     #[test]
     fn arrows_move_along_rows_and_between_chapters_by_column() {
         let g = vec![
-            Group { title: "A".into(), cards: (0..5).map(|i| card(i)).collect() },
-            Group { title: "B".into(), cards: (5..7).map(|i| card(i)).collect() },
+            Group { title: "A".into(), cards: (0..5).map(card).collect() },
+            Group { title: "B".into(), cards: (5..7).map(card).collect() },
         ];
         // cols 3: A = rows 0 [0,1,2], 1 [3,4]; B = row 2 [5,6]
         assert_eq!(step(&g, 3, 1, 0, 1), 4, "down from column 1 lands in column 1");
