@@ -208,7 +208,8 @@ fn draw_create_keys(f: &mut Frame, app: &mut App, area: Rect, focused: bool, t: 
     let sel = app.visible.get(app.sel).copied();
     let mut spans = vec![Span::raw(" ")];
     let mut x = row.x + 1;
-    for (i, &(key, word)) in create::offers(&app.project, sel).iter().enumerate() {
+    let offers = create::offers(&app.project, sel);
+    for (i, (key, word)) in offers.iter().enumerate() {
         let gap = if i > 0 { 2 } else { 0 };
         let width = 2 + word.chars().count() as u16;
         if x + gap + width > row.x + row.width {
@@ -218,7 +219,7 @@ fn draw_create_keys(f: &mut Frame, app: &mut App, area: Rect, focused: bool, t: 
         x += gap;
         spans.push(Span::styled(key.to_string(), key_style));
         spans.push(Span::styled(format!(" {word}"), word_style));
-        if let Some(want) = New::from_key(key) {
+        if let Some(want) = New::from_key(*key) {
             app.create_hits.push((Rect { x, y: row.y, width, height: 1 }, want));
         }
         x += width;
@@ -560,7 +561,7 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
         Overlay::None => {}
 
         Overlay::Menu { sel } => {
-            let items = App::MENU;
+            let items = app.menu();
             let box_area = centred(area, 42, items.len() as u16 + 4);
             f.render_widget(Clear, box_area);
             let block = pane_block("GRIMOIRE", true, t);
@@ -578,7 +579,7 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
                             Style::default().fg(if on { t.accent } else { t.dim }),
                         ),
                         Span::styled(
-                            *label,
+                            label.clone(),
                             Style::default().fg(if on { t.accent } else { t.text }),
                         ),
                     ])
@@ -753,6 +754,72 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
                 ]),
                 Line::from(""),
                 Line::from(Span::styled(keys, Style::default().fg(t.dim))),
+            ];
+            f.render_widget(Paragraph::new(lines), inner);
+        }
+
+        Overlay::Rename { buf, fresh, noun, .. } => {
+            let box_area = centred(area, 56, 7);
+            f.render_widget(Clear, box_area);
+            let title = format!("RENAME {}", noun.to_uppercase());
+            let block = pane_block(&title, true, t);
+            let inner = block.inner(box_area);
+            f.render_widget(block, box_area);
+            // The old name shows selected, because typing replaces it.
+            let (name, keys) = if *fresh {
+                (
+                    Style::default().fg(t.text).bg(t.sel),
+                    " type a new name   ↵ rename   esc cancel",
+                )
+            } else {
+                (Style::default().fg(t.text), " ↵ rename   esc cancel")
+            };
+            let lines = vec![
+                Line::from(Span::styled(
+                    " the file is renamed to match, and keeps its place".to_string(),
+                    Style::default().fg(t.dim),
+                )),
+                Line::from(""),
+                Line::from(vec![
+                    Span::styled(" ▸ ", Style::default().fg(t.accent)),
+                    Span::styled(buf.clone(), name),
+                    Span::styled("█", Style::default().fg(t.accent)),
+                ]),
+                Line::from(""),
+                Line::from(Span::styled(keys, Style::default().fg(t.dim))),
+            ];
+            f.render_widget(Paragraph::new(lines), inner);
+        }
+
+        Overlay::Confirm { name, noun, words, .. } => {
+            let box_area = centred(area, 58, 8);
+            f.render_widget(Clear, box_area);
+            let title = format!("DELETE {}", noun.to_uppercase());
+            let block = pane_block(&title, true, t);
+            let inner = block.inner(box_area);
+            f.render_widget(block, box_area);
+            let toll = match words {
+                0 => "nothing written in it yet".to_string(),
+                1 => "1 word goes with it".to_string(),
+                n => format!("{n} words go with it"),
+            };
+            let lines = vec![
+                Line::from(vec![
+                    Span::styled(" Delete ", Style::default().fg(t.text)),
+                    Span::styled(name.clone(), Style::default().fg(t.accent)),
+                    Span::styled("?", Style::default().fg(t.text)),
+                ]),
+                Line::from(""),
+                Line::from(Span::styled(format!(" {toll}"), Style::default().fg(t.warn))),
+                Line::from(Span::styled(
+                    " it moves to .grimoire/trash, so it isn't gone for good",
+                    Style::default().fg(t.dim),
+                )),
+                Line::from(""),
+                Line::from(Span::styled(
+                    " y delete   esc keep it",
+                    Style::default().fg(t.dim),
+                )),
             ];
             f.render_widget(Paragraph::new(lines), inner);
         }

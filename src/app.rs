@@ -88,6 +88,23 @@ pub enum Overlay {
         /// Still showing the suggestion untouched.
         fresh: bool,
     },
+    /// Renaming whatever the tree has selected. The current name starts
+    /// selected, so typing replaces it and ↵ keeps it.
+    Rename {
+        path: PathBuf,
+        buf: String,
+        fresh: bool,
+        /// What it is, in the book's own words: "chapter", "act", "note".
+        noun: String,
+    },
+    /// Deleting is one keypress from gone and there is no undo, so it asks —
+    /// by name, with the word count it's about to take with it.
+    Confirm {
+        path: PathBuf,
+        name: String,
+        noun: String,
+        words: usize,
+    },
     /// The music player: what's playing, the queue, playlists, and search.
     Player {
         tab: Tab,
@@ -316,13 +333,123 @@ impl App {
             }
         }
         // Say what comes next, so an empty chapter isn't a dead end.
-        let next = match plan.noun {
-            "chapter" => " · n adds a scene to it",
-            "part" => " · c adds a chapter to it",
+        let next = match plan.made {
+            New::Chapter => " · n adds a scene to it",
+            New::Part => " · c adds a chapter to it",
             _ => "",
         };
         let also = if saved > 0 { format!(" · saved {saved} first") } else { String::new() };
         self.msg = format!("made {made}{next}{also}");
+    }
+
+    // ---- renaming and deleting ---------------------------------------------
+
+    /// What the selected row is, in the book's own words.
+    fn noun_of(&self, idx: usize) -> String {
+        let n = &self.project.nodes[idx];
+        if n.kind == Kind::Divider {
+            return "heading".into();
+        }
+        if n.front_matter {
+            return if n.kind == Kind::Container { "folder".into() } else { "page".into() };
+        }
+        if !n.in_manuscript {
+            return if n.kind == Kind::Container { "folder".into() } else { "note".into() };
+        }
+        match n.kind {
+            Kind::Scene => "scene".into(),
+            _ => match manuscript::section_of(&self.project, idx) {
+                manuscript::Section::Part => self.project.meta.part_noun(),
+                _ => "chapter".into(),
+            },
+        }
+    }
+
+    /// The row the tree is on, unless it's one of the section headings.
+    fn selected_file(&mut self) -> Option<usize> {
+        let idx = self.visible.get(self.sel).copied()?;
+        if self.project.nodes[idx].kind == Kind::Divider {
+            self.msg = "that's a heading — pick what's under it".into();
+            return None;
+        }
+        Some(idx)
+    }
+
+    pub fn start_rename(&mut self) {
+        let Some(idx) = self.selected_file() else { return };
+        let n = &self.project.nodes[idx];
+        self.overlay = Overlay::Rename {
+            path: n.path.clone(),
+            buf: n.title.clone(),
+            fresh: true,
+            noun: self.noun_of(idx),
+        };
+    }
+
+    fn finish_rename(&mut self, path: PathBuf, name: String) {
+        self.flush();
+        if let Err(e) = self.project.save_all() {
+            self.msg = format!("couldn't save before renaming: {e}");
+            return;
+        }
+        let to = match project::rename(&path, &name) {
+            Ok(p) => p,
+            Err(e) => {
+                self.msg = format!("couldn't rename it: {e}");
+                return;
+            }
+        };
+        // The open scene may have just moved under us.
+        if self.open.is_some_and(|i| self.project.nodes[i].path == path) {
+            self.project.nodes[self.open.unwrap()].path = to.clone();
+        }
+        if let Err(e) = self.reload_tree() {
+            self.msg = format!("renamed, but couldn't re-read the tree: {e}");
+            return;
+        }
+        if let Some(i) = self.project.nodes.iter().position(|n| n.path == to) {
+            if let Some(pos) = self.visible.iter().position(|&v| v == i) {
+                self.sel = pos;
+            }
+            self.msg = format!("renamed to {}", self.project.nodes[i].title);
+        }
+    }
+
+    pub fn start_delete(&mut self) {
+        let Some(idx) = self.selected_file() else { return };
+        let n = &self.project.nodes[idx];
+        self.overlay = Overlay::Confirm {
+            path: n.path.clone(),
+            name: n.title.clone(),
+            noun: self.noun_of(idx),
+            words: self.project.subtree_words(idx),
+        };
+    }
+
+    fn finish_delete(&mut self, path: PathBuf, name: String) {
+        self.flush();
+        if let Err(e) = self.project.save_all() {
+            self.msg = format!("couldn't save before deleting: {e}");
+            return;
+        }
+        let root = self.project.root.clone();
+        // Close the editor if what's going is the scene it's showing, or holds it.
+        let open_path = self.open.map(|i| self.project.nodes[i].path.clone());
+        if open_path.is_some_and(|p| p.starts_with(&path)) {
+            self.open = None;
+            self.editor = Editor::from_str("");
+            self.focus = Focus::Tree;
+        }
+        match project::trash(&root, &path) {
+            Ok(_) => {
+                if let Err(e) = self.reload_tree() {
+                    self.msg = format!("deleted, but couldn't re-read the tree: {e}");
+                    return;
+                }
+                self.msg = format!("deleted {name} — it's in .grimoire/trash if you want it back");
+            }
+            Err(e) => self.msg = format!("couldn't delete it: {e}"),
+        }
     }
 
     /// Re-read the tree from disk, keeping what's folded, which scene is open,
@@ -358,6 +485,8 @@ impl App {
             Key::Char('c') => self.start_create(New::Chapter),
             Key::Char('p') => self.start_create(New::Part),
             Key::Char('N') => self.start_create(New::Folder),
+            Key::Char('r') => self.start_rename(),
+            Key::Char('d') => self.start_delete(),
             Key::Up => self.sel = self.sel.saturating_sub(1),
             Key::Down => {
                 if self.sel + 1 < self.visible.len() {
@@ -609,18 +738,25 @@ impl App {
         v
     }
 
-    pub const MENU: [&'static str; 10] = [
-        "New scene…          (n)",
-        "New chapter…        (c)",
-        "New part…           (p)",
-        "New folder…         (N)",
-        "Update project map  (project.md)",
-        "Compile manuscript",
-        "Music player…       (F7)",
-        "Music source…",
-        "Themes…",
-        "Close",
-    ];
+    /// The menu, in the book's own words — it offers a new act if that is what
+    /// this book calls its parts.
+    pub fn menu(&self) -> Vec<String> {
+        let row = |label: String, key: &str| format!("{label:<20}{key}");
+        vec![
+            row("New scene…".into(), "(n)"),
+            row("New chapter…".into(), "(c)"),
+            row(format!("New {}…", self.project.meta.part_noun()), "(p)"),
+            row("New folder…".into(), "(N)"),
+            row("Rename…".into(), "(r)"),
+            row("Delete…".into(), "(d)"),
+            row("Update project map".into(), "(project.md)"),
+            "Compile manuscript".into(),
+            row("Music player…".into(), "(F7)"),
+            "Music source…".into(),
+            "Themes…".into(),
+            "Close".into(),
+        ]
+    }
 
     pub fn open_menu(&mut self) {
         self.overlay = Overlay::Menu { sel: 0 };
@@ -666,7 +802,9 @@ impl App {
             1 => self.start_create(New::Chapter),
             2 => self.start_create(New::Part),
             3 => self.start_create(New::Folder),
-            4 => {
+            4 => self.start_rename(),
+            5 => self.start_delete(),
+            6 => {
                 self.flush_public();
                 match manuscript::write_project_file(&self.project) {
                     Ok(p) => {
@@ -679,7 +817,7 @@ impl App {
                 }
                 self.overlay = Overlay::None;
             }
-            5 => {
+            7 => {
                 self.flush_public();
                 match manuscript::compile(&self.project) {
                     Ok(c) => {
@@ -700,13 +838,13 @@ impl App {
                 }
                 self.overlay = Overlay::None;
             }
-            6 => self.open_player(),
-            7 => {
+            8 => self.open_player(),
+            9 => {
                 let cur = self.music.source;
                 let sel = music::Source::ALL.iter().position(|s| *s == cur).unwrap_or(0);
                 self.overlay = Overlay::Sources { sel };
             }
-            8 => self.open_theme_picker(),
+            10 => self.open_theme_picker(),
             _ => self.overlay = Overlay::None,
         }
     }
@@ -740,11 +878,12 @@ impl App {
     }
 
     pub fn on_overlay_key(&mut self, key: Key) {
+        let menu_len = self.menu().len();
         match &mut self.overlay {
             Overlay::None => {}
 
             Overlay::Menu { sel } => {
-                let n = App::MENU.len();
+                let n = menu_len;
                 match key {
                     Key::Down | Key::Char('j') => *sel = (*sel + 1) % n,
                     Key::Up | Key::Char('k') => *sel = (*sel + n - 1) % n,
@@ -1013,6 +1152,47 @@ impl App {
                 Key::Esc => self.overlay = Overlay::None,
                 _ => {}
             },
+
+            Overlay::Rename { path, buf, fresh, .. } => match key {
+                Key::Char(c) if !c.is_control() => {
+                    if std::mem::take(fresh) {
+                        buf.clear();
+                    }
+                    if buf.chars().count() < 60 {
+                        buf.push(c);
+                    }
+                }
+                Key::Backspace => {
+                    if std::mem::take(fresh) {
+                        buf.clear();
+                    } else {
+                        buf.pop();
+                    }
+                }
+                Key::Right | Key::End => *fresh = false,
+                Key::Enter => {
+                    let (path, name) = (path.clone(), buf.clone());
+                    self.overlay = Overlay::None;
+                    self.finish_rename(path, name);
+                }
+                Key::Esc => self.overlay = Overlay::None,
+                _ => {}
+            },
+
+            // Only `y` deletes. Enter is the fold key two rows up and the
+            // fingers know it — it must not be able to destroy a chapter.
+            Overlay::Confirm { path, name, .. } => match key {
+                Key::Char('y') | Key::Char('Y') => {
+                    let (path, name) = (path.clone(), name.clone());
+                    self.overlay = Overlay::None;
+                    self.finish_delete(path, name);
+                }
+                Key::Esc | Key::Enter | Key::Char('n') | Key::Char('N') | Key::Char('q') => {
+                    self.overlay = Overlay::None;
+                    self.msg = "kept it".into();
+                }
+                _ => {}
+            },
         }
     }
 
@@ -1026,7 +1206,10 @@ impl App {
                     .iter()
                     .map(|(k, w)| format!("{k} {w}"))
                     .collect();
-                format!("Tab pane  ↵ fold  {}  F1 menu  {m}S save  {m}Q quit ", keys.join("  "))
+                format!(
+                    "Tab pane  ↵ fold  {}  r rename  d delete  F1 menu  {m}S save  {m}Q quit ",
+                    keys.join("  ")
+                )
             }
             Focus::Editor => format!("Tab pane  Esc tree  F1 menu  {m}S save  {m}Q quit "),
             Focus::Clearing => format!("Tab pane  ←→ view  ↵ start/pause  r reset  {m}Q quit "),

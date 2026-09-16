@@ -54,9 +54,12 @@ pub fn section_of(p: &Project, idx: usize) -> Section {
     if holds(idx, Kind::Container) {
         return Section::Part;
     }
+    // A book that calls its parts Acts says "Act One" here, so the label from
+    // novel.toml counts alongside the default word.
     match n.title.to_lowercase().split_whitespace().next() {
         Some("chapter") => return Section::Chapter,
         Some("part") => return Section::Part,
+        Some(w) if w == p.meta.part_noun() => return Section::Part,
         _ => {}
     }
     let parent = n.path.parent();

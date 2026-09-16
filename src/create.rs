@@ -35,8 +35,11 @@ impl New {
 /// Everything the naming prompt needs.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Plan {
-    /// "scene", "chapter", "part", "note", "page" or "folder".
-    pub noun: &'static str,
+    /// "scene", "chapter", "act", "note", "page" or "folder" — the book's own
+    /// word, so a project that calls its parts Acts is told "new act".
+    pub noun: String,
+    /// What it turned out to be, whichever key was pressed.
+    pub made: New,
     pub folder: bool,
     /// Where it will be made.
     pub dir: PathBuf,
@@ -71,11 +74,18 @@ fn area_dir(p: &Project, a: Area) -> PathBuf {
 }
 
 /// The create keys worth showing for whatever is selected.
-pub fn offers(p: &Project, sel: Option<usize>) -> &'static [(char, &'static str)] {
+pub fn offers(p: &Project, sel: Option<usize>) -> Vec<(char, String)> {
+    let own = |v: &[(char, &str)]| -> Vec<(char, String)> {
+        v.iter().map(|&(k, w)| (k, w.to_string())).collect()
+    };
     match area(p, sel) {
-        Area::Manuscript => &[('n', "scene"), ('c', "chapter"), ('p', "part")],
-        Area::Notes => &[('n', "note"), ('N', "folder")],
-        Area::FrontMatter => &[('n', "page"), ('N', "folder")],
+        Area::Manuscript => vec![
+            ('n', "scene".into()),
+            ('c', "chapter".into()),
+            ('p', p.meta.part_noun()),
+        ],
+        Area::Notes => own(&[('n', "note"), ('N', "folder")]),
+        Area::FrontMatter => own(&[('n', "page"), ('N', "folder")]),
     }
 }
 
@@ -102,7 +112,12 @@ pub fn plan(
     };
 
     let (noun, folder, dir, name) = match want {
-        New::Part => ("part", true, ms, numbered("Part", count(p, Section::Part) + 1)),
+        New::Part => (
+            p.meta.part_noun(),
+            true,
+            ms,
+            numbered(p.meta.part_word(), count(p, Section::Part) + 1),
+        ),
         New::Chapter => {
             // Beside the selected chapter or inside the selected part. From
             // the notes, into the last part: `c` always means the manuscript.
@@ -111,7 +126,12 @@ pub fn plan(
                 Some(f) => parent_dir(&p.nodes[f].path, &ms),
                 None => last_in(p, &ms, Section::Part).map_or(ms, |i| p.nodes[i].path.clone()),
             };
-            ("chapter", true, dir, numbered("Chapter", count(p, Section::Chapter) + 1))
+                (
+                "chapter".to_string(),
+                true,
+                dir,
+                numbered("Chapter", count(p, Section::Chapter) + 1),
+            )
         }
         New::Scene => {
             let noun = match a {
@@ -136,16 +156,17 @@ pub fn plan(
                 Some(f) => p.nodes[f].path.clone(),
                 None => area_dir(p, a),
             };
-            (noun, false, dir, String::new())
+            (noun.to_string(), false, dir, String::new())
         }
         New::Folder => {
             let top = area_dir(p, a);
             let dir = here.map_or(top.clone(), |f| parent_dir(&p.nodes[f].path, &top));
-            ("folder", true, dir, String::new())
+            ("folder".to_string(), true, dir, String::new())
         }
     };
     Ok(Plan {
         noun,
+        made: want,
         folder,
         place: place(p, &dir),
         dir,
@@ -373,8 +394,37 @@ mod tests {
         let d = book("offers");
         let p = Project::load(&d).unwrap();
         let at = |t: &str| p.nodes.iter().position(|n| n.title == t);
-        assert_eq!(offers(&p, at("Opening")), &[('n', "scene"), ('c', "chapter"), ('p', "part")]);
-        assert_eq!(offers(&p, at("Example")), &[('n', "note"), ('N', "folder")]);
+        let words = |v: Vec<(char, String)>| -> Vec<(char, String)> { v };
+        assert_eq!(
+            words(offers(&p, at("Opening"))),
+            vec![
+                ('n', "scene".to_string()),
+                ('c', "chapter".to_string()),
+                ('p', "part".to_string())
+            ]
+        );
+        assert_eq!(
+            words(offers(&p, at("Example"))),
+            vec![('n', "note".to_string()), ('N', "folder".to_string())]
+        );
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    /// A book that calls its parts Acts is offered an act, and naming follows.
+    #[test]
+    fn the_part_label_is_the_books_own_word() {
+        let d = book("acts");
+        fs::write(
+            d.join("novel.toml"),
+            "title = \"Acts\"\ntarget_words = 80000\ndaily_target = 1000\npart_label = \"Act\"\n",
+        )
+        .unwrap();
+        let p = Project::load(&d).unwrap();
+        let at = |t: &str| p.nodes.iter().position(|n| n.title == t);
+        assert_eq!(offers(&p, at("Opening"))[2], ('p', "act".to_string()));
+        let plan = plan(&p, &p.parents(), at("Opening"), New::Part).unwrap();
+        assert_eq!(plan.noun, "act");
+        assert_eq!(plan.name, "Act Two");
         fs::remove_dir_all(&d).unwrap();
     }
 

@@ -24,6 +24,9 @@ pub struct ProjectMeta {
     pub draft: String,
     pub target_words: usize,
     pub daily_target: usize,
+    /// What this book calls its largest division: "Part", or "Act", or "Book".
+    /// Names new ones, and the app says it back to you everywhere.
+    pub part_label: String,
 }
 
 impl Default for ProjectMeta {
@@ -34,7 +37,21 @@ impl Default for ProjectMeta {
             draft: String::new(),
             target_words: 80_000,
             daily_target: 1_000,
+            part_label: "Part".into(),
         }
+    }
+}
+
+impl ProjectMeta {
+    /// "Act" — capitalised, for naming a new one.
+    pub fn part_word(&self) -> &str {
+        let w = self.part_label.trim();
+        if w.is_empty() { "Part" } else { w }
+    }
+
+    /// "act" — for a sentence.
+    pub fn part_noun(&self) -> String {
+        self.part_word().to_lowercase()
     }
 }
 
@@ -426,7 +443,7 @@ pub fn scaffold(root: &Path) -> Result<()> {
     write_new(
         &root.join("novel.toml"),
         &format!(
-            "title = \"{title}\"\nauthor = \"\"\ndraft = \"1\"\ntarget_words = 80000\ndaily_target = 1000\n"
+            "title = \"{title}\"\nauthor = \"\"\ndraft = \"1\"\ntarget_words = 80000\ndaily_target = 1000\n\n# What this book calls its largest division: Part, Act, Book…\npart_label = \"Part\"\n"
         ),
     )?;
 
@@ -476,6 +493,83 @@ pub fn create(dir: &Path, name: &str, folder: bool) -> Result<PathBuf> {
     )
     .with_context(|| format!("writing {}", path.display()))?;
     Ok(path)
+}
+
+/// Rename a scene or folder where it stands, keeping its leading number so
+/// nothing else in the folder shifts. A scene's frontmatter `title:` is
+/// rewritten to match, because that is the name the tree shows.
+pub fn rename(path: &Path, name: &str) -> Result<PathBuf> {
+    let name = name.trim();
+    if name.is_empty() {
+        anyhow::bail!("it needs a name");
+    }
+    let parent = path.parent().context("that has no folder to sit in")?;
+    let stem = match leading_number(path) {
+        Some(n) => format!("{:02}-{}", n, file_safe(name)),
+        None => file_safe(name),
+    };
+    let folder = path.is_dir();
+    let target = if folder {
+        parent.join(stem)
+    } else {
+        parent.join(format!("{stem}.md"))
+    };
+    if target != path {
+        if target.exists() {
+            anyhow::bail!("{} already exists", target.display());
+        }
+        fs::rename(path, &target)
+            .with_context(|| format!("renaming {}", path.display()))?;
+    }
+    if !folder {
+        let raw = fs::read_to_string(&target)
+            .with_context(|| format!("reading {}", target.display()))?;
+        if let Some(updated) = retitle(&raw, name) {
+            fs::write(&target, updated)
+                .with_context(|| format!("writing {}", target.display()))?;
+        }
+    }
+    Ok(target)
+}
+
+/// Swap the `title:` line inside a frontmatter block. `None` when there is no
+/// block or no title in it — then the filename is already the name.
+fn retitle(raw: &str, name: &str) -> Option<String> {
+    let (front, body) = split_frontmatter(raw);
+    let front = front?;
+    let mut done = false;
+    let mut out = String::new();
+    for line in front.lines() {
+        if !done && line.split_once(':').is_some_and(|(k, _)| k.trim() == "title") {
+            out.push_str(&format!("title: \"{}\"\n", name.replace('"', "'")));
+            done = true;
+        } else {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    done.then(|| format!("---\n{out}---\n\n{body}"))
+}
+
+/// Move something out of the tree rather than destroying it. `.grimoire/` is
+/// gitignored, so the trash never reaches a commit — and with no undo in the
+/// editor yet, a delete key must not be the last word. Returns where it went.
+pub fn trash(root: &Path, path: &Path) -> Result<PathBuf> {
+    let dir = root.join(".grimoire/trash");
+    fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
+    let name = path
+        .file_name()
+        .context("there is nothing there to delete")?
+        .to_string_lossy()
+        .to_string();
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let target = dir.join(format!("{stamp}-{name}"));
+    fs::rename(path, &target)
+        .with_context(|| format!("moving {} to the trash", path.display()))?;
+    Ok(target)
 }
 
 /// One more than the highest leading number among the entries in `dir`.
@@ -553,6 +647,52 @@ mod tests {
         assert_eq!(display_title(&f, None), "The Lamp's Light");
         let blank = create(&d, "   ", true).unwrap();
         assert_eq!(blank.file_name().unwrap(), "02-Untitled");
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn renaming_keeps_the_number_and_rewrites_the_title() {
+        let d = temp_dir("rename");
+        let scene = create(&d, "Opening", false).unwrap();
+        let to = rename(&scene, "The Gravel Road").unwrap();
+        assert_eq!(to.file_name().unwrap(), "01-The-Gravel-Road.md");
+        assert!(!scene.exists());
+        let raw = fs::read_to_string(&to).unwrap();
+        let (front, body) = split_frontmatter(&raw);
+        assert_eq!(display_title(&to, front.as_deref()), "The Gravel Road");
+        assert!(front.unwrap().contains("status: draft"), "the rest of the frontmatter stays");
+        assert!(body.is_empty());
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn renaming_a_folder_carries_everything_inside_it() {
+        let d = temp_dir("rename-folder");
+        let part = create(&d, "Part One", true).unwrap();
+        create(&part, "Opening", false).unwrap();
+        let to = rename(&part, "Act One").unwrap();
+        assert_eq!(to.file_name().unwrap(), "01-Act-One");
+        assert!(to.join("01-Opening.md").exists());
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn renaming_to_the_name_it_already_has_is_not_an_error() {
+        let d = temp_dir("rename-same");
+        let scene = create(&d, "Opening", false).unwrap();
+        assert_eq!(rename(&scene, "Opening").unwrap(), scene);
+        assert!(rename(&scene, "   ").is_err(), "a blank name is refused");
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn deleting_moves_it_to_the_trash_rather_than_destroying_it() {
+        let d = temp_dir("trash");
+        let scene = create(&d, "Cut This", false).unwrap();
+        let gone = trash(&d, &scene).unwrap();
+        assert!(!scene.exists());
+        assert!(gone.exists(), "it's still on disk");
+        assert!(gone.starts_with(d.join(".grimoire/trash")));
         fs::remove_dir_all(&d).unwrap();
     }
 
