@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0
 
 - **A tree in sections**: Novel Format, Manuscript, Characters, Places, Front
   Matter, Notes, Research, Template Sheets and Trash, each with its own symbol,
