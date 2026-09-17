@@ -51,6 +51,29 @@ pub enum Focus {
     Music,
 }
 
+/// What a row of the menu (or of Settings, inside it) does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MenuItem {
+    Find,
+    NewScene,
+    NewChapter,
+    NewPart,
+    NewFolder,
+    Rename,
+    Delete,
+    ProjectMap,
+    Compile,
+    Player,
+    Settings,
+    Close,
+    Themes,
+    MusicSource,
+    Music,
+    Spellcheck,
+    Icons,
+    Back,
+}
+
 /// Something done to the book's files from the tree, kept so it can be taken
 /// back.
 #[derive(Debug, Clone)]
@@ -177,6 +200,8 @@ pub enum Overlay {
     None,
     /// The main menu — the discoverable way to reach everything.
     Menu { sel: usize },
+    /// The menu's Settings, one level down: themes, music, spellcheck, icons.
+    Settings { sel: usize },
     /// Browsing presets. `restore` is put back if you press Esc.
     Themes { sel: usize, restore: Theme },
     /// Choosing where music comes from.
@@ -738,8 +763,8 @@ impl App {
                 // editor; from the editor, it's the typing.
                 if action == Action::Undo { self.undo() } else { self.redo() }
             }
-            Action::ProjectMap => self.run_menu(7),
-            Action::Compile => self.run_menu(8),
+            Action::ProjectMap => self.run_menu(MenuItem::ProjectMap),
+            Action::Compile => self.run_menu(MenuItem::Compile),
             Action::Themes => self.open_theme_picker(),
             Action::Theme(name) => {
                 if let Some(th) = theme::presets().into_iter().find(|t| t.name == name) {
@@ -750,7 +775,7 @@ impl App {
             }
             Action::MusicToggle => self.set_music(!self.music.enabled),
             Action::MusicPlayer => self.on_function_key(7),
-            Action::MusicSource => self.run_menu(10),
+            Action::MusicSource => self.run_menu(MenuItem::MusicSource),
             Action::PlayPause => self.on_function_key(5),
             Action::NextTrack => self.on_function_key(6),
             Action::PrevTrack => self.on_function_key(4),
@@ -2422,27 +2447,36 @@ impl App {
     }
 
     /// The menu, in the book's own words — it offers a new act if that is what
-    /// this book calls its parts.
-    pub fn menu(&self) -> Vec<String> {
+    /// this book calls its parts. Preferences live one level down, in Settings.
+    pub fn menu(&self) -> Vec<(String, MenuItem)> {
         let row = |label: String, key: &str| format!("{label:<20}{key}");
-        let music = if self.music.enabled { "Turn music off" } else { "Turn music on" };
         let m = self.mod_label();
         vec![
-            row("Find anything…".into(), &format!("({m}K)")),
-            row("New scene…".into(), "(n)"),
-            row("New chapter…".into(), "(c)"),
-            row(format!("New {}…", self.project.meta.part_noun()), "(p)"),
-            row("New folder…".into(), "(N)"),
-            row("Rename…".into(), "(r)"),
-            row("Delete…".into(), "(d)"),
-            row("Update project map".into(), "(project.md)"),
-            "Compile manuscript".into(),
-            row("Music player…".into(), "(F7)"),
-            "Music source…".into(),
-            music.into(),
-            if self.icons_on { "Turn tree icons off" } else { "Turn tree icons on" }.into(),
-            "Themes…".into(),
-            "Close".into(),
+            (row("Find anything…".into(), &format!("({m}K)")), MenuItem::Find),
+            (row("New scene…".into(), "(n)"), MenuItem::NewScene),
+            (row("New chapter…".into(), "(c)"), MenuItem::NewChapter),
+            (row(format!("New {}…", self.project.meta.part_noun()), "(p)"), MenuItem::NewPart),
+            (row("New folder…".into(), "(N)"), MenuItem::NewFolder),
+            (row("Rename…".into(), "(r)"), MenuItem::Rename),
+            (row("Delete…".into(), "(d)"), MenuItem::Delete),
+            (row("Update project map".into(), "(project.md)"), MenuItem::ProjectMap),
+            ("Compile manuscript".into(), MenuItem::Compile),
+            (row("Music player…".into(), "(F7)"), MenuItem::Player),
+            ("Settings…".into(), MenuItem::Settings),
+            ("Close".into(), MenuItem::Close),
+        ]
+    }
+
+    /// How Grimoire looks and sounds: the menu's Settings, nested.
+    pub fn settings_menu(&self) -> Vec<(String, MenuItem)> {
+        let on_off = |on: bool, what: &str| format!("Turn {what} {}", if on { "off" } else { "on" });
+        vec![
+            ("Themes…".into(), MenuItem::Themes),
+            ("Music source…".into(), MenuItem::MusicSource),
+            (on_off(self.music.enabled, "music"), MenuItem::Music),
+            (on_off(self.spell_on, "spellcheck"), MenuItem::Spellcheck),
+            (on_off(self.icons_on, "tree icons"), MenuItem::Icons),
+            ("Back".into(), MenuItem::Back),
         ]
     }
 
@@ -2484,21 +2518,16 @@ impl App {
         }
     }
 
-    fn run_menu(&mut self, i: usize) {
-        // Row 0 is the palette; everything else keeps its old number.
-        if i == 0 {
-            self.open_palette();
-            return;
-        }
-        let i = i - 1;
-        match i {
-            0 => self.start_create(New::Scene),
-            1 => self.start_create(New::Chapter),
-            2 => self.start_create(New::Part),
-            3 => self.start_create(New::Folder),
-            4 => self.start_rename(),
-            5 => self.start_delete(),
-            6 => {
+    fn run_menu(&mut self, item: MenuItem) {
+        match item {
+            MenuItem::Find => self.open_palette(),
+            MenuItem::NewScene => self.start_create(New::Scene),
+            MenuItem::NewChapter => self.start_create(New::Chapter),
+            MenuItem::NewPart => self.start_create(New::Part),
+            MenuItem::NewFolder => self.start_create(New::Folder),
+            MenuItem::Rename => self.start_rename(),
+            MenuItem::Delete => self.start_delete(),
+            MenuItem::ProjectMap => {
                 self.flush_public();
                 match manuscript::write_project_file(&self.project) {
                     Ok(p) => {
@@ -2511,7 +2540,7 @@ impl App {
                 }
                 self.overlay = Overlay::None;
             }
-            7 => {
+            MenuItem::Compile => {
                 self.flush_public();
                 match manuscript::compile(&self.project) {
                     Ok(c) => {
@@ -2532,26 +2561,27 @@ impl App {
                 }
                 self.overlay = Overlay::None;
             }
-            8 if !self.music.enabled => {
+            MenuItem::Player if !self.music.enabled => {
                 self.overlay = Overlay::None;
                 self.msg = "music is off — turn it on first".into();
             }
-            8 => self.open_player(),
-            9 => {
+            MenuItem::Player => self.open_player(),
+            MenuItem::Settings => self.overlay = Overlay::Settings { sel: 0 },
+            MenuItem::MusicSource => {
                 let cur = self.music.source;
                 let sel = music::Source::ALL.iter().position(|s| *s == cur).unwrap_or(0);
                 self.overlay = Overlay::Sources { sel };
             }
-            10 => {
-                self.overlay = Overlay::None;
-                self.set_music(!self.music.enabled);
+            // Toggles stay in Settings, so the change shows on its row.
+            MenuItem::Music => self.set_music(!self.music.enabled),
+            MenuItem::Spellcheck => self.toggle_spellcheck(),
+            MenuItem::Icons => self.toggle_icons(),
+            MenuItem::Themes => self.open_theme_picker(),
+            MenuItem::Back => {
+                let sel = self.menu().iter().position(|(_, i)| *i == MenuItem::Settings).unwrap_or(0);
+                self.overlay = Overlay::Menu { sel };
             }
-            11 => {
-                self.overlay = Overlay::None;
-                self.toggle_icons();
-            }
-            12 => self.open_theme_picker(),
-            _ => self.overlay = Overlay::None,
+            MenuItem::Close => self.overlay = Overlay::None,
         }
     }
 
@@ -2606,7 +2636,9 @@ impl App {
     }
 
     pub fn on_overlay_key(&mut self, key: Key) {
-        let menu_len = self.menu().len();
+        let menu_items: Vec<MenuItem> = self.menu().into_iter().map(|(_, i)| i).collect();
+        let settings_items: Vec<MenuItem> = self.settings_menu().into_iter().map(|(_, i)| i).collect();
+        let nested = matches!(self.overlay, Overlay::Settings { .. });
         match &mut self.overlay {
             Overlay::None => {}
 
@@ -2971,15 +3003,17 @@ impl App {
                 _ => {}
             },
 
-            Overlay::Menu { sel } => {
-                let n = menu_len;
+            Overlay::Menu { sel } | Overlay::Settings { sel } => {
+                let items = if nested { &settings_items } else { &menu_items };
+                let n = items.len();
                 match key {
                     Key::Down | Key::Char('j') => *sel = (*sel + 1) % n,
                     Key::Up | Key::Char('k') => *sel = (*sel + n - 1) % n,
-                    Key::Enter | Key::Char(' ') => {
-                        let i = *sel;
-                        self.run_menu(i);
+                    Key::Enter | Key::Char(' ') | Key::Right | Key::Char('l') => {
+                        let item = items[*sel];
+                        self.run_menu(item);
                     }
+                    Key::Esc | Key::Left | Key::Char('h') if nested => self.run_menu(MenuItem::Back),
                     Key::Esc => self.overlay = Overlay::None,
                     _ => {}
                 }

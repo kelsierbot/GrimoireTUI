@@ -1393,11 +1393,13 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             f.render_widget(Paragraph::new(lines), diff_area);
         }
 
-        Overlay::Menu { sel } => {
-            let items = app.menu();
+        Overlay::Menu { sel } | Overlay::Settings { sel } => {
+            let nested = matches!(app.overlay, Overlay::Settings { .. });
+            let items: Vec<String> =
+                if nested { app.settings_menu() } else { app.menu() }.into_iter().map(|(label, _)| label).collect();
             let box_area = centred(area, 42, items.len() as u16 + 4);
             f.render_widget(Clear, box_area);
-            let block = pane_block("GRIMOIRE", true, t);
+            let block = pane_block(if nested { "GRIMOIRE › SETTINGS" } else { "GRIMOIRE" }, true, t);
             let inner = block.inner(box_area);
             f.render_widget(block, box_area);
 
@@ -1424,7 +1426,7 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
                 })
                 .collect();
             lines.push(Line::from(""));
-            lines.push(hint_line(" j/k move   ↵ choose   esc close", t));
+            lines.push(hint_line(if nested { " j/k move   ↵ choose   esc back" } else { " j/k move   ↵ choose   esc close" }, t));
             f.render_widget(Paragraph::new(lines), inner);
         }
 

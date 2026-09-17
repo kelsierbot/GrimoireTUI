@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.2
+
+- **Everything in the tree moves**: drag a section, or press `K`/`J` on it, to
+  reorder the sections (saved in `novel.toml`; the trash stays last). Notes
+  without a number in their filename can be moved too — the folder is numbered
+  on the first move. All of it undoes with `Ctrl-Z`.
+- **A shorter menu**: themes, music source, music, spellcheck and tree icons
+  are in `F1` → **Settings…**, which opens a menu of its own.
+
 ## 0.3.1
 
 - **Undo in the tree**: `Ctrl-Z` outside the editor takes back a delete,
