@@ -45,6 +45,7 @@ every download is on the [releases page](https://github.com/kelsierbot/GrimoireT
 
 ```sh
 brew tap kelsierbot/tap
+brew trust kelsierbot/tap
 brew install grimoire
 ```
 
