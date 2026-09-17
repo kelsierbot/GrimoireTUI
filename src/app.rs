@@ -93,6 +93,9 @@ pub struct App {
     /// Where the create keys on the tree's bottom edge were drawn, so a
     /// click on one does what pressing it would.
     pub create_hits: Vec<(Rect, New)>,
+    /// Where the view switcher on the scene pane's bottom edge was drawn:
+    /// each view's name, and the arrows either side.
+    pub view_hits: Vec<(Rect, Mode)>,
     pub theme: Theme,
     pub overlay: Overlay,
     /// Autosave bookkeeping: the last keystroke that changed text, when the
@@ -363,6 +366,7 @@ impl App {
             rect_scene: Rect::default(),
             rect_music: Rect::default(),
             create_hits: Vec::new(),
+            view_hits: Vec::new(),
             theme: theme::load(),
             overlay: Overlay::None,
             last_edit: None,
@@ -2038,7 +2042,14 @@ impl App {
     /// A left click focuses the pane under the pointer and acts on it.
     pub fn on_click(&mut self, x: u16, y: u16) {
         let clicked = self.create_hits.iter().find(|(r, _)| hit(*r, x, y)).map(|&(_, w)| w);
-        if let Some(want) = clicked {
+        let view = self.view_hits.iter().find(|(r, _)| hit(*r, x, y)).map(|&(_, m)| m);
+        if let Some(mode) = view {
+            if self.focus == Focus::Editor {
+                self.flush();
+            }
+            self.focus = Focus::Clearing;
+            self.pane_mode = mode;
+        } else if let Some(want) = clicked {
             if self.focus == Focus::Editor {
                 self.flush();
             }

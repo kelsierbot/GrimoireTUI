@@ -59,6 +59,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     app.scene_visible = scene_area.height > 0;
     app.music_visible = music_area.height > 0;
     app.rect_scene = Rect::default();
+    app.view_hits.clear();
     app.rect_music = Rect::default();
 
     draw_tree(f, app, tree_area, &t);
@@ -82,6 +83,63 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     if !matches!(app.overlay, Overlay::None) {
         draw_overlay(f, app, f.area(), &t);
     }
+}
+
+/// How a key looks in a popup's footer: lit, so it stands out from what it does.
+fn key_style(t: &Theme) -> Style {
+    Style::default().fg(t.accent).add_modifier(Modifier::BOLD)
+}
+
+/// A popup footer like " y delete   esc keep it", its keys lit and the rest dim.
+fn hint_line(text: &str, t: &Theme) -> Line<'static> {
+    Line::from(hint_spans(text, t))
+}
+
+fn hint_spans(text: &str, t: &Theme) -> Vec<Span<'static>> {
+    let dim = Style::default().fg(t.dim);
+    hint_parts(text)
+        .into_iter()
+        .map(|(part, key)| Span::styled(part, if key { key_style(t) } else { dim }))
+        .collect()
+}
+
+/// Split a footer into (text, is it a key). Hints are separated by two or
+/// more spaces or " · ", and each starts with its key — "↵ choose",
+/// "PgUp PgDn scroll", "any other key cancels" — unless it's typing ("type a
+/// name"), which has none.
+fn hint_parts(text: &str) -> Vec<(String, bool)> {
+    let mut out = Vec::new();
+    let mut rest = text;
+    while !rest.is_empty() {
+        let gap = if rest.starts_with(" · ") {
+            " · ".len()
+        } else {
+            rest.len() - rest.trim_start_matches(' ').len()
+        };
+        if gap > 0 {
+            out.push((rest[..gap].to_string(), false));
+            rest = &rest[gap..];
+            continue;
+        }
+        let end = [rest.find("  "), rest.find(" · ")].into_iter().flatten().min().unwrap_or(rest.len());
+        let hint = &rest[..end];
+        let key = if hint == "type" || hint.starts_with("type ") {
+            0
+        } else {
+            ["any other key", "any key", "PgUp PgDn", "[ ]"]
+                .into_iter()
+                .find(|k| hint.starts_with(k))
+                .map_or_else(|| hint.find(' ').unwrap_or(hint.len()), str::len)
+        };
+        if key > 0 {
+            out.push((hint[..key].to_string(), true));
+        }
+        if key < hint.len() {
+            out.push((hint[key..].to_string(), false));
+        }
+        rest = &rest[end..];
+    }
+    out
 }
 
 fn pane_block<'a>(title: &'a str, focused: bool, t: &Theme) -> Block<'a> {
@@ -291,9 +349,8 @@ fn draw_scene(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
             let glint = app
                 .growth_changed
                 .is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(2));
-            let next = scene::WORDS_PER_STEP - today % scene::WORDS_PER_STEP;
             (
-                format!("today · {today} · next in {next}"),
+                format!("word garden · {today} today"),
                 scene::render_growth(today, target, glint, app.frame),
             )
         }
@@ -351,6 +408,70 @@ fn draw_scene(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
         .collect();
 
     f.render_widget(Paragraph::new(lines), inner);
+    draw_view_switch(f, app, area, focused, t);
+}
+
+/// The view switcher, on the scene pane's bottom edge: "◂ clearing spectrum
+/// garden ▸", the current view lit. It says ←/→ has somewhere to go, and
+/// clicking a name or an arrow goes there.
+fn draw_view_switch(f: &mut Frame, app: &mut App, area: Rect, focused: bool, t: &Theme) {
+    if area.height < 3 || area.width < 4 {
+        return;
+    }
+    let row = Rect { x: area.x + 1, y: area.y + area.height - 1, width: area.width - 2, height: 1 };
+    let (items, spans) = view_switch(app.pane_mode, row.width);
+    let arrow = Style::default().fg(if focused { t.accent } else { t.dim });
+    let lit = Style::default()
+        .fg(if focused { t.accent } else { t.text })
+        .add_modifier(Modifier::BOLD);
+    let styled: Vec<Span> = spans
+        .into_iter()
+        .map(|(text, kind)| match kind {
+            Piece::Arrow => Span::styled(text, arrow),
+            Piece::Current => Span::styled(text, lit),
+            Piece::Other => Span::styled(text, Style::default().fg(t.dim)),
+            Piece::Gap => Span::raw(text),
+        })
+        .collect();
+    for (x, width, mode) in items {
+        app.view_hits.push((Rect { x: row.x + x, y: row.y, width, height: 1 }, mode));
+    }
+    f.render_widget(Paragraph::new(Line::from(styled)), row);
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Piece {
+    Arrow,
+    Current,
+    Other,
+    Gap,
+}
+
+/// Lay out the switcher in `width` cells: the pieces to draw, and each
+/// clickable one's (offset, width, view). Names drop from the right before
+/// they'd run into the corner; the arrows always stay.
+fn view_switch(current: Mode, width: u16) -> (Vec<(u16, u16, Mode)>, Vec<(String, Piece)>) {
+    let mut hits = vec![(0, 1, current.prev())];
+    let mut spans = vec![("◂".to_string(), Piece::Arrow)];
+    let mut x = 1u16;
+    for mode in Mode::ALL {
+        let w = mode.name().chars().count() as u16;
+        // A space before the name, and room left for " ▸".
+        if x + 1 + w + 2 > width {
+            break;
+        }
+        spans.push((" ".into(), Piece::Gap));
+        let kind = if mode == current { Piece::Current } else { Piece::Other };
+        spans.push((mode.name().into(), kind));
+        hits.push((x + 1, w, mode));
+        x += 1 + w;
+    }
+    if x + 2 <= width {
+        spans.push((" ".into(), Piece::Gap));
+        spans.push(("▸".into(), Piece::Arrow));
+        hits.push((x + 1, 1, current.next()));
+    }
+    (hits, spans)
 }
 
 /// Mix two truecolour colours, `f` of the way from `a` to `b`. Anything that
@@ -736,7 +857,7 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             while lines.len() < rows + 2 {
                 lines.push(Line::from(""));
             }
-            lines.push(Line::from(Span::styled(" type to search   ↑↓ choose   ↵ do it   esc close", dim)));
+            lines.push(hint_line(" type to search   ↑↓ choose   ↵ do it   esc close", t));
             f.render_widget(Paragraph::new(lines), inner);
         }
 
@@ -754,7 +875,6 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             let block = Block::default().borders(Borders::TOP | Borders::BOTTOM).border_style(Style::default().fg(t.accent));
             let inner = block.inner(bar);
             f.render_widget(block, bar);
-            let dim = Style::default().fg(t.dim);
             let field = |label: &str, text: &str, active: bool| {
                 vec![
                     Span::styled(format!(" {label:>7} ▸ "), Style::default().fg(if active { t.accent } else { t.dim })),
@@ -766,11 +886,11 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             let mut first = field("find", query, !*on_with);
             let pos = app.find_position(query);
             first.push(Span::styled(format!("  {pos}"), Style::default().fg(if pos == "no matches" { t.warn } else { t.sun })));
-            first.push(Span::styled(format!("   ↵ next  ↑ previous  Tab replace  {m}F whole book  esc close"), dim));
+            first.extend(hint_spans(&format!("   ↵ next  ↑ previous  Tab replace  {m}F whole book  esc close"), t));
             let mut lines = vec![Line::from(first)];
             if let Some(w) = with {
                 let mut second = field("replace", w, *on_with);
-                second.push(Span::styled(format!("   ↵ replace this one  {m}R replace all in this scene"), dim));
+                second.extend(hint_spans(&format!("   ↵ replace this one  {m}R replace all in this scene"), t));
                 lines.push(Line::from(second));
             }
             f.render_widget(Paragraph::new(lines), inner);
@@ -845,7 +965,7 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             let sel_row = rows.iter().position(|(i, _)| *i == Some(*sel)).unwrap_or(0);
             let start = sel_row.saturating_sub(room.saturating_sub(2));
             if query.is_empty() {
-                lines.push(Line::from(Span::styled(" type to search every scene and note", dim)));
+                lines.push(hint_line(" type to search every scene and note", t));
             } else if hits.is_empty() {
                 lines.push(Line::from(Span::styled(" nothing found", dim)));
             }
@@ -855,17 +975,20 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             }
             let m = app.mod_label();
             lines.push(if *confirm {
-                Line::from(vec![
-                    Span::styled(
-                        format!(" Replace {} match{} in {} scene{} with “{}”? ", hits.len(), if hits.len() == 1 { "" } else { "es" }, scenes, if scenes == 1 { "" } else { "s" }, with.clone().unwrap_or_default()),
-                        Style::default().fg(t.warn),
-                    ),
-                    Span::styled("y replace   any other key cancels", Style::default().fg(t.text)),
-                ])
+                Line::from(
+                    [
+                        vec![Span::styled(
+                            format!(" Replace {} match{} in {} scene{} with “{}”? ", hits.len(), if hits.len() == 1 { "" } else { "es" }, scenes, if scenes == 1 { "" } else { "s" }, with.clone().unwrap_or_default()),
+                            Style::default().fg(t.warn),
+                        )],
+                        hint_spans("y replace   any other key cancels", t),
+                    ]
+                    .concat(),
+                )
             } else if with.is_some() {
-                Line::from(Span::styled(format!(" ↑↓ choose   ↵ go to it   Tab switch field   ↵ in replace (or {m}R) replaces all   esc close"), dim))
+                hint_line(&format!(" ↑↓ choose   ↵ go to it   Tab switch field   ↵ in replace (or {m}R) replaces all   esc close"), t)
             } else {
-                Line::from(Span::styled(" ↑↓ choose   ↵ go to it   Tab replace   esc close", dim))
+                hint_line(" ↑↓ choose   ↵ go to it   Tab replace   esc close", t)
             });
             f.render_widget(Paragraph::new(lines), inner);
         }
@@ -889,7 +1012,8 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
                 Line::from(vec![
                     Span::styled(" y ", Style::default().fg(t.accent).add_modifier(Modifier::BOLD)),
                     Span::styled("turn it on for this book   ", text),
-                    Span::styled("any other key: not now", dim),
+                    Span::styled("any other key", key_style(t)),
+                    Span::styled(": not now", dim),
                 ]),
             ];
             f.render_widget(Paragraph::new(lines), inner);
@@ -933,7 +1057,7 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
                     while lines.len() < (inner.height as usize).saturating_sub(1) {
                         lines.push(Line::from(""));
                     }
-                    lines.push(Line::from(Span::styled(" ↑↓ choose   ↵ what changed that session   s save this session now   esc close", dim)));
+                    lines.push(hint_line(" ↑↓ choose   ↵ what changed that session   s save this session now   esc close", t));
                 }
                 Some((which, items, csel)) => {
                     let s = &list[*which];
@@ -967,7 +1091,7 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
                     while lines.len() < (inner.height as usize).saturating_sub(1) {
                         lines.push(Line::from(""));
                     }
-                    lines.push(Line::from(Span::styled(" ↑↓ choose   ↵ see the changes   esc back to sessions", dim)));
+                    lines.push(hint_line(" ↑↓ choose   ↵ see the changes   esc back to sessions", t));
                 }
             }
             f.render_widget(Paragraph::new(lines), inner);
@@ -997,7 +1121,7 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             while lines.len() < (inner.height as usize).saturating_sub(1) {
                 lines.push(Line::from(""));
             }
-            lines.push(Line::from(Span::styled("↑↓ scroll   any other key: back to sessions", dim)));
+            lines.push(hint_line("↑↓ scroll   any other key: back to sessions", t));
             f.render_widget(Paragraph::new(lines), inner);
         }
 
@@ -1018,7 +1142,7 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
                 while lines.len() < (inner.height as usize).saturating_sub(1) {
                     lines.push(Line::from(""));
                 }
-                lines.push(Line::from(Span::styled(" any key closes", dim)));
+                lines.push(hint_line(" any key closes", t));
                 f.render_widget(Paragraph::new(lines), inner);
                 return;
             }
@@ -1054,7 +1178,7 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             while lines.len() < (inner.height as usize).saturating_sub(1) {
                 lines.push(Line::from(""));
             }
-            lines.push(Line::from(Span::styled(" ↑↓ choose   space/↵ tick   x export   esc close", dim)));
+            lines.push(hint_line(" ↑↓ choose   space/↵ tick   x export   esc close", t));
             f.render_widget(Paragraph::new(lines), inner);
         }
 
@@ -1093,7 +1217,7 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             lines.push(Line::from(""));
             row(suggestions.len(), "add to this book's dictionary".into(), "a".into(), &mut lines);
             row(suggestions.len() + 1, "leave it".into(), "esc".into(), &mut lines);
-            lines.push(Line::from(Span::styled(" ↵ choose   F8 skip to the next", dim)));
+            lines.push(hint_line(" ↵ choose   F8 skip to the next", t));
             f.render_widget(Paragraph::new(lines), inner);
         }
 
@@ -1135,7 +1259,7 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             while lines.len() < (inner.height as usize).saturating_sub(1) {
                 lines.push(Line::from(""));
             }
-            lines.push(Line::from(Span::styled(" ↑↓ choose   ↵ go to the first one   f fix them all   esc close", dim)));
+            lines.push(hint_line(" ↑↓ choose   ↵ go to the first one   f fix them all   esc close", t));
             f.render_widget(Paragraph::new(lines), inner);
         }
 
@@ -1187,7 +1311,8 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
                 Span::styled("restore them   ", Style::default().fg(t.text)),
                 Span::styled("n ", Style::default().fg(t.accent).add_modifier(Modifier::BOLD)),
                 Span::styled("keep the saved versions   ", Style::default().fg(t.text)),
-                Span::styled("esc decide later", dim),
+                Span::styled("esc", key_style(t)),
+                Span::styled(" decide later", dim),
             ]));
             f.render_widget(Paragraph::new(lines), inner);
         }
@@ -1268,10 +1393,7 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             while lines.len() < (diff_area.height as usize).saturating_sub(1) {
                 lines.push(Line::from(""));
             }
-            lines.push(Line::from(Span::styled(
-                "↑↓ pick a version   PgUp PgDn scroll   ↵ restore it   esc close",
-                dim,
-            )));
+            lines.push(hint_line("↑↓ pick a version   PgUp PgDn scroll   ↵ restore it   esc close", t));
             f.render_widget(Paragraph::new(lines), diff_area);
         }
 
@@ -1306,10 +1428,7 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
                 })
                 .collect();
             lines.push(Line::from(""));
-            lines.push(Line::from(Span::styled(
-                " j/k move   ↵ choose   esc close",
-                Style::default().fg(t.dim),
-            )));
+            lines.push(hint_line(" j/k move   ↵ choose   esc close", t));
             f.render_widget(Paragraph::new(lines), inner);
         }
 
@@ -1368,7 +1487,9 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
                 Span::styled("PLAYLISTS", style(Tab::Playlists)),
                 Span::raw("    "),
                 Span::styled("SEARCH", style(Tab::Search)),
-                Span::styled("    tab switches", dim),
+                Span::raw("    "),
+                Span::styled("tab", key_style(t)),
+                Span::styled(" switches", dim),
             ]));
             let prompt = |label: &str, buf: &str| {
                 Line::from(vec![
@@ -1439,7 +1560,7 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
                 Tab::Playlists => " ↵ play playlist   a play it next   / find playlists   ↑↓ choose   tab search",
                 Tab::Search => " / search   ↵ play now   a play next   ↑↓ choose   tab queue",
             };
-            lines.extend([keys, controls].map(|k| Line::from(Span::styled(k, dim))));
+            lines.extend([keys, controls].map(|k| hint_line(k, t)));
             f.render_widget(Paragraph::new(lines), inner);
         }
 
@@ -1468,7 +1589,7 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
                     Span::styled("█", Style::default().fg(t.accent)),
                 ]),
                 Line::from(""),
-                Line::from(Span::styled(keys, Style::default().fg(t.dim))),
+                hint_line(keys, t),
             ];
             f.render_widget(Paragraph::new(lines), inner);
         }
@@ -1501,7 +1622,7 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
                     Span::styled("█", Style::default().fg(t.accent)),
                 ]),
                 Line::from(""),
-                Line::from(Span::styled(keys, Style::default().fg(t.dim))),
+                hint_line(keys, t),
             ];
             f.render_widget(Paragraph::new(lines), inner);
         }
@@ -1535,10 +1656,7 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
                     Style::default().fg(if *permanent { t.warn } else { t.dim }),
                 )),
                 Line::from(""),
-                Line::from(Span::styled(
-                    " y delete   esc keep it",
-                    Style::default().fg(t.dim),
-                )),
+                hint_line(" y delete   esc keep it", t),
             ];
             f.render_widget(Paragraph::new(lines), inner);
         }
@@ -1580,10 +1698,7 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
                 })
                 .collect();
             lines.push(Line::from(""));
-            lines.push(Line::from(Span::styled(
-                " j/k move   ↵ choose   esc close",
-                Style::default().fg(t.dim),
-            )));
+            lines.push(hint_line(" j/k move   ↵ choose   esc close", t));
             f.render_widget(Paragraph::new(lines), inner);
         }
 
@@ -1618,10 +1733,7 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
                 })
                 .collect();
             lines.push(Line::from(""));
-            lines.push(Line::from(Span::styled(
-                " j/k preview   ↵ apply   esc cancel",
-                Style::default().fg(t.dim),
-            )));
+            lines.push(hint_line(" j/k preview   ↵ apply   esc cancel", t));
             f.render_widget(Paragraph::new(lines), inner);
         }
         Overlay::Custom { field, buf } => {
@@ -1662,10 +1774,7 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
                 })
                 .collect();
             lines.push(Line::from(""));
-            lines.push(Line::from(Span::styled(
-                " type hex · ↵ next · esc save & close",
-                Style::default().fg(t.dim),
-            )));
+            lines.push(hint_line(" type hex · ↵ next · esc save & close", t));
             f.render_widget(Paragraph::new(lines), inner);
         }
     }
@@ -1826,7 +1935,7 @@ fn draw_cork(
             if cork::parts(&app.project).len() > 1 { "   [ ] other acts" } else { "" }
         )
     };
-    f.render_widget(Paragraph::new(Line::from(Span::styled(keys, dim))), Rect { x: inner.x, y: inner.y + inner.height.saturating_sub(1), width: inner.width, height: 1 });
+    f.render_widget(Paragraph::new(hint_line(&keys, t)), Rect { x: inner.x, y: inner.y + inner.height.saturating_sub(1), width: inner.width, height: 1 });
 }
 
 /// Greedy word wrap for short card text.
@@ -1989,5 +2098,54 @@ mod tests {
         assert_eq!(fit_hints(hints, 100), "Tab pane  ↵ fold  n scene  c chapter  F1 menu");
         assert_eq!(fit_hints(hints, 30), "Tab pane  ↵ fold  n scene");
         assert_eq!(fit_hints(hints, 5), "");
+    }
+
+    #[test]
+    fn popup_footers_light_their_keys() {
+        let keys = |text: &str| -> Vec<String> {
+            let parts = hint_parts(text);
+            assert_eq!(parts.iter().map(|(p, _)| p.as_str()).collect::<String>(), text);
+            parts.into_iter().filter(|(_, k)| *k).map(|(p, _)| p).collect()
+        };
+        assert_eq!(keys(" y delete   esc keep it"), ["y", "esc"]);
+        assert_eq!(keys(" type a name   ↵ create   esc cancel"), ["↵", "esc"]);
+        assert_eq!(keys("↑↓ pick a version   PgUp PgDn scroll   ↵ restore it"), ["↑↓", "PgUp PgDn", "↵"]);
+        assert_eq!(keys("↑↓ scroll   any other key: back to sessions"), ["↑↓", "any other key"]);
+        assert_eq!(keys(" type hex · ↵ next · esc save & close"), ["↵", "esc"]);
+        assert_eq!(keys(" space pause  ←→ seek 10s  [ ] prev/next  +/- volume"), ["space", "←→", "[ ]", "+/-"]);
+        assert_eq!(keys("   ↵ next  ↑ previous  Tab replace  ⌘F whole book"), ["↵", "↑", "Tab", "⌘F"]);
+    }
+
+    #[test]
+    fn the_view_switcher_names_every_view_inside_the_scene_pane() {
+        let inner = LEFT_W - 2;
+        let (hits, spans) = view_switch(Mode::Growth, inner);
+        let text: String = spans.iter().map(|(s, _)| s.as_str()).collect();
+        assert_eq!(text, "◂ clearing spectrum garden ▸");
+        assert!(text.chars().count() as u16 <= inner);
+        let lit: Vec<&str> =
+            spans.iter().filter(|(_, k)| *k == Piece::Current).map(|(s, _)| s.as_str()).collect();
+        assert_eq!(lit, ["garden"]);
+        // Arrows step from the current view; each name goes to itself.
+        let at = |x: u16| hits.iter().find(|(o, w, _)| x >= *o && x < o + w).map(|h| h.2);
+        assert_eq!(at(0), Some(Mode::Spectrum));
+        assert_eq!(at(2), Some(Mode::Clearing));
+        assert_eq!(at(11), Some(Mode::Spectrum));
+        assert_eq!(at(20), Some(Mode::Growth));
+        assert_eq!(at(27), Some(Mode::Clearing));
+        assert_eq!(at(1), None);
+    }
+
+    #[test]
+    fn a_narrow_switcher_drops_names_but_keeps_its_arrows() {
+        let (_, spans) = view_switch(Mode::Clearing, 14);
+        let text: String = spans.iter().map(|(s, _)| s.as_str()).collect();
+        assert_eq!(text, "◂ clearing ▸");
+    }
+
+    #[test]
+    fn the_garden_title_fits_its_pane() {
+        let title = format!("word garden · {} today", 99_999);
+        assert!(title.chars().count() as u16 + 2 <= LEFT_W - 2);
     }
 }

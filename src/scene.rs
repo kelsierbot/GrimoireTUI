@@ -355,6 +355,17 @@ impl Mode {
     pub fn prev(self) -> Mode {
         self.next().next()
     }
+
+    pub const ALL: [Mode; 3] = [Mode::Clearing, Mode::Spectrum, Mode::Growth];
+
+    /// The name the switcher on the pane's bottom edge gives this view.
+    pub fn name(self) -> &'static str {
+        match self {
+            Mode::Clearing => "clearing",
+            Mode::Spectrum => "spectrum",
+            Mode::Growth => "garden",
+        }
+    }
 }
 
 /// Partial blocks, zero to seven eighths of a cell, so a bar can end mid-row.
