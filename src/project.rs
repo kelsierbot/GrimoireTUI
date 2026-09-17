@@ -31,6 +31,9 @@ pub struct ProjectMeta {
     /// What this book calls its largest division: "Page", or "Act", or "Book".
     /// Names new ones, and the app says it back to you everywhere.
     pub part_label: String,
+    /// The order of the tree's sections, by [`Area::key`], when it's been
+    /// rearranged. Missing ones follow in the usual order; the trash is last.
+    pub sections: Vec<String>,
 }
 
 impl Default for ProjectMeta {
@@ -42,6 +45,7 @@ impl Default for ProjectMeta {
             target_words: 80_000,
             daily_target: 1_000,
             part_label: "Page".into(),
+            sections: Vec::new(),
         }
     }
 }
@@ -95,6 +99,43 @@ impl Area {
         Area::Templates,
         Area::Trash,
     ];
+
+    /// How novel.toml names it in `sections = [...]`.
+    pub fn key(self) -> &'static str {
+        match self {
+            Area::Format => "format",
+            Area::Manuscript => "manuscript",
+            Area::Characters => "characters",
+            Area::Places => "places",
+            Area::FrontMatter => "front-matter",
+            Area::Notes => "notes",
+            Area::Research => "research",
+            Area::Templates => "template-sheets",
+            Area::Trash => "trash",
+        }
+    }
+
+    /// The sections in this book's order: as rearranged, then any not
+    /// mentioned, and the trash always last.
+    pub fn ordered(meta: &ProjectMeta) -> Vec<Area> {
+        let mut out: Vec<Area> = Vec::new();
+        for k in &meta.sections {
+            if let Some(a) = Area::ALL.iter().copied().find(|a| a.key() == k.trim())
+                && a != Area::Trash
+                && !out.contains(&a)
+            {
+                out.push(a);
+            }
+        }
+        for a in Area::ALL {
+            if !out.contains(&a) {
+                out.push(a);
+            }
+        }
+        out.retain(|&a| a != Area::Trash);
+        out.push(Area::Trash);
+        out
+    }
 
     pub fn title(self) -> &'static str {
         match self {
@@ -252,7 +293,7 @@ impl Project {
         // reason it compiles without inflating the wordcount. The trash is last,
         // and folded: what's been deleted is still on screen, so nothing ever
         // simply disappears, but it counts for nothing and compiles into nothing.
-        for area in Area::ALL {
+        for area in Area::ordered(&p.meta) {
             let path = area.path(root);
             if area == Area::Format {
                 if path.is_file() {
@@ -1078,6 +1119,27 @@ pub fn move_item(root: &Path, path: &Path, up: bool) -> Result<Moved> {
     if top.contains(&path.to_path_buf()) || path.starts_with(root.join(".grimoire")) {
         anyhow::bail!("that can't be moved");
     }
+    // Order lives in the leading number. A folder where something has none
+    // (a note made in another app, say) is numbered first, in the order it
+    // shows, so the move has numbers to swap.
+    let mut numbering: Vec<(PathBuf, PathBuf)> = Vec::new();
+    let entries = tree_entries(&parent);
+    let at = entries.iter().position(|p| p == path).context("it isn't in its folder any more")?;
+    let beside = if up { at.checked_sub(1) } else { (at + 1 < entries.len()).then_some(at + 1) };
+    if beside.is_some_and(|b| split_number(path).is_none() || split_number(&entries[b]).is_none()) {
+        let width = entries.len().to_string().len().max(2);
+        for (i, p) in entries.iter().enumerate() {
+            let name = p.file_name().unwrap_or_default().to_string_lossy().to_string();
+            let rest = split_number(p).map_or(name, |(_, _, r)| r);
+            let to = parent.join(numbered_name(i + 1, width, &rest));
+            if to != *p {
+                numbering.push((p.clone(), to));
+            }
+        }
+        rename_all(&numbering)?;
+        rewrite_links(root, &numbering);
+    }
+    let path = &numbering.iter().find(|(f, _)| f == path).map_or(path.to_path_buf(), |(_, t)| t.clone());
     let siblings = tree_entries(&parent);
     let pos = siblings.iter().position(|p| p == path).context("it isn't in its folder any more")?;
     let neighbour = if up { pos.checked_sub(1) } else { (pos + 1 < siblings.len()).then_some(pos + 1) };
@@ -1143,7 +1205,26 @@ pub fn move_item(root: &Path, path: &Path, up: bool) -> Result<Moved> {
     }
     rename_all(&renames)?;
     let links = rewrite_links(root, &renames);
+    // Report it as one set of moves from where everything started.
+    let renames = compose(&numbering, &renames);
     Ok(Moved { renames, target, links })
+}
+
+/// `first` then `then`, as one list from the original paths to the final ones.
+fn compose(first: &[(PathBuf, PathBuf)], then: &[(PathBuf, PathBuf)]) -> Vec<(PathBuf, PathBuf)> {
+    if first.is_empty() {
+        return then.to_vec();
+    }
+    let mut out: Vec<(PathBuf, PathBuf)> = first
+        .iter()
+        .map(|(a, b)| (a.clone(), then.iter().find(|(f, _)| f == b).map_or(b.clone(), |(_, t)| t.clone())))
+        .collect();
+    for (f, t) in then {
+        if !first.iter().any(|(_, b)| b == f) {
+            out.push((f.clone(), t.clone()));
+        }
+    }
+    out
 }
 
 /// At the edge of an act, the chapter before or after is in the neighbouring
@@ -1159,6 +1240,43 @@ fn cousin_folder(root: &Path, folder: &Path, up: bool) -> Option<PathBuf> {
     let aunt = if up { at.checked_sub(1)? } else { (at + 1 < aunts.len()).then_some(at + 1)? };
     let kids: Vec<PathBuf> = tree_entries(&aunts[aunt]).into_iter().filter(|p| p.is_dir()).collect();
     if up { kids.last().cloned() } else { kids.first().cloned() }
+}
+
+/// Save the order of the tree's sections in novel.toml, as one
+/// `sections = [...]` line; every other line of the file stays as it was.
+pub fn save_section_order(root: &Path, order: &[Area]) -> Result<()> {
+    let path = root.join("novel.toml");
+    let old = fs::read_to_string(&path).unwrap_or_default();
+    let keys: Vec<String> = order.iter().filter(|&&a| a != Area::Trash).map(|a| format!("\"{}\"", a.key())).collect();
+    let line = format!("sections = [{}]", keys.join(", "));
+    let mut out = String::new();
+    let mut done = false;
+    for l in old.lines() {
+        if l.trim_start().starts_with("sections") && l.contains('=') {
+            if !done {
+                out.push_str(&line);
+                out.push('\n');
+                done = true;
+            }
+            continue;
+        }
+        // Keys after a [table] header would belong to it, so it goes first.
+        if !done && l.trim_start().starts_with('[') {
+            out.push_str(&line);
+            out.push_str("\n\n");
+            done = true;
+        }
+        out.push_str(l);
+        out.push('\n');
+    }
+    if !done {
+        if !out.is_empty() && !out.ends_with("\n\n") {
+            out.push('\n');
+        }
+        out.push_str(&line);
+        out.push('\n');
+    }
+    write_atomic(&path, &out)
 }
 
 /// Carry out moves that were done once before, or take them back (pass them
@@ -1710,6 +1828,47 @@ mod tests {
         fs::write(&scene, "something new in its place").unwrap();
         assert!(apply_moves(&d, &[(gone.clone(), scene.clone())], false).is_err(), "never overwrites");
         assert!(gone.exists(), "and touches nothing when it refuses");
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn a_note_without_a_number_gets_one_so_it_can_move() {
+        let d = temp_dir("move-unnumbered");
+        let chars = d.join("characters");
+        fs::create_dir_all(&chars).unwrap();
+        fs::write(chars.join("ann.md"), "Ann.\n").unwrap();
+        fs::write(chars.join("bo.md"), "Bo, see [[ann]].\n").unwrap();
+        let m = move_item(&d, &chars.join("bo.md"), true).unwrap();
+        assert_eq!(names_in(&chars), ["01-bo.md", "02-ann.md"]);
+        assert_eq!(fs::read_to_string(chars.join("01-bo.md")).unwrap(), "Bo, see [[02-ann]].\n");
+        // Undo is one set of moves back to the original names.
+        let back: Vec<(PathBuf, PathBuf)> = m.renames.iter().map(|(f, t)| (t.clone(), f.clone())).collect();
+        apply_moves(&d, &back, true).unwrap();
+        assert_eq!(names_in(&chars), ["ann.md", "bo.md"]);
+        assert_eq!(fs::read_to_string(chars.join("bo.md")).unwrap(), "Bo, see [[ann]].\n");
+        // A lone note with nowhere to go is left exactly as it was.
+        fs::create_dir_all(d.join("places")).unwrap();
+        fs::write(d.join("places/harbour.md"), "Salt.\n").unwrap();
+        assert!(move_item(&d, &d.join("places/harbour.md"), true).is_err());
+        assert_eq!(names_in(&d.join("places")), ["harbour.md"]);
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn sections_keep_the_order_they_are_given_with_the_trash_last() {
+        let d = temp_dir("section-order");
+        scaffold(&d).unwrap();
+        let order = [Area::Characters, Area::Trash, Area::Manuscript];
+        save_section_order(&d, &order).unwrap();
+        let toml = fs::read_to_string(d.join("novel.toml")).unwrap();
+        assert!(toml.contains("part_label = \"Page\""), "the rest of novel.toml stays");
+        let p = Project::load(&d).unwrap();
+        let areas: Vec<Area> = p.roots.iter().map(|&r| p.nodes[r].area).collect();
+        assert_eq!(&areas[..2], [Area::Characters, Area::Manuscript]);
+        assert_eq!(areas.last(), Some(&Area::Trash));
+        assert_eq!(areas.len(), Area::ALL.len());
+        save_section_order(&d, &Area::ALL).unwrap();
+        assert_eq!(fs::read_to_string(d.join("novel.toml")).unwrap().matches("sections =").count(), 1);
         fs::remove_dir_all(&d).unwrap();
     }
 

@@ -60,6 +60,8 @@ enum TreeStep {
     Moved { what: String, batches: Vec<Vec<(PathBuf, PathBuf)>>, links: bool },
     /// A rename, by name, so a scene's `title:` goes back too.
     Renamed { from: PathBuf, to: PathBuf, old: String, new: String },
+    /// The sections were put in a new order.
+    Sections { what: String, before: Vec<crate::project::Area>, after: Vec<crate::project::Area> },
     /// Something new. Undoing it sends it to the trash (where it waits, words
     /// and all), and redoing brings it back from there.
     Created { what: String, path: PathBuf, trashed: Option<PathBuf> },
@@ -1905,6 +1907,11 @@ impl App {
                 let what = format!("rename to {new}");
                 (result, TreeStep::Renamed { from, to, old, new }, show, what)
             }
+            TreeStep::Sections { what, before, after } => {
+                let order = if back { &before } else { &after };
+                let result = project::save_section_order(&root, order);
+                (result, TreeStep::Sections { what: what.clone(), before, after }, None, what)
+            }
             TreeStep::Created { what, path, trashed } => {
                 let (result, trashed, show) = if back {
                     let pair = project::trash(&root, &path).map(|t| vec![(path.clone(), t)]);
@@ -1970,6 +1977,12 @@ impl App {
     /// Alt-↑ / Alt-↓: move the selected scene or folder one place.
     pub fn move_selected(&mut self, up: bool) {
         self.select_open_scene();
+        if let Some(idx) = self.visible.get(self.sel).copied()
+            && self.project.roots.contains(&idx)
+        {
+            self.move_section(idx, up);
+            return;
+        }
         let Some(idx) = self.selected_file() else { return };
         if self.project.in_trash(idx) {
             self.msg = "things in the trash stay where they are".into();
@@ -2017,6 +2030,44 @@ impl App {
         self.msg = format!("moved {noun} {name} {}{links}", if up { "up" } else { "down" });
     }
 
+    /// Move a whole section one place up or down among the others. The order
+    /// is the book's, kept in novel.toml; the trash stays at the bottom.
+    fn move_section(&mut self, idx: usize, up: bool) {
+        use crate::project::Area;
+        let area = self.project.nodes[idx].area;
+        let name = self.project.nodes[idx].title.clone();
+        if area == Area::Trash {
+            self.msg = "the trash stays at the bottom".into();
+            return;
+        }
+        let shown: Vec<Area> = self.project.roots.iter().map(|&r| self.project.nodes[r].area).collect();
+        let at = shown.iter().position(|&a| a == area).unwrap_or(0);
+        let other = if up { at.checked_sub(1) } else { Some(at + 1) }.and_then(|i| shown.get(i).copied());
+        let Some(other) = other.filter(|&o| o != Area::Trash) else {
+            self.msg = format!("{name} is already {}", if up { "first" } else { "last" });
+            return;
+        };
+        let before = Area::ordered(&self.project.meta);
+        let mut after = before.clone();
+        let (i, j) = (after.iter().position(|&a| a == area).unwrap(), after.iter().position(|&a| a == other).unwrap());
+        after.swap(i, j);
+        if let Err(e) = self.set_section_order(&after, Some(area)) {
+            self.msg = format!("couldn't move {name}: {e}");
+            return;
+        }
+        self.record(TreeStep::Sections { what: format!("move {name}"), before, after });
+        self.msg = format!("moved section {name} {}", if up { "up" } else { "down" });
+    }
+
+    fn set_section_order(&mut self, order: &[crate::project::Area], show: Option<crate::project::Area>) -> Result<()> {
+        project::save_section_order(&self.project.root, order)?;
+        self.reload_tree()?;
+        if let Some(i) = show.and_then(|a| self.project.roots.iter().copied().find(|&r| self.project.nodes[r].area == a)) {
+            self.reveal(i);
+        }
+        Ok(())
+    }
+
     /// A drag in the tree ended on another row: move there one step at a
     /// time, so crossing chapters works exactly as it does from the keyboard.
     pub fn drop_tree_drag(&mut self) {
@@ -2025,9 +2076,6 @@ impl App {
             return;
         }
         let idx = self.visible[from];
-        if self.project.nodes[idx].kind == Kind::Category {
-            return;
-        }
         let up = to < from;
         let mut path = self.project.nodes[idx].path.clone();
         // However many single moves a drag takes, it's one thing to undo.
@@ -2035,15 +2083,23 @@ impl App {
         self.drag_moves(up, to, &mut path);
         if self.tree_undo.len() > before + 1 {
             let steps: Vec<TreeStep> = self.tree_undo.drain(before..).collect();
-            let batches = steps
-                .into_iter()
-                .flat_map(|s| match s {
-                    TreeStep::Moved { batches, .. } => batches,
-                    _ => Vec::new(),
-                })
-                .collect();
-            let name = self.project.nodes.iter().find(|n| n.path == path).map(|n| n.title.clone()).unwrap_or_default();
-            self.tree_undo.push(TreeStep::Moved { what: format!("move {name}"), batches, links: true });
+            let merged = match (steps.first(), steps.last()) {
+                (Some(TreeStep::Sections { what, before, .. }), Some(TreeStep::Sections { after, .. })) => {
+                    TreeStep::Sections { what: what.clone(), before: before.clone(), after: after.clone() }
+                }
+                _ => {
+                    let batches = steps
+                        .into_iter()
+                        .flat_map(|s| match s {
+                            TreeStep::Moved { batches, .. } => batches,
+                            _ => Vec::new(),
+                        })
+                        .collect();
+                    let name = self.project.nodes.iter().find(|n| n.path == path).map(|n| n.title.clone()).unwrap_or_default();
+                    TreeStep::Moved { what: format!("move {name}"), batches, links: true }
+                }
+            };
+            self.tree_undo.push(merged);
         }
     }
 
@@ -2057,9 +2113,11 @@ impl App {
             self.sel = pos;
             self.focus = Focus::Tree;
             self.move_selected(up);
-            // Follow the dragged thing under its new name.
+            // Follow the dragged thing under its new name. A section keeps its
+            // name, so for one it's enough that its row moved.
             match self.visible.get(self.sel).map(|&v| self.project.nodes[v].path.clone()) {
                 Some(p) if p != *path => *path = p,
+                Some(_) if self.sel != pos => {}
                 _ => return,
             }
         }
