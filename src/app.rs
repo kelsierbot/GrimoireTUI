@@ -128,6 +128,8 @@ pub struct App {
     tree_redo: Vec<TreeStep>,
     /// Spellcheck underlines are showing.
     pub spell_on: bool,
+    /// The tree shows a symbol beside each row.
+    pub icons_on: bool,
     /// The dictionary, once it has loaded in the background.
     pub speller: Option<spell::Speller>,
     speller_rx: Option<std::sync::mpsc::Receiver<spell::Speller>>,
@@ -396,6 +398,7 @@ impl App {
             tree_undo: Vec::new(),
             tree_redo: Vec::new(),
             spell_on: Settings::load().spellcheck,
+            icons_on: Settings::load().icons,
             speller: None,
             speller_rx: None,
             tree_drag: None,
@@ -778,6 +781,7 @@ impl App {
                 }
             }
             Action::Spellcheck => self.toggle_spellcheck(),
+            Action::Icons => self.toggle_icons(),
             Action::SpellingSuggestions => self.spelling(),
             Action::MoveUp => self.move_selected(true),
             Action::MoveDown => self.move_selected(false),
@@ -1318,9 +1322,15 @@ impl App {
         }
     }
 
+    pub fn toggle_icons(&mut self) {
+        self.icons_on = !self.icons_on;
+        let _ = Settings { spellcheck: self.spell_on, icons: self.icons_on }.save();
+        self.msg = if self.icons_on { "tree icons on".into() } else { "tree icons off".into() };
+    }
+
     pub fn toggle_spellcheck(&mut self) {
         self.spell_on = !self.spell_on;
-        let _ = Settings { spellcheck: self.spell_on }.save();
+        let _ = Settings { spellcheck: self.spell_on, icons: self.icons_on }.save();
         self.msg = if self.spell_on { "spellcheck on".into() } else { "spellcheck off".into() };
     }
 
@@ -2372,6 +2382,7 @@ impl App {
             row("Music player…".into(), "(F7)"),
             "Music source…".into(),
             music.into(),
+            if self.icons_on { "Turn tree icons off" } else { "Turn tree icons on" }.into(),
             "Themes…".into(),
             "Close".into(),
         ]
@@ -2477,7 +2488,11 @@ impl App {
                 self.overlay = Overlay::None;
                 self.set_music(!self.music.enabled);
             }
-            11 => self.open_theme_picker(),
+            11 => {
+                self.overlay = Overlay::None;
+                self.toggle_icons();
+            }
+            12 => self.open_theme_picker(),
             _ => self.overlay = Overlay::None,
         }
     }

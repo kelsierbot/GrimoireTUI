@@ -125,7 +125,8 @@ the-archive/
 
 The tree shows each of those as a section — Novel Format, Manuscript,
 Characters, Places, Front Matter, Notes, Research, Template Sheets, Trash —
-with its own symbol, and every section and folder folds. The pane is headed
+and every section and folder folds. A symbol beside each row is off to begin
+with; turn tree icons on from the menu (`F1`) or the palette. The pane is headed
 with the book's title.
 
 **A new book arrives with its shape already standing:** three pages of nine
@@ -177,6 +178,7 @@ heard of.
 | `N` | new folder beside the selected one — outside the manuscript; in it, a chapter or page |
 | `r` | rename what's selected — the file is renamed to match and keeps its place |
 | `d` | delete what's selected — asks first, then moves it to `.grimoire/trash` |
+| `Ctrl-Z` `Ctrl-Y` *(in the tree)* | undo · redo a delete, rename, move or new item — a delete comes back from the trash to where it was |
 | `Alt-↑` `Alt-↓` · `K` `J` | move the scene or folder up or down — across chapters and pages at the ends; dragging a row in the tree does the same |
 | `H` | the scene's history — every kept version, what changed, restore any |
 | `b` | the corkboard |

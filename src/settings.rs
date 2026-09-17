@@ -7,11 +7,13 @@ use std::path::PathBuf;
 pub struct Settings {
     /// Underline misspellings as you write. On unless turned off.
     pub spellcheck: bool,
+    /// A symbol beside each row of the tree. Off unless turned on.
+    pub icons: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { spellcheck: true }
+        Settings { spellcheck: true, icons: false }
     }
 }
 
@@ -27,10 +29,11 @@ impl Settings {
     fn parse(s: &str) -> Settings {
         let mut out = Settings::default();
         for line in s.lines() {
-            if let Some((k, v)) = line.split_once('=')
-                && k.trim() == "spellcheck"
-            {
-                out.spellcheck = v.trim() != "false";
+            let Some((k, v)) = line.split_once('=') else { continue };
+            match k.trim() {
+                "spellcheck" => out.spellcheck = v.trim() != "false",
+                "icons" => out.icons = v.trim() == "true",
+                _ => {}
             }
         }
         out
@@ -41,7 +44,7 @@ impl Settings {
         if let Some(d) = p.parent() {
             std::fs::create_dir_all(d)?;
         }
-        std::fs::write(p, format!("spellcheck = {}\n", self.spellcheck))
+        std::fs::write(p, format!("spellcheck = {}\nicons = {}\n", self.spellcheck, self.icons))
     }
 }
 
@@ -55,5 +58,13 @@ mod tests {
         assert!(Settings::parse("").spellcheck);
         assert!(!Settings::parse("spellcheck = false\n").spellcheck);
         assert!(Settings::parse("spellcheck = true\n").spellcheck);
+    }
+
+    #[test]
+    fn tree_icons_are_off_unless_switched_on() {
+        assert!(!Settings::default().icons);
+        assert!(!Settings::parse("spellcheck = false\n").icons);
+        let both = Settings::parse("spellcheck = false\nicons = true\n");
+        assert!(both.icons && !both.spellcheck);
     }
 }

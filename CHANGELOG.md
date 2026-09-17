@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.1
+
+- **Undo in the tree**: `Ctrl-Z` outside the editor takes back a delete,
+  rename, move (a whole drag at once) or new item; `Ctrl-Y` does it again. A
+  deleted item comes back out of the trash to where it was. Typing is still
+  undone from the editor.
+- **Tree icons are optional** and start off: F1 → *Turn tree icons on*.
+
 ## 0.3.0
 
 - **A tree in sections**: Novel Format, Manuscript, Characters, Places, Front

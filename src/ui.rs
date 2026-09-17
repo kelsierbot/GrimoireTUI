@@ -207,7 +207,8 @@ fn draw_tree(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
         let count = if words > 0 { thousands(words) } else { String::new() };
 
         let lead = format!("{indent}{fold}");
-        let lead_w = lead.chars().count() + 2;
+        let icon = if app.icons_on { format!("{icon} ") } else { String::new() };
+        let lead_w = lead.chars().count() + icon.chars().count();
         let room = width.saturating_sub(lead_w + count.chars().count() + 1);
         let title = truncate(&n.title, room.max(1));
         let gap = width
@@ -232,7 +233,7 @@ fn draw_tree(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
         lines.push(
             Line::from(vec![
                 Span::styled(lead, Style::default().fg(t.dim).patch(base)),
-                Span::styled(format!("{icon} "), Style::default().fg(icon_colour).patch(base)),
+                Span::styled(icon, Style::default().fg(icon_colour).patch(base)),
                 Span::styled(title, name_style.patch(base)),
                 Span::styled(" ".repeat(gap), base),
                 Span::styled(count, Style::default().fg(t.dim).patch(base)),
