@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.0 (unreleased)
+## 0.2.0
 
 Nothing written is one keystroke from gone, and a hundred scenes are easy to
 find and shape.

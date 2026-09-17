@@ -41,6 +41,14 @@ puts `grimoire` in `~/.cargo/bin` and adds that to your `PATH`. Builds are for
 Windows x64, macOS (Apple Silicon and Intel) and Linux (x86_64 and ARM64);
 every download is on the [releases page](https://github.com/kelsierbot/GrimoireTUI/releases).
 
+**With Homebrew** (macOS or Linux):
+
+```sh
+brew install kelsierbot/tap/grimoire
+```
+
+`brew upgrade` then brings each new release.
+
 Settings live in `~/.config/grimoire` (`%USERPROFILE%\.config\grimoire` on
 Windows) and a first manuscript goes in `Documents/Grimoire`.
 
