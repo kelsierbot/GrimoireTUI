@@ -9,7 +9,7 @@ use ratatui::widgets::{Block, Borders, Clear, Padding, Paragraph};
 use crate::app::{App, Focus, Overlay};
 use crate::create::{self, New};
 use crate::music::State as MusicState;
-use crate::project::Kind;
+use crate::project::{Area, Kind};
 use crate::scene::{self, Ink, Mode, Phase};
 use crate::theme::{self, Theme};
 
@@ -156,7 +156,9 @@ fn pane_block<'a>(title: &'a str, focused: bool, t: &Theme) -> Block<'a> {
 
 fn draw_tree(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
     let focused = app.focus == Focus::Tree;
-    let block = pane_block("MANUSCRIPT", focused, t);
+    // The book's own name heads the tree; Manuscript is a section inside it.
+    let book = app.project.meta.title.trim().to_uppercase();
+    let block = pane_block(if book.is_empty() { "UNTITLED" } else { &book }, focused, t);
     let inner = block.inner(area);
     app.rect_tree = inner;
     f.render_widget(block, area);
@@ -181,61 +183,41 @@ fn draw_tree(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
         let n = &app.project.nodes[idx];
         let selected = row == app.sel;
 
-        if n.kind == Kind::Divider {
-            let label = format!("── {} ", n.title);
-            let pad = width.saturating_sub(label.chars().count());
-            lines.push(Line::from(Span::styled(
-                format!("{label}{}", "─".repeat(pad)),
-                Style::default().fg(t.border),
-            )));
-            continue;
-        }
-
+        // ▾ ☺ Characters: a fold arrow for anything that folds, then the
+        // thing's symbol, then its name.
         let indent = "  ".repeat(n.depth);
-        let marker = match n.kind {
-            Kind::Container => {
-                if n.expanded {
-                    "▾ "
-                } else {
-                    "▸ "
-                }
-            }
-            Kind::Scene => {
-                if Some(idx) == app.open {
-                    "● "
-                } else {
-                    "• "
-                }
-            }
-            Kind::Divider => "",
+        let fold = match n.kind {
+            Kind::Scene => "  ",
+            _ if n.expanded => "▾ ",
+            _ => "▸ ",
+        };
+        let open = Some(idx) == app.open;
+        let (icon, icon_colour) = match n.kind {
+            Kind::Category => (n.area.icon(), area_colour(t, n.area)),
+            Kind::Container => ("▰", t.dim),
+            Kind::Scene if n.area == Area::Format => (n.area.icon(), area_colour(t, n.area)),
+            Kind::Scene if open => ("▮", t.accent),
+            Kind::Scene => ("▯", t.dim),
         };
 
-        let words = app.project.subtree_words(idx);
-        let count = if words > 0 {
-            thousands(words)
-        } else {
-            String::new()
-        };
+        // Counts are for writing: the manuscript and the notebook, not the
+        // paperwork or the trash.
+        let counted = n.area == Area::Manuscript || n.area.is_notebook();
+        let words = if counted { app.project.subtree_words(idx) } else { 0 };
+        let count = if words > 0 { thousands(words) } else { String::new() };
 
-        let left = format!("{indent}{marker}{}", n.title);
-        let left_w = left.chars().count();
-        let overflow = left_w + count.chars().count() + 1 > width;
-        let left = if overflow {
-            truncate(&left, width.saturating_sub(count.chars().count() + 2))
-        } else {
-            left
-        };
-        let gap = if overflow {
-            1
-        } else {
-            width
-                .saturating_sub(left_w)
-                .saturating_sub(count.chars().count() + 1)
-        };
+        let lead = format!("{indent}{fold}");
+        let lead_w = lead.chars().count() + 2;
+        let room = width.saturating_sub(lead_w + count.chars().count() + 1);
+        let title = truncate(&n.title, room.max(1));
+        let gap = width
+            .saturating_sub(lead_w + title.chars().count())
+            .saturating_sub(count.chars().count() + 1)
+            .max(1);
 
         let name_style = match n.kind {
-            Kind::Container => Style::default().fg(t.text).add_modifier(Modifier::BOLD),
-            _ if Some(idx) == app.open => Style::default().fg(t.accent),
+            Kind::Category | Kind::Container => Style::default().fg(t.text).add_modifier(Modifier::BOLD),
+            _ if open => Style::default().fg(t.accent),
             _ => Style::default().fg(t.text),
         };
         let dragging_to = app.tree_drag.is_some_and(|(from, to)| from != to && row == to);
@@ -249,7 +231,9 @@ fn draw_tree(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
 
         lines.push(
             Line::from(vec![
-                Span::styled(left, name_style.patch(base)),
+                Span::styled(lead, Style::default().fg(t.dim).patch(base)),
+                Span::styled(format!("{icon} "), Style::default().fg(icon_colour).patch(base)),
+                Span::styled(title, name_style.patch(base)),
                 Span::styled(" ".repeat(gap), base),
                 Span::styled(count, Style::default().fg(t.dim).patch(base)),
                 Span::styled(" ", base),
@@ -472,6 +456,17 @@ fn view_switch(current: Mode, width: u16) -> (Vec<(u16, u16, Mode)>, Vec<(String
         hits.push((x + 1, 1, current.next()));
     }
     (hits, spans)
+}
+
+/// A section's symbol colour. The manuscript takes the accent; the notebook
+/// grows in foliage; the book's paperwork is sun; the trash stays dim.
+fn area_colour(t: &Theme, a: Area) -> ratatui::style::Color {
+    match a {
+        Area::Manuscript => t.accent,
+        Area::Characters | Area::Places | Area::Notes | Area::Research => t.foliage,
+        Area::Format | Area::FrontMatter | Area::Templates => t.sun,
+        Area::Trash => t.dim,
+    }
 }
 
 /// Mix two truecolour colours, `f` of the way from `a` to `b`. Anything that

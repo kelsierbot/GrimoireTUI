@@ -38,10 +38,9 @@ pub fn next_status(current: Option<&str>) -> &'static str {
 /// The top-level parts of the manuscript (acts), in order. Empty when the
 /// book has no part level.
 pub fn parts(p: &Project) -> Vec<usize> {
-    p.roots
-        .iter()
-        .copied()
-        .filter(|&r| p.nodes[r].kind == Kind::Container && p.nodes[r].in_manuscript && manuscript::section_of(p, r) == Section::Part)
+    p.manuscript()
+        .into_iter()
+        .filter(|&r| p.nodes[r].kind == Kind::Container && manuscript::section_of(p, r) == Section::Part)
         .collect()
 }
 
@@ -64,7 +63,7 @@ pub fn board(p: &Project, scope: Option<usize>) -> Vec<Group> {
     let mut groups: Vec<Group> = Vec::new();
     let starts: Vec<usize> = match scope {
         Some(s) => vec![s],
-        None => p.roots.iter().copied().filter(|&r| p.nodes[r].in_manuscript && p.nodes[r].kind != Kind::Divider).collect(),
+        None => p.manuscript(),
     };
     for s in starts {
         walk(p, s, "", &mut groups);
@@ -96,7 +95,7 @@ fn walk(p: &Project, idx: usize, chapter: &str, groups: &mut Vec<Group>) {
                 walk(p, c, title, groups);
             }
         }
-        Kind::Divider => {}
+        Kind::Category => {}
     }
 }
 

@@ -524,7 +524,7 @@ fn part_noun(root: &Path) -> String {
         .and_then(|s| toml::from_str::<toml::Table>(&s).ok())
         .and_then(|t| t.get("part_label")?.as_str().map(|s| s.trim().to_lowercase()))
         .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "part".into())
+        .unwrap_or_else(|| "page".into())
 }
 
 // ---------------------------------------------------------------------------
@@ -614,7 +614,7 @@ impl Tally {
             if is_scene(path) {
                 self.acts.insert(rest.split('/').next().unwrap_or(rest).to_string());
             }
-        } else if path.starts_with("notes/") {
+        } else if NOTEBOOK.iter().any(|d| path.starts_with(d)) {
             self.notes = true;
         }
     }
@@ -748,6 +748,9 @@ fn rejoin_numbers(words: &[String]) -> String {
 // Paths and parsing git's output
 // ---------------------------------------------------------------------------
 
+/// The notebook's sections on disk, as git names them.
+const NOTEBOOK: [&str; 4] = ["notes/", "characters/", "places/", "research/"];
+
 /// A manuscript scene: a Markdown file under `manuscript/`.
 fn is_scene(path: &str) -> bool {
     path.starts_with("manuscript/") && path.ends_with(".md")
@@ -755,7 +758,7 @@ fn is_scene(path: &str) -> bool {
 
 /// A scene or a note.
 fn is_writing(path: &str) -> bool {
-    (path.starts_with("manuscript/") || path.starts_with("notes/")) && path.ends_with(".md")
+    (path.starts_with("manuscript/") || NOTEBOOK.iter().any(|d| path.starts_with(d))) && path.ends_with(".md")
 }
 
 /// git's `a/b/c.md` as a path for this platform.

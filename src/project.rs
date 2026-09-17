@@ -3,10 +3,14 @@
 //! Structure on disk is the source of truth — no central index to conflict in git:
 //!
 //!   novel.toml                     project metadata
-//!   manuscript/01-part-one/01-chapter-one/01-the-archive.md
-//!   notes/characters/wren.md
+//!   Novel-Format.md                how the book is laid out
+//!   manuscript/01-Page-One/01-Chapter-One/01-the-archive.md
+//!   characters/wren.md
+//!   places/  front-matter/  notes/  research/  template-sheets/
 //!
-//! Directories are containers (parts, chapters). `.md` files are scenes.
+//! Each of those is a section of the tree ([`Area`]), in that order, with the
+//! trash last. Directories are containers (pages, chapters). `.md` files are
+//! scenes, notes and documents.
 //! Ordering comes from the filename; a leading `01-` is stripped for display.
 //! Scene metadata lives in YAML frontmatter, which we preserve verbatim so
 //! Obsidian and anything else can read and write it without us mangling it.
@@ -24,7 +28,7 @@ pub struct ProjectMeta {
     pub draft: String,
     pub target_words: usize,
     pub daily_target: usize,
-    /// What this book calls its largest division: "Part", or "Act", or "Book".
+    /// What this book calls its largest division: "Page", or "Act", or "Book".
     /// Names new ones, and the app says it back to you everywhere.
     pub part_label: String,
 }
@@ -37,7 +41,7 @@ impl Default for ProjectMeta {
             draft: String::new(),
             target_words: 80_000,
             daily_target: 1_000,
-            part_label: "Part".into(),
+            part_label: "Page".into(),
         }
     }
 }
@@ -46,7 +50,7 @@ impl ProjectMeta {
     /// "Act" — capitalised, for naming a new one.
     pub fn part_word(&self) -> &str {
         let w = self.part_label.trim();
-        if w.is_empty() { "Part" } else { w }
+        if w.is_empty() { "Page" } else { w }
     }
 
     /// "act" — for a sentence.
@@ -59,12 +63,96 @@ impl ProjectMeta {
 pub enum Kind {
     Container,
     Scene,
-    Divider,
+    /// A section of the book — Manuscript, Characters, Trash. It folds like a
+    /// folder, but it can't be renamed, moved or deleted.
+    Category,
+}
+
+/// The sections of a book, top to bottom, the way the tree lists them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Area {
+    /// `Novel-Format.md`: one document, not a folder.
+    Format,
+    Manuscript,
+    Characters,
+    Places,
+    FrontMatter,
+    Notes,
+    Research,
+    Templates,
+    Trash,
+}
+
+impl Area {
+    pub const ALL: [Area; 9] = [
+        Area::Format,
+        Area::Manuscript,
+        Area::Characters,
+        Area::Places,
+        Area::FrontMatter,
+        Area::Notes,
+        Area::Research,
+        Area::Templates,
+        Area::Trash,
+    ];
+
+    pub fn title(self) -> &'static str {
+        match self {
+            Area::Format => "Novel Format",
+            Area::Manuscript => "Manuscript",
+            Area::Characters => "Characters",
+            Area::Places => "Places",
+            Area::FrontMatter => "Front Matter",
+            Area::Notes => "Notes",
+            Area::Research => "Research",
+            Area::Templates => "Template Sheets",
+            Area::Trash => "Trash",
+        }
+    }
+
+    /// The tree's symbol for it. Plain symbols, so every terminal font has them.
+    pub fn icon(self) -> &'static str {
+        match self {
+            Area::Format => "ⓘ",
+            Area::Manuscript => "▤",
+            Area::Characters => "☺",
+            Area::Places => "⌖",
+            Area::FrontMatter => "❡",
+            Area::Notes => "≡",
+            Area::Research => "✎",
+            Area::Templates => "⊞",
+            Area::Trash => "⌫",
+        }
+    }
+
+    /// Where it lives on disk.
+    pub fn path(self, root: &Path) -> PathBuf {
+        match self {
+            Area::Format => root.join("Novel-Format.md"),
+            Area::Manuscript => root.join("manuscript"),
+            Area::Characters => root.join("characters"),
+            Area::Places => root.join("places"),
+            Area::FrontMatter => root.join("front-matter"),
+            Area::Notes => root.join("notes"),
+            Area::Research => root.join("research"),
+            Area::Templates => root.join("template-sheets"),
+            Area::Trash => trash_dir(root),
+        }
+    }
+
+    /// The notebook: where the codex and the spellchecker learn the book's
+    /// names. Template sheets aren't in it, or "Character Sketch" would be a
+    /// character.
+    pub fn is_notebook(self) -> bool {
+        matches!(self, Area::Characters | Area::Places | Area::Notes | Area::Research)
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct Node {
     pub kind: Kind,
+    /// Which section of the book it sits in.
+    pub area: Area,
     pub title: String,
     pub path: PathBuf,
     pub depth: usize,
@@ -159,103 +247,43 @@ impl Project {
             roots: Vec::new(),
         };
 
-        // Front matter sits beside the draft, not inside it — Scrivener's
-        // arrangement, and the reason it compiles without inflating wordcount.
-        let fm = root.join("front-matter");
-        if fm.is_dir() {
-            let div = p.push(Node {
-                kind: Kind::Divider,
-                title: "FRONT MATTER".into(),
-                path: fm.clone(),
-                depth: 0,
-                expanded: true,
-                children: Vec::new(),
-                in_manuscript: false,
-                compile: true,
-                front_matter: true,
-                front: None,
-                body: String::new(),
-                dirty: false,
-                pov: None,
-                status: None,
-            });
-            p.roots.push(div);
-            let idxs = p.scan(&fm, 0, false, true)?;
-            p.roots.extend(idxs);
-        }
-
-        let manuscript = root.join("manuscript");
-        if manuscript.is_dir() {
-            if fm.is_dir() {
-                let div = p.push(Node {
-                    kind: Kind::Divider,
-                    title: "MANUSCRIPT".into(),
-                    path: manuscript.clone(),
-                    depth: 0,
-                    expanded: true,
-                    children: Vec::new(),
-                    in_manuscript: true,
-                    compile: true,
-                    front_matter: false,
-                    front: None,
-                    body: String::new(),
-                    dirty: false,
-                    pov: None,
-                    status: None,
-                });
-                p.roots.push(div);
+        // Every section, in order, as a row that folds. The front matter sits
+        // beside the draft, not inside it — Scrivener's arrangement, and the
+        // reason it compiles without inflating the wordcount. The trash is last,
+        // and folded: what's been deleted is still on screen, so nothing ever
+        // simply disappears, but it counts for nothing and compiles into nothing.
+        for area in Area::ALL {
+            let path = area.path(root);
+            if area == Area::Format {
+                if path.is_file() {
+                    let idx = p.load_file(&path, 0, area)?;
+                    p.roots.push(idx);
+                }
+                continue;
             }
-            let idxs = p.scan(&manuscript, 0, true, false)?;
-            p.roots.extend(idxs);
-        }
-
-        let notes = root.join("notes");
-        if notes.is_dir() {
-            let div = p.push(Node {
-                kind: Kind::Divider,
-                title: "NOTES".into(),
-                path: notes.clone(),
+            if !path.is_dir() {
+                continue;
+            }
+            let idx = p.push(Node {
+                kind: Kind::Category,
+                area,
+                title: area.title().into(),
+                path: path.clone(),
                 depth: 0,
-                expanded: true,
+                expanded: area != Area::Trash,
                 children: Vec::new(),
-                in_manuscript: false,
-                compile: false,
-                front_matter: false,
+                in_manuscript: area == Area::Manuscript,
+                compile: true,
+                front_matter: area == Area::FrontMatter,
                 front: None,
                 body: String::new(),
                 dirty: false,
                 pov: None,
                 status: None,
             });
-            p.roots.push(div);
-            let idxs = p.scan(&notes, 0, false, false)?;
-            p.roots.extend(idxs);
-        }
-
-        // Last, and last for a reason: what's been deleted is still on screen,
-        // so nothing ever simply disappears. It counts for nothing and
-        // compiles into nothing.
-        let bin = trash_dir(root);
-        if bin.is_dir() {
-            let div = p.push(Node {
-                kind: Kind::Divider,
-                title: "TRASH".into(),
-                path: bin.clone(),
-                depth: 0,
-                expanded: true,
-                children: Vec::new(),
-                in_manuscript: false,
-                compile: false,
-                front_matter: false,
-                front: None,
-                body: String::new(),
-                dirty: false,
-                pov: None,
-                status: None,
-            });
-            p.roots.push(div);
-            let idxs = p.scan(&bin, 0, false, false)?;
-            p.roots.extend(idxs);
+            let kids = p.scan(&path, 1, area)?;
+            p.nodes[idx].children = kids;
+            p.roots.push(idx);
         }
 
         Ok(p)
@@ -266,18 +294,22 @@ impl Project {
         self.nodes[idx].path.starts_with(trash_dir(&self.root))
     }
 
+    /// The manuscript's top level — its pages, or its chapters in a book
+    /// without pages — in order.
+    pub fn manuscript(&self) -> Vec<usize> {
+        self.roots
+            .iter()
+            .find(|&&r| self.nodes[r].kind == Kind::Category && self.nodes[r].area == Area::Manuscript)
+            .map(|&r| self.nodes[r].children.clone())
+            .unwrap_or_default()
+    }
+
     fn push(&mut self, n: Node) -> usize {
         self.nodes.push(n);
         self.nodes.len() - 1
     }
 
-    fn scan(
-        &mut self,
-        dir: &Path,
-        depth: usize,
-        in_manuscript: bool,
-        front_matter: bool,
-    ) -> Result<Vec<usize>> {
+    fn scan(&mut self, dir: &Path, depth: usize, area: Area) -> Result<Vec<usize>> {
         let mut entries: Vec<_> = fs::read_dir(dir)
             .with_context(|| format!("reading {}", dir.display()))?
             .filter_map(|e| e.ok())
@@ -295,57 +327,63 @@ impl Project {
             if path.is_dir() {
                 let idx = self.push(Node {
                     kind: Kind::Container,
+                    area,
                     title: display_title(&path, None),
                     path: path.clone(),
                     depth,
                     // A novel tree is small. Start it open; collapsing is a
-                    // deliberate act, not something to make the user undo.
-                    expanded: true,
+                    // deliberate act, not something to make the user undo. The
+                    // front matter's per-format folders are the exception: they
+                    // matter at the end, not while writing.
+                    expanded: !(area == Area::FrontMatter && depth == 1),
                     children: Vec::new(),
-                    in_manuscript,
+                    in_manuscript: area == Area::Manuscript,
                     compile: true,
-                    front_matter,
+                    front_matter: area == Area::FrontMatter,
                     front: None,
                     body: String::new(),
                     dirty: false,
                     pov: None,
                     status: None,
                 });
-                let kids = self.scan(&path, depth + 1, in_manuscript, front_matter)?;
+                let kids = self.scan(&path, depth + 1, area)?;
                 self.nodes[idx].children = kids;
                 out.push(idx);
             } else if path.extension().and_then(|s| s.to_str()) == Some("md") {
-                let raw = fs::read_to_string(&path)
-                    .with_context(|| format!("reading {}", path.display()))?;
-                let (front, body) = split_frontmatter(&raw);
-                let pov = front.as_deref().and_then(|f| front_get(f, "pov"));
-                let status = front.as_deref().and_then(|f| front_get(f, "status"));
-                let compile = front
-                    .as_deref()
-                    .and_then(|f| front_get(f, "compile"))
-                    .map(|v| !matches!(v.to_lowercase().as_str(), "false" | "no" | "0"))
-                    .unwrap_or(true);
-                let title = display_title(&path, front.as_deref());
-                let idx = self.push(Node {
-                    kind: Kind::Scene,
-                    title,
-                    path: path.clone(),
-                    depth,
-                    expanded: false,
-                    children: Vec::new(),
-                    in_manuscript,
-                    compile,
-                    front_matter,
-                    front,
-                    body,
-                    dirty: false,
-                    pov,
-                    status,
-                });
-                out.push(idx);
+                out.push(self.load_file(&path, depth, area)?);
             }
         }
         Ok(out)
+    }
+
+    fn load_file(&mut self, path: &Path, depth: usize, area: Area) -> Result<usize> {
+        let raw = fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+        let (front, body) = split_frontmatter(&raw);
+        let pov = front.as_deref().and_then(|f| front_get(f, "pov"));
+        let status = front.as_deref().and_then(|f| front_get(f, "status"));
+        let compile = front
+            .as_deref()
+            .and_then(|f| front_get(f, "compile"))
+            .map(|v| !matches!(v.to_lowercase().as_str(), "false" | "no" | "0"))
+            .unwrap_or(true);
+        let title = display_title(path, front.as_deref());
+        Ok(self.push(Node {
+            kind: Kind::Scene,
+            area,
+            title,
+            path: path.to_path_buf(),
+            depth,
+            expanded: false,
+            children: Vec::new(),
+            in_manuscript: area == Area::Manuscript,
+            compile,
+            front_matter: area == Area::FrontMatter,
+            front,
+            body,
+            dirty: false,
+            pov,
+            status,
+        }))
     }
 
     /// Each node's parent, for walking up the tree.
@@ -593,23 +631,14 @@ fn rejoin_numbers(words: &[String]) -> String {
     out.join(" ")
 }
 
-/// Three acts, nine chapters each, three scenes in every chapter.
-pub const ACTS: usize = 3;
-pub const CHAPTERS_PER_ACT: usize = 9;
+/// Three pages, nine chapters each, three scenes in every chapter.
+pub const PAGES: usize = 3;
+pub const CHAPTERS_PER_PAGE: usize = 9;
 pub const SCENES_PER_CHAPTER: usize = 3;
 
-/// The notebook a secondary world needs, in the order one gets built rather
-/// than in alphabetical order — which is why they're numbered on disk.
-pub const NOTE_SECTIONS: [&str; 8] = [
-    "Characters",
-    "Races",
-    "Regions",
-    "Magic System",
-    "Politics",
-    "Religion",
-    "Notes",
-    "Research",
-];
+/// The front matter keeps one folder per edition, because a paperback, an
+/// ebook and a submission each open differently.
+pub const FRONT_MATTER_FORMATS: [&str; 3] = ["Manuscript Format", "Paperback", "Ebook"];
 
 /// Where deleted things go. Inside `.grimoire/`, which is gitignored, but the
 /// tree shows it so nothing ever just vanishes.
@@ -617,11 +646,9 @@ pub fn trash_dir(root: &Path) -> PathBuf {
     root.join(".grimoire/trash")
 }
 
-/// Create a new manuscript skeleton: the three-act shape, with every chapter
-/// and scene already standing so the book is a thing to fill in rather than a
-/// blank page. The scenes are empty — the structure is a suggestion, the
-/// writing isn't presumed. Refuses to touch a directory that already holds a
-/// project.
+/// Create a new book: every section, the three-page shape with every chapter
+/// named and three empty scenes in each, starter front matter for each
+/// edition, and the template sheets.
 pub fn scaffold(root: &Path) -> Result<()> {
     if root.join("manuscript").is_dir() {
         anyhow::bail!("{} already contains a manuscript/", root.display());
@@ -635,20 +662,20 @@ pub fn scaffold(root: &Path) -> Result<()> {
     write_new(
         &root.join("novel.toml"),
         &format!(
-            "title = \"{title}\"\nauthor = \"\"\ndraft = \"1\"\ntarget_words = 80000\ndaily_target = 1000\n\n# What this book calls its largest division: Act, Part, Book…\npart_label = \"Act\"\n"
+            "title = \"{title}\"\nauthor = \"\"\ndraft = \"1\"\ntarget_words = 80000\ndaily_target = 1000\n\n# What this book calls its largest division: Page, Act, Part, Book…\npart_label = \"Page\"\n"
         ),
     )?;
 
     let mut chapter = 0usize;
-    for act in 1..=ACTS {
-        let act_dir = root
+    for page in 1..=PAGES {
+        let page_dir = root
             .join("manuscript")
-            .join(numbered_dir(act, &crate::manuscript::numbered("Act", act)));
-        for c in 1..=CHAPTERS_PER_ACT {
+            .join(numbered_dir(page, &crate::manuscript::numbered("Page", page)));
+        for c in 1..=CHAPTERS_PER_PAGE {
             chapter += 1;
             // Chapters are numbered straight through the book, the way the
-            // finished manuscript numbers them, not restarted in each act.
-            let ch_dir = act_dir.join(numbered_dir(c, &crate::manuscript::numbered("Chapter", chapter)));
+            // finished manuscript numbers them, not restarted on each page.
+            let ch_dir = page_dir.join(numbered_dir(c, &crate::manuscript::numbered("Chapter", chapter)));
             fs::create_dir_all(&ch_dir)
                 .with_context(|| format!("creating {}", ch_dir.display()))?;
             for s in 1..=SCENES_PER_CHAPTER {
@@ -664,18 +691,213 @@ pub fn scaffold(root: &Path) -> Result<()> {
         }
     }
 
-    for (i, section) in NOTE_SECTIONS.iter().enumerate() {
-        let dir = root.join("notes").join(numbered_dir(i + 1, section));
-        fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
-    }
-
-    // The trash exists from the first launch, so "where did that chapter go?"
-    // is answered on screen before anything has been deleted.
-    let bin = trash_dir(root);
-    fs::create_dir_all(&bin).with_context(|| format!("creating {}", bin.display()))?;
-
+    add_sections(root, true)?;
     write_new(&root.join(".gitignore"), ".grimoire/\n")?;
     Ok(())
+}
+
+/// Make whichever sections are missing, with their starter documents. A new
+/// book (`fresh`) also gets starter front matter; an existing one only gets
+/// the empty per-edition folders, so nothing new turns up in its exports.
+fn add_sections(root: &Path, fresh: bool) -> Result<Vec<String>> {
+    let mut added = Vec::new();
+    for area in Area::ALL {
+        let path = area.path(root);
+        if area == Area::Format {
+            if !path.exists() {
+                write_new(&path, starter::NOVEL_FORMAT)?;
+                added.push(area.title().to_string());
+            }
+            continue;
+        }
+        if !path.is_dir() {
+            fs::create_dir_all(&path).with_context(|| format!("creating {}", path.display()))?;
+            if area != Area::Trash {
+                added.push(area.title().to_string());
+            }
+            if area == Area::Templates {
+                write_new(&path.join("01-Character-Sketch.md"), starter::CHARACTER_SKETCH)?;
+                write_new(&path.join("02-Setting-Sketch.md"), starter::SETTING_SKETCH)?;
+            }
+        }
+    }
+
+    let fm = Area::FrontMatter.path(root);
+    for (i, edition) in FRONT_MATTER_FORMATS.iter().enumerate() {
+        if has_folder(&fm, edition) {
+            continue;
+        }
+        let dir = fm.join(numbered_dir(i + 1, edition));
+        fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
+        if fresh {
+            if *edition == "Manuscript Format" {
+                write_new(&dir.join("01-Title-Page.md"), starter::SUBMISSION_TITLE)?;
+            } else {
+                write_new(&dir.join("01-Title-Page.md"), starter::TITLE_PAGE)?;
+                write_new(&dir.join("02-Copyright.md"), starter::COPYRIGHT)?;
+                write_new(&dir.join("03-Dedication.md"), starter::DEDICATION)?;
+            }
+        }
+    }
+
+    let research = Area::Research.path(root);
+    if !has_folder(&research, "Sample Output") {
+        let dir = research.join(numbered_dir(next_number(&research)?, "Sample Output"));
+        fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
+    }
+    Ok(added)
+}
+
+/// Is there a folder in `dir` that reads as `name`, numbered or not?
+fn has_folder(dir: &Path, name: &str) -> bool {
+    fs::read_dir(dir).is_ok_and(|rd| {
+        rd.flatten()
+            .any(|e| e.path().is_dir() && display_title(&e.path(), None).eq_ignore_ascii_case(name))
+    })
+}
+
+/// Bring a book made before sections into their shape, once, when it opens.
+/// Nothing is deleted and nothing is overwritten: the notebook's Characters,
+/// Places and Research folders move up to be sections of their own, a Notes
+/// folder inside the notes empties into them, what this book called parts
+/// become pages, missing sections are made, and `[[links]]` follow every move.
+/// Returns what it did, for the status line; empty when the book was already
+/// in shape.
+pub fn upgrade(root: &Path) -> Result<Vec<String>> {
+    if !root.join("manuscript").is_dir() {
+        return Ok(Vec::new());
+    }
+    let mut done = Vec::new();
+    let mut renames: Vec<(PathBuf, PathBuf)> = Vec::new();
+
+    // Out of the notebook, into sections.
+    let notes = Area::Notes.path(root);
+    for dir in tree_entries(&notes).into_iter().filter(|p| p.is_dir()) {
+        let area = match display_title(&dir, None).to_lowercase().as_str() {
+            "characters" => Area::Characters,
+            "places" => Area::Places,
+            "research" => Area::Research,
+            "notes" => Area::Notes,
+            _ => continue,
+        };
+        let target = area.path(root);
+        let empty = |p: &Path| fs::read_dir(p).is_ok_and(|mut rd| rd.next().is_none());
+        if area != Area::Notes && (!target.exists() || empty(&target)) {
+            if target.exists() {
+                fs::remove_dir(&target).with_context(|| format!("replacing {}", target.display()))?;
+            }
+            fs::rename(&dir, &target).with_context(|| format!("moving {}", dir.display()))?;
+            renames.push((dir.clone(), target));
+        } else {
+            // Merge what doesn't collide; anything that would is left where it is.
+            for item in tree_entries(&dir) {
+                let to = target.join(item.file_name().unwrap_or_default());
+                if !to.exists() {
+                    fs::rename(&item, &to).with_context(|| format!("moving {}", item.display()))?;
+                    renames.push((item, to));
+                }
+            }
+            if empty(&dir) {
+                let _ = fs::remove_dir(&dir);
+            }
+        }
+        done.push(format!("{} is its own section", area.title()));
+    }
+
+    // Parts are pages now — unless the book chose a word of its own.
+    let label = fs::read_to_string(root.join("novel.toml"))
+        .ok()
+        .and_then(|s| toml::from_str::<ProjectMeta>(&s).ok())
+        .map(|m| m.part_word().to_string())
+        .unwrap_or_else(|| "Page".into());
+    if label == "Page" {
+        let ms = Area::Manuscript.path(root);
+        let mut pages = 0;
+        for dir in tree_entries(&ms).into_iter().filter(|p| p.is_dir()) {
+            let name = dir.file_name().unwrap_or_default().to_string_lossy().to_string();
+            let Some(renamed) = part_to_page(&name) else { continue };
+            let to = dir.with_file_name(renamed);
+            if to.exists() {
+                continue;
+            }
+            fs::rename(&dir, &to).with_context(|| format!("renaming {}", dir.display()))?;
+            renames.push((dir, to));
+            pages += 1;
+        }
+        if pages > 0 {
+            done.push(format!("{pages} part{} renamed to page{0}", if pages == 1 { "" } else { "s" }));
+        }
+    }
+
+    let added = add_sections(root, false)?;
+    if !added.is_empty() {
+        done.push(format!("added {}", added.join(", ")));
+    }
+    if !renames.is_empty() {
+        rewrite_links(root, &renames);
+    }
+    Ok(done)
+}
+
+/// `02-Part-Two` → `02-Page-Two`, `01-part-one` → `01-page-one`, keeping the
+/// case it was written in. `None` if it isn't a part.
+fn part_to_page(name: &str) -> Option<String> {
+    let digits = name.chars().take_while(|c| c.is_ascii_digit() || matches!(c, '-' | '_' | ' ')).count();
+    let (num, rest) = name.split_at(digits);
+    let word = rest.get(..4)?;
+    if !word.eq_ignore_ascii_case("part") || rest[4..].chars().next().is_some_and(|c| c.is_alphanumeric()) {
+        return None;
+    }
+    let page: String = word
+        .chars()
+        .zip("page".chars())
+        .map(|(was, now)| if was.is_uppercase() { now.to_ascii_uppercase() } else { now })
+        .collect();
+    Some(format!("{num}{page}{}", &rest[4..]))
+}
+
+/// What a new book starts with in its documents.
+mod starter {
+    pub const NOVEL_FORMAT: &str = "---\ntitle: \"Novel Format\"\n---\n\n\
+How this book is laid out. Every section folds; `Enter` or `Space` opens and closes one.\n\n\
+**Manuscript** is the book itself: pages hold chapters, chapters hold scenes. \
+`p` makes a page, `c` a chapter, `n` a scene. Only what's in here counts toward \
+your word count and goes into an export.\n\n\
+**Characters** and **Places** are your notebook. Their names teach the \
+spellchecker, and `Ctrl-O` in a scene opens the note for a name under the cursor.\n\n\
+**Front Matter** holds the pages before chapter one, one folder per edition: \
+Manuscript Format for a Word submission, Ebook for the EPUB, Paperback for print. \
+Starter pages are set to `compile: false`; change that to `true` when one is ready \
+to go into the book.\n\n\
+**Notes** and **Research** are for everything else you gather. **Sample Output** \
+is a place to keep exports you want to compare.\n\n\
+**Template Sheets** are blank forms. Copy one into Characters or Places to fill in.\n\n\
+**Trash** keeps whatever you delete until you delete it from there too.\n";
+
+    pub const CHARACTER_SKETCH: &str = "---\ntitle: \"Character Sketch\"\n---\n\n\
+**Name:**\n**Also called:**\n**Role in the story:**\n**Age:**\n**Appearance:**\n\n\
+## Wants\n\n## Needs\n\n## Fears\n\n## Voice\nHow they talk, and what they never say.\n\n\
+## Arc\nWho they are on the first page, and on the last.\n\n## Relationships\n";
+
+    pub const SETTING_SKETCH: &str = "---\ntitle: \"Setting Sketch\"\n---\n\n\
+**Name:**\n**Where it is:**\n**When:**\n\n## First impression\nWhat someone notices walking in.\n\n\
+## Senses\nSights, sounds, smells, weather, light.\n\n## History\n\n## Who lives or works here\n\n\
+## What happens here\nScenes that use it, and why the story needs it.\n";
+
+    pub const SUBMISSION_TITLE: &str = "---\ntitle: \"Title Page\"\ncompile: false\n---\n\n\
+Leave this out (`compile: false`) and the Word export makes a standard title page \
+from novel.toml: your name, the title and a rounded word count. Set `compile: true` \
+and write your own here to use it instead.\n";
+
+    pub const TITLE_PAGE: &str = "---\ntitle: \"Title Page\"\ncompile: false\n---\n\n# Title\n\nAuthor Name\n";
+
+    pub const COPYRIGHT: &str = "---\ntitle: \"Copyright\"\ncompile: false\n---\n\n\
+Copyright © Year Author Name\n\nAll rights reserved. No part of this book may be reproduced \
+without permission, except for brief quotations in reviews.\n\n\
+This is a work of fiction. Names, characters, places and incidents are products of the \
+author's imagination.\n";
+
+    pub const DEDICATION: &str = "---\ntitle: \"Dedication\"\ncompile: false\n---\n\nFor\n";
 }
 
 /// `7` and "Chapter Seven" make `07-Chapter-Seven`.
@@ -852,7 +1074,7 @@ fn numbered_name(n: usize, width: usize, rest: &str) -> String {
 /// `[[links]]` to anything renamed are rewritten across the book.
 pub fn move_item(root: &Path, path: &Path, up: bool) -> Result<Moved> {
     let parent = path.parent().context("that has no folder")?.to_path_buf();
-    let top = [root.join("manuscript"), root.join("notes"), root.join("front-matter")];
+    let top: Vec<PathBuf> = Area::ALL.iter().map(|a| a.path(root)).collect();
     if top.contains(&path.to_path_buf()) || path.starts_with(root.join(".grimoire")) {
         anyhow::bail!("that can't be moved");
     }
@@ -1118,10 +1340,10 @@ mod tests {
         fs::remove_dir_all(&d).unwrap();
     }
 
-    /// The shape a new book arrives in: three acts, twenty-seven chapters,
+    /// The shape a new book arrives in: three pages, twenty-seven chapters,
     /// three scenes in each, and no words written for you.
     #[test]
-    fn the_template_is_three_acts_of_nine_chapters() {
+    fn the_template_is_three_pages_of_nine_chapters() {
         let d = temp_dir("template");
         scaffold(&d).unwrap();
         let p = Project::load(&d).unwrap();
@@ -1131,44 +1353,149 @@ mod tests {
                 .filter(|n| n.kind == Kind::Container && n.in_manuscript && n.depth == depth)
                 .count()
         };
-        assert_eq!(containers(0), ACTS, "acts");
-        assert_eq!(containers(1), ACTS * CHAPTERS_PER_ACT, "chapters");
+        assert_eq!(containers(1), PAGES, "pages");
+        assert_eq!(containers(2), PAGES * CHAPTERS_PER_PAGE, "chapters");
         let scenes: Vec<&Node> = p
             .nodes
             .iter()
             .filter(|n| n.kind == Kind::Scene && n.in_manuscript)
             .collect();
-        assert_eq!(scenes.len(), ACTS * CHAPTERS_PER_ACT * SCENES_PER_CHAPTER);
+        assert_eq!(scenes.len(), PAGES * CHAPTERS_PER_PAGE * SCENES_PER_CHAPTER);
         assert_eq!(p.total_words(), 0, "the scenes start empty");
 
         // Named straight through the book, and spelled the way they'd be read.
-        let titles: Vec<&str> = p
-            .nodes
+        let titles = |depth: usize| -> Vec<String> {
+            p.nodes
+                .iter()
+                .filter(|n| n.kind == Kind::Container && n.in_manuscript && n.depth == depth)
+                .map(|n| n.title.clone())
+                .collect()
+        };
+        assert_eq!(titles(1), ["Page One", "Page Two", "Page Three"]);
+        assert_eq!(titles(2)[0], "Chapter One");
+        assert_eq!(titles(2)[9], "Chapter Ten");
+        assert_eq!(titles(2)[26], "Chapter Twenty-Seven");
+        assert_eq!(p.meta.part_word(), "Page", "a new book counts in pages");
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    /// Every section, in this order, each one a row that folds.
+    #[test]
+    fn a_new_book_has_every_section_in_order() {
+        let d = temp_dir("sections");
+        scaffold(&d).unwrap();
+        let p = Project::load(&d).unwrap();
+        let rows: Vec<(String, Kind)> = p.roots.iter().map(|&r| (p.nodes[r].title.clone(), p.nodes[r].kind)).collect();
+        let want: Vec<(String, Kind)> = Area::ALL
             .iter()
-            .filter(|n| n.kind == Kind::Container && n.in_manuscript && n.depth == 1)
-            .map(|n| n.title.as_str())
+            .map(|a| (a.title().to_string(), if *a == Area::Format { Kind::Scene } else { Kind::Category }))
             .collect();
-        assert_eq!(titles[0], "Chapter One");
-        assert_eq!(titles[9], "Chapter Ten");
-        assert_eq!(titles[26], "Chapter Twenty-Seven");
-        assert_eq!(p.meta.part_word(), "Act", "a new book counts in acts");
+        assert_eq!(rows, want);
+
+        let under = |area: Area| -> Vec<String> {
+            let r = p.roots.iter().find(|&&r| p.nodes[r].area == area).copied().unwrap();
+            p.nodes[r].children.iter().map(|&c| p.nodes[c].title.clone()).collect()
+        };
+        assert_eq!(under(Area::FrontMatter), FRONT_MATTER_FORMATS);
+        assert_eq!(under(Area::Research), ["Sample Output"]);
+        assert_eq!(under(Area::Templates), ["Character Sketch", "Setting Sketch"]);
+        assert!(under(Area::Characters).is_empty() && under(Area::Places).is_empty());
+
+        // Starter front matter is there, but nothing of it goes into a book yet.
+        let fm: Vec<&Node> = p.nodes.iter().filter(|n| n.kind == Kind::Scene && n.front_matter).collect();
+        assert_eq!(fm.len(), 7);
+        assert!(fm.iter().all(|n| !n.compile));
+        assert!(p.nodes.iter().filter(|n| n.kind == Kind::Scene && n.area == Area::Templates).all(|n| !n.area.is_notebook()));
         fs::remove_dir_all(&d).unwrap();
     }
 
     #[test]
-    fn the_notebook_reads_in_the_order_a_world_gets_built() {
-        let d = temp_dir("notebook");
+    fn every_section_folds_and_the_trash_starts_folded() {
+        let d = temp_dir("fold");
         scaffold(&d).unwrap();
         let p = Project::load(&d).unwrap();
-        let sections: Vec<String> = p
-            .nodes
-            .iter()
-            .filter(|n| n.kind == Kind::Container && !n.in_manuscript && n.depth == 0)
-            .filter(|n| !n.path.starts_with(trash_dir(&d)))
-            .map(|n| n.title.clone())
-            .collect();
-        assert_eq!(sections, NOTE_SECTIONS.to_vec(), "not alphabetical");
+        for &r in &p.roots {
+            let n = &p.nodes[r];
+            if n.kind == Kind::Category {
+                assert_eq!(n.expanded, n.area != Area::Trash, "{}", n.title);
+                assert!(n.children.iter().all(|&c| p.nodes[c].depth == 1));
+            }
+        }
+        let visible = p.visible();
+        let fm = p.roots.iter().copied().find(|&r| p.nodes[r].area == Area::FrontMatter).unwrap();
+        let editions = &p.nodes[fm].children;
+        assert!(editions.iter().all(|&e| !p.nodes[e].expanded), "each edition starts folded");
+        assert!(!visible.iter().any(|&v| p.nodes[v].title == "Copyright"));
         fs::remove_dir_all(&d).unwrap();
+    }
+
+    /// A book from before sections: parts, and a notebook holding everything.
+    fn old_book(tag: &str) -> PathBuf {
+        let d = temp_dir(tag);
+        let put = |rel: &str, text: &str| {
+            let path = d.join(rel);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, text).unwrap();
+        };
+        fs::write(d.join("novel.toml"), "title = \"Old\"\n").unwrap();
+        put("manuscript/01-part-one/01-chapter-one/01-opening.md", "---\ntitle: Opening\n---\n\nWren waits. See [[notes/01-Characters/01-Wren]].\n");
+        put("manuscript/02-Part-Two/01-Chapter-Two/01-later.md", "Later.\n");
+        put("notes/01-Characters/01-Wren.md", "---\ntitle: Wren\n---\n\nSee [[manuscript/02-Part-Two/01-Chapter-Two/01-later]].\n");
+        put("notes/places/harbour.md", "Salt.\n");
+        put("notes/03-Magic-System/01-rules.md", "Rules.\n");
+        put("notes/07-Notes/01-stray.md", "A thought.\n");
+        put("notes/08-Research/01-tides.md", "Tides.\n");
+        d
+    }
+
+    #[test]
+    fn opening_an_old_book_brings_it_into_sections_without_losing_anything() {
+        let d = old_book("upgrade");
+        let done = upgrade(&d).unwrap();
+        assert!(!done.is_empty());
+
+        assert!(d.join("characters/01-Wren.md").exists());
+        assert!(d.join("places/harbour.md").exists());
+        assert!(d.join("research/01-tides.md").exists());
+        assert!(d.join("notes/01-stray.md").exists(), "a Notes folder inside notes empties into it");
+        assert!(!d.join("notes/07-Notes").exists());
+        assert!(d.join("notes/03-Magic-System/01-rules.md").exists(), "other notebook folders stay");
+        assert!(d.join("manuscript/01-page-one/01-chapter-one/01-opening.md").exists());
+        assert!(d.join("manuscript/02-Page-Two/01-Chapter-Two/01-later.md").exists());
+        assert!(d.join("Novel-Format.md").exists() && d.join("template-sheets/01-Character-Sketch.md").exists());
+        assert!(d.join("front-matter/01-Manuscript-Format").is_dir());
+        let fm_files = fs::read_dir(d.join("front-matter/02-Paperback")).unwrap().count();
+        assert_eq!(fm_files, 0, "an existing book gets no starter pages in its exports");
+
+        // Links follow both kinds of move.
+        let opening = fs::read_to_string(d.join("manuscript/01-page-one/01-chapter-one/01-opening.md")).unwrap();
+        assert!(opening.contains("[[characters/01-Wren]]"), "{opening}");
+        let wren = fs::read_to_string(d.join("characters/01-Wren.md")).unwrap();
+        assert!(wren.contains("[[manuscript/02-Page-Two/01-Chapter-Two/01-later]]"), "{wren}");
+
+        let p = Project::load(&d).unwrap();
+        assert_eq!(p.meta.part_word(), "Page");
+        assert_eq!(p.total_words(), 5);
+        assert!(upgrade(&d).unwrap().is_empty(), "it happens once");
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn a_book_that_counts_in_acts_keeps_them() {
+        let d = old_book("upgrade-acts");
+        fs::write(d.join("novel.toml"), "title = \"Old\"\npart_label = \"Act\"\n").unwrap();
+        upgrade(&d).unwrap();
+        assert!(d.join("manuscript/01-part-one").exists(), "its own word was chosen; parts aren't touched");
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn parts_become_pages_in_the_case_they_were_written() {
+        assert_eq!(part_to_page("01-part-one").as_deref(), Some("01-page-one"));
+        assert_eq!(part_to_page("02-Part-Two").as_deref(), Some("02-Page-Two"));
+        assert_eq!(part_to_page("PART III").as_deref(), Some("PAGE III"));
+        assert_eq!(part_to_page("03-Partridge"), None);
+        assert_eq!(part_to_page("04-Chapter-One"), None);
     }
 
     #[test]
@@ -1186,7 +1513,7 @@ mod tests {
         trash(&d, &scene).unwrap();
 
         let p = Project::load(&d).unwrap();
-        assert!(p.nodes.iter().any(|n| n.title == "TRASH"), "the heading shows");
+        assert!(p.nodes.iter().any(|n| n.kind == Kind::Category && n.title == "Trash"), "the section shows");
         let gone = p
             .nodes
             .iter()

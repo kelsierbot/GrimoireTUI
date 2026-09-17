@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+- **A tree in sections**: Novel Format, Manuscript, Characters, Places, Front
+  Matter, Notes, Research, Template Sheets and Trash, each with its own symbol,
+  every section and folder foldable, headed by the book's title.
+- **Pages** are the book's largest division (they were parts): `p page`.
+- **Front matter by edition** — Manuscript Format, Paperback, Ebook — with
+  starter title, copyright and dedication pages, left out of exports until
+  you include them. The EPUB takes the Ebook pages; Word takes the Manuscript
+  Format ones.
+- **Template Sheets** for a character and a setting, and a Novel Format guide.
+- **Older books are upgraded once, on opening**: notebook folders move into
+  their sections, parts become pages, links follow.
+- Popup keys stand out in the accent colour; the clearing pane has a view
+  switcher (`◂ clearing spectrum garden ▸`); the garden is titled.
+
 ## 0.2.0
 
 Nothing written is one keystroke from gone, and a hundred scenes are easy to

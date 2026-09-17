@@ -58,7 +58,7 @@ pub fn section_of(p: &Project, idx: usize) -> Section {
     // novel.toml counts alongside the default word.
     match n.title.to_lowercase().split_whitespace().next() {
         Some("chapter") => return Section::Chapter,
-        Some("part") => return Section::Part,
+        Some("page") | Some("part") => return Section::Part,
         Some(w) if w == p.meta.part_noun() => return Section::Part,
         _ => {}
     }
@@ -234,17 +234,15 @@ fn structure_block(p: &Project) -> String {
     }
 
     let _ = writeln!(s, "\n## Manuscript\n");
-    for &r in &p.roots {
-        if p.nodes[r].in_manuscript && p.nodes[r].kind != Kind::Divider {
-            emit(p, r, &mut s);
-        }
+    for r in p.manuscript() {
+        emit(p, r, &mut s);
     }
 
     let notes: Vec<usize> = p
         .nodes
         .iter()
         .enumerate()
-        .filter(|(_, n)| n.kind == Kind::Scene && !n.in_manuscript && !n.front_matter)
+        .filter(|(i, n)| n.kind == Kind::Scene && n.area.is_notebook() && !p.in_trash(*i))
         .map(|(i, _)| i)
         .collect();
     if !notes.is_empty() {

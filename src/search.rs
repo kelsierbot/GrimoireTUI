@@ -152,7 +152,7 @@ pub struct Name {
 pub fn names(p: &Project, parents: &[Option<usize>]) -> Vec<Name> {
     let mut out: Vec<Name> = Vec::new();
     for (i, n) in p.nodes.iter().enumerate() {
-        if n.kind != Kind::Scene || n.in_manuscript || n.front_matter || p.in_trash(i) {
+        if n.kind != Kind::Scene || !n.area.is_notebook() || p.in_trash(i) {
             continue;
         }
         // The top-level folder the note sits in: Characters, Regions…

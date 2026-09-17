@@ -70,7 +70,7 @@ pub fn export(p: &Project, opts: &ExportOptions) -> Result<Exported> {
     if !(opts.docx || opts.epub || opts.markdown) {
         bail!("nothing to export — choose DOCX, EPUB or Markdown");
     }
-    let book = book(p, opts.parts.as_deref())?;
+    let mut book = book(p, opts.parts.as_deref())?;
     let dir = p.root.join("exports");
     std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
     let stem = slug(book.title);
@@ -86,7 +86,9 @@ pub fn export(p: &Project, opts: &ExportOptions) -> Result<Exported> {
         put("docx", &docx(&book)?)?;
     }
     if opts.epub {
+        let submission = std::mem::replace(&mut book.front, front_pages(p, Edition::Ebook));
         put("epub", &epub(&book)?)?;
+        book.front = submission;
     }
     if opts.markdown {
         put("md", markdown(&book).as_bytes())?;
@@ -134,10 +136,43 @@ pub(crate) enum Piece<'a> {
 }
 
 fn manuscript_roots(p: &Project) -> impl Iterator<Item = usize> + '_ {
-    p.roots
+    p.manuscript().into_iter()
+}
+
+/// The edition an export is for. Front matter in a folder named for one goes
+/// only into that one; front matter loose in the section goes into all of them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Edition {
+    Manuscript,
+    Paperback,
+    Ebook,
+}
+
+fn edition_of(p: &Project, n: &Node) -> Option<Edition> {
+    let fm = crate::project::Area::FrontMatter.path(&p.root);
+    let first = n.path.strip_prefix(&fm).ok()?.components().next()?;
+    let folder = fm.join(first);
+    if folder == n.path {
+        return None;
+    }
+    let name = p.nodes.iter().find(|m| m.path == folder).map(|m| m.title.to_lowercase())?;
+    match name.as_str() {
+        "manuscript format" | "manuscript" => Some(Edition::Manuscript),
+        "paperback" | "print" => Some(Edition::Paperback),
+        "ebook" | "e-book" | "epub" => Some(Edition::Ebook),
+        _ => None,
+    }
+}
+
+/// The front-matter pages that go into `edition`, in order.
+fn front_pages<'a>(p: &'a Project, edition: Edition) -> Vec<&'a str> {
+    p.nodes
         .iter()
-        .copied()
-        .filter(|&r| p.nodes[r].in_manuscript && p.nodes[r].kind != Kind::Divider)
+        .filter(|n| n.kind == Kind::Scene && n.front_matter && n.compile)
+        .filter(|n| edition_of(p, n).is_none_or(|e| e == edition))
+        .map(|n| n.body.trim())
+        .filter(|body| !body.is_empty())
+        .collect()
 }
 
 /// Walk the manuscript. With `parts`, only those top-level parts are kept, but
@@ -161,13 +196,7 @@ pub(crate) fn book<'a>(p: &'a Project, parts: Option<&[usize]>) -> Result<Book<'
     let mut b = Book {
         title: if title.is_empty() { "Untitled" } else { title },
         author: m.author.trim(),
-        front: p
-            .nodes
-            .iter()
-            .filter(|n| n.kind == Kind::Scene && n.front_matter && n.compile)
-            .map(|n| n.body.trim())
-            .filter(|body| !body.is_empty())
-            .collect(),
+        front: front_pages(p, Edition::Manuscript),
         total: 0,
         pieces: Vec::new(),
         words: 0,
@@ -203,7 +232,7 @@ fn gather<'a>(p: &'a Project, idx: usize, keep: bool, number: &mut usize, b: &mu
             if keep {
                 b.pieces.push(Piece::Part {
                     title: &n.title,
-                    depth: n.depth,
+                    depth: n.depth.saturating_sub(1),
                 });
             }
             for &c in &n.children {
@@ -240,7 +269,7 @@ fn gather<'a>(p: &'a Project, idx: usize, keep: bool, number: &mut usize, b: &mu
             b.pieces.push(Piece::Chapter {
                 number: *number,
                 title: &n.title,
-                depth: n.depth,
+                depth: n.depth.saturating_sub(1),
                 scenes: bodies,
             });
         }

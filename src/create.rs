@@ -7,7 +7,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::manuscript::{self, Section};
-use crate::project::{self, Kind, Project};
+use crate::project::{self, Area, Kind, Project};
 
 /// Which key was pressed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -49,28 +49,27 @@ pub struct Plan {
     pub name: String,
 }
 
-/// Which top-level folder the selection sits in.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Area {
-    Manuscript,
-    Notes,
-    FrontMatter,
-}
-
+/// Which section the selection sits in. Nothing is made in the trash or in
+/// Novel Format, so those make things in the manuscript.
 fn area(p: &Project, sel: Option<usize>) -> Area {
-    match sel.map(|i| &p.nodes[i]) {
-        Some(n) if n.front_matter => Area::FrontMatter,
-        Some(n) if !n.in_manuscript => Area::Notes,
-        _ => Area::Manuscript,
+    match sel.map(|i| p.nodes[i].area) {
+        Some(Area::Trash | Area::Format) | None => Area::Manuscript,
+        Some(a) => a,
     }
 }
 
 fn area_dir(p: &Project, a: Area) -> PathBuf {
-    p.root.join(match a {
-        Area::Manuscript => "manuscript",
-        Area::Notes => "notes",
-        Area::FrontMatter => "front-matter",
-    })
+    a.path(&p.root)
+}
+
+/// What `n` makes in a section.
+fn item_noun(a: Area) -> &'static str {
+    match a {
+        Area::Manuscript => "scene",
+        Area::FrontMatter => "document",
+        Area::Templates => "sheet",
+        _ => "note",
+    }
 }
 
 /// The create keys worth showing for whatever is selected.
@@ -84,8 +83,7 @@ pub fn offers(p: &Project, sel: Option<usize>) -> Vec<(char, String)> {
             ('c', "chapter".into()),
             ('p', p.meta.part_noun()),
         ],
-        Area::Notes => own(&[('n', "note"), ('N', "folder")]),
-        Area::FrontMatter => own(&[('n', "page"), ('N', "folder")]),
+        a => own(&[('n', item_noun(a)), ('N', "folder")]),
     }
 }
 
@@ -134,11 +132,7 @@ pub fn plan(
             )
         }
         New::Scene => {
-            let noun = match a {
-                Area::Manuscript => "scene",
-                Area::Notes => "note",
-                Area::FrontMatter => "page",
-            };
+            let noun = item_noun(a);
             let dir = match here {
                 // A scene dropped into a part would turn it into a chapter,
                 // so it goes in the part's last chapter instead.
@@ -179,7 +173,7 @@ fn folder_of(p: &Project, parents: &[Option<usize>], i: usize) -> Option<usize> 
     match p.nodes[i].kind {
         Kind::Container => Some(i),
         Kind::Scene => parents[i],
-        Kind::Divider => None,
+        Kind::Category => None,
     }
 }
 
@@ -210,18 +204,19 @@ fn count(p: &Project, level: Section) -> usize {
 /// "in Part One, after Chapter One". New items are numbered after everything
 /// already there, so they follow the highest-numbered entry.
 fn place(p: &Project, dir: &Path) -> String {
-    let within = match p.nodes.iter().find(|n| n.kind == Kind::Container && n.path == dir) {
-        Some(n) => n.title.clone(),
-        None => match dir.file_name().and_then(|s| s.to_str()) {
-            Some("notes") => "notes".into(),
-            Some("front-matter") => "the front matter".into(),
-            _ => "the manuscript".into(),
+    let within = match p.nodes.iter().find(|n| n.path == dir) {
+        Some(n) if n.kind == Kind::Category => match n.area {
+            Area::Manuscript => "the manuscript".into(),
+            Area::FrontMatter => "the front matter".into(),
+            a => a.title().into(),
         },
+        Some(n) => n.title.clone(),
+        None => "the manuscript".into(),
     };
     let after = p
         .nodes
         .iter()
-        .filter(|n| n.kind != Kind::Divider && n.path.parent() == Some(dir))
+        .filter(|n| n.kind != Kind::Category && n.path.parent() == Some(dir))
         .filter_map(|n| project::leading_number(&n.path).map(|k| (k, n)))
         .max_by_key(|&(k, _)| k);
     match after {
@@ -322,10 +317,10 @@ mod tests {
     fn p_adds_the_next_part_at_the_end_of_the_manuscript() {
         let d = book("p");
         let plan = press(&d, "Opening", New::Part).unwrap();
-        assert_eq!(plan.noun, "part");
+        assert_eq!(plan.noun, "page");
         assert!(plan.folder);
         assert_eq!(plan.dir, d.join("manuscript"));
-        assert_eq!(plan.name, "Part Two");
+        assert_eq!(plan.name, "Page Two");
         assert_eq!(plan.place, "in the manuscript, after Part One");
         fs::remove_dir_all(&d).unwrap();
     }
@@ -369,7 +364,7 @@ mod tests {
         assert_eq!(beside_chapter.noun, "chapter");
         assert_eq!(beside_chapter.dir, d.join("manuscript/01-part-one"));
         let beside_part = press(&d, "Part One", New::Folder).unwrap();
-        assert_eq!(beside_part.noun, "part");
+        assert_eq!(beside_part.noun, "page");
         assert_eq!(beside_part.dir, d.join("manuscript"));
         fs::remove_dir_all(&d).unwrap();
     }
@@ -395,7 +390,7 @@ mod tests {
             vec![
                 ('n', "scene".to_string()),
                 ('c', "chapter".to_string()),
-                ('p', "part".to_string())
+                ('p', "page".to_string())
             ]
         );
         assert_eq!(

@@ -336,7 +336,19 @@ fn remember(root: &Path) {
 
 /// Decide what `grimoire` with no arguments should open. In order: the current
 /// directory, the last manuscript you had open, or a fresh one.
+/// Find the book to open, and bring it into the current shape first (once).
 fn resolve_project(arg: Option<PathBuf>) -> Result<(PathBuf, Option<String>)> {
+    let (root, msg) = find_project(arg)?;
+    let done = project::upgrade(&root).context("bringing the book up to date")?;
+    let msg = match (msg, done.is_empty()) {
+        (msg, true) => msg,
+        (Some(m), false) => Some(format!("{m} · {}", done.join(" · "))),
+        (None, false) => Some(format!("book updated: {}", done.join(" · "))),
+    };
+    Ok((root, msg))
+}
+
+fn find_project(arg: Option<PathBuf>) -> Result<(PathBuf, Option<String>)> {
     if let Some(p) = arg {
         let abs = std::fs::canonicalize(&p).unwrap_or_else(|_| p.clone());
         if !abs.exists() {

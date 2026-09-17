@@ -135,7 +135,12 @@ pub fn entries(app: &crate::app::App) -> Vec<Entry> {
             up = app.parents[pi];
         }
         trail.reverse();
-        let what = if n.in_manuscript { "scene" } else if n.front_matter { "page" } else { "note" };
+        let what = match n.area {
+            crate::project::Area::Manuscript => "scene",
+            crate::project::Area::FrontMatter | crate::project::Area::Format => "document",
+            crate::project::Area::Templates => "sheet",
+            _ => "note",
+        };
         let detail = if trail.is_empty() { what.to_string() } else { format!("{what} · {}", trail.join(" › ")) };
         v.push(Entry { label: n.title.clone(), detail, key: String::new(), action: Action::Open(n.path.clone()) });
     }

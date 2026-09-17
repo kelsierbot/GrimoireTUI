@@ -1026,7 +1026,7 @@ impl App {
             .nodes
             .iter()
             .enumerate()
-            .filter(|(i, n)| n.kind == Kind::Scene && !n.in_manuscript && !self.project.in_trash(*i))
+            .filter(|(i, n)| n.kind == Kind::Scene && n.area.is_notebook() && !self.project.in_trash(*i))
             .map(|(_, n)| n.title.clone())
             .collect()
     }
@@ -1516,17 +1516,22 @@ impl App {
     /// What the selected row is, in the book's own words.
     fn noun_of(&self, idx: usize) -> String {
         let n = &self.project.nodes[idx];
-        if n.kind == Kind::Divider {
-            return "heading".into();
+        if n.kind == Kind::Category {
+            return "section".into();
         }
         if self.project.in_trash(idx) {
             return if n.kind == Kind::Container { "folder".into() } else { "file".into() };
         }
-        if n.front_matter {
-            return if n.kind == Kind::Container { "folder".into() } else { "page".into() };
-        }
         if !n.in_manuscript {
-            return if n.kind == Kind::Container { "folder".into() } else { "note".into() };
+            if n.kind == Kind::Container {
+                return "folder".into();
+            }
+            return match n.area {
+                crate::project::Area::FrontMatter | crate::project::Area::Format => "document",
+                crate::project::Area::Templates => "sheet",
+                _ => "note",
+            }
+            .into();
         }
         match n.kind {
             Kind::Scene => "scene".into(),
@@ -1540,8 +1545,8 @@ impl App {
     /// The row the tree is on, unless it's one of the section headings.
     fn selected_file(&mut self) -> Option<usize> {
         let idx = self.visible.get(self.sel).copied()?;
-        if self.project.nodes[idx].kind == Kind::Divider {
-            self.msg = "that's a heading — pick what's under it".into();
+        if self.project.nodes[idx].kind == Kind::Category {
+            self.msg = "that's a section — pick what's inside it".into();
             return None;
         }
         Some(idx)
@@ -1662,19 +1667,19 @@ impl App {
     /// Re-read the tree from disk, keeping what's folded, which scene is open,
     /// and the editor exactly as it is.
     fn reload_tree(&mut self) -> Result<()> {
-        let collapsed: Vec<PathBuf> = self
+        let collapsed: Vec<(PathBuf, bool)> = self
             .project
             .nodes
             .iter()
-            .filter(|n| n.kind == Kind::Container && !n.expanded)
-            .map(|n| n.path.clone())
+            .filter(|n| n.kind != Kind::Scene)
+            .map(|n| (n.path.clone(), n.expanded))
             .collect();
         let open_path = self.open.map(|i| self.project.nodes[i].path.clone());
         let root = self.project.root.clone();
         self.project = Project::load(&root)?;
         for n in &mut self.project.nodes {
-            if collapsed.contains(&n.path) {
-                n.expanded = false;
+            if let Some(&(_, open)) = collapsed.iter().find(|(p, _)| *p == n.path) {
+                n.expanded = open;
             }
         }
         self.parents = self.project.parents();
@@ -1853,7 +1858,7 @@ impl App {
             return;
         }
         let idx = self.visible[from];
-        if self.project.nodes[idx].kind == Kind::Divider {
+        if self.project.nodes[idx].kind == Kind::Category {
             return;
         }
         let up = to < from;
@@ -1900,7 +1905,7 @@ impl App {
             Key::Left => {
                 let idx = self.visible[self.sel];
                 let n = &self.project.nodes[idx];
-                if n.kind == Kind::Container && n.expanded {
+                if n.kind != Kind::Scene && n.expanded {
                     self.project.nodes[idx].expanded = false;
                     self.refresh_visible();
                 } else if let Some(p) = self.parents[idx] {
@@ -1914,24 +1919,22 @@ impl App {
             Key::Enter | Key::Char(' ') => {
                 let idx = self.visible[self.sel];
                 match self.project.nodes[idx].kind {
-                    Kind::Container => {
+                    Kind::Container | Kind::Category => {
                         let open = self.project.nodes[idx].expanded;
                         self.project.nodes[idx].expanded = !open;
                         self.refresh_visible();
                     }
                     Kind::Scene => self.open_scene(idx),
-                    Kind::Divider => {}
                 }
             }
             Key::Right => {
                 let idx = self.visible[self.sel];
                 match self.project.nodes[idx].kind {
-                    Kind::Container => {
+                    Kind::Container | Kind::Category => {
                         self.project.nodes[idx].expanded = true;
                         self.refresh_visible();
                     }
                     Kind::Scene => self.open_scene(idx),
-                    Kind::Divider => {}
                 }
             }
             _ => {}
@@ -2066,13 +2069,12 @@ impl App {
                 self.sel = row;
                 let idx = self.visible[row];
                 match self.project.nodes[idx].kind {
-                    Kind::Container => {
+                    Kind::Container | Kind::Category => {
                         let open = self.project.nodes[idx].expanded;
                         self.project.nodes[idx].expanded = !open;
                         self.refresh_visible();
                     }
                     Kind::Scene => self.open_scene(idx),
-                    Kind::Divider => {}
                 }
             }
         } else if hit(self.rect_codex, x, y) && self.codex.is_some() {

@@ -57,7 +57,7 @@ pub fn aliases(front: &str) -> Vec<String> {
 pub fn index(p: &Project, parents: &[Option<usize>], ordinary: &dyn Fn(&str) -> bool) -> Vec<Entry> {
     let mut out = Vec::new();
     for (i, n) in p.nodes.iter().enumerate() {
-        if n.kind != Kind::Scene || n.in_manuscript || n.front_matter || p.in_trash(i) {
+        if n.kind != Kind::Scene || !n.area.is_notebook() || p.in_trash(i) {
             continue;
         }
         let mut section = String::new();
@@ -166,7 +166,7 @@ pub fn appearances(p: &Project, parents: &[Option<usize>], entry: &Entry) -> Vec
 
 fn walk(p: &Project, parents: &[Option<usize>], idx: usize, one: &[Entry], out: &mut Vec<Appearance>) {
     let n = &p.nodes[idx];
-    if p.in_trash(idx) || (!n.in_manuscript && n.kind != Kind::Divider) {
+    if p.in_trash(idx) || !n.in_manuscript {
         return;
     }
     if n.kind == Kind::Scene {
