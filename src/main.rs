@@ -430,6 +430,7 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
             return Ok(());
         }
         app.autosave_tick();
+        app.tick_today();
         app.tick_speller();
         app.tick_backup();
         app.music.drain();

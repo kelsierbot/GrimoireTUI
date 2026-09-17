@@ -321,7 +321,8 @@ fn draw_scene(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
             (head, scene::render_spectrum(&app.viz, frac, note.as_deref()))
         }
         Mode::Growth => {
-            let today = app.project.total_words().saturating_sub(app.baseline);
+            // The garden grows with what's written; a cut doesn't uproot it.
+            let today = app.today_words().max(0) as usize;
             let target = app.project.meta.daily_target.max(1);
             // New growth glints for two seconds. The first sighting just records
             // the step, so opening the view doesn't fake a milestone.
@@ -736,7 +737,8 @@ fn draw_status(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
     let target = app.project.meta.target_words.max(1);
     let filled = (total * 10 / target).min(10);
     let bar: String = "▓".repeat(filled) + &"░".repeat(10 - filled);
-    let today = total.saturating_sub(app.baseline);
+    let today = app.today_words();
+    let today_text = if today < 0 { format!("−{}", thousands(today.unsigned_abs() as usize)) } else { thousands(today as usize) };
 
     let mut spans = vec![
         Span::raw(" "),
@@ -747,8 +749,8 @@ fn draw_status(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
         ),
         Span::styled(bar, Style::default().fg(t.accent)),
         Span::styled(
-            format!("  today {}", thousands(today)),
-            Style::default().fg(if today >= app.project.meta.daily_target {
+            format!("  today {today_text}"),
+            Style::default().fg(if today >= app.project.meta.daily_target as i64 {
                 t.accent
             } else {
                 t.dim

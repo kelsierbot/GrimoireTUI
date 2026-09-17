@@ -3,3 +3,5 @@ author = "Josh King"
 draft = "1"
 target_words = 80000
 daily_target = 1000
+
+sections = ["format", "manuscript", "places", "characters", "front-matter", "research", "template-sheets", "notes"]

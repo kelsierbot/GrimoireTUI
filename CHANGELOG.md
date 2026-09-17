@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.4
+
+- **"today" always moves when you write.** It's the day's net change in the
+  manuscript, shown below zero (`today −29`) after cutting more than you've
+  written, instead of sitting at 0 until you'd written the cut words back.
+  Deleting a scene or bringing it back with `Ctrl-Z` doesn't change it, cut and
+  paste within the book comes out even, and it starts over at midnight even if
+  Grimoire stays open.
+
 ## 0.3.3
 
 - **Closing the terminal window really closes Grimoire.** It used to be left

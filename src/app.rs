@@ -99,7 +99,10 @@ pub struct App {
     pub open: Option<usize>,
     pub editor: Editor,
     pub focus: Focus,
+    /// The manuscript's word count at the start of today: "today" is what it
+    /// has grown by since. See [`App::tick_today`].
     pub baseline: usize,
+    baseline_date: String,
     pub msg: String,
     pub quit: bool,
     pub edit_width: usize,
@@ -393,6 +396,7 @@ impl App {
             editor: Editor::from_str(""),
             focus: Focus::Tree,
             baseline,
+            baseline_date: today_string(),
             msg: String::new(),
             quit: false,
             edit_width: 60,
@@ -610,6 +614,41 @@ impl App {
 
     /// Called every tick: save once typing has paused, or once changes have
     /// waited too long.
+    /// "Today" starts again at midnight, even with Grimoire left open.
+    pub fn tick_today(&mut self) {
+        let date = today_string();
+        if date != self.baseline_date {
+            self.baseline_date = date;
+            let total = self.project.total_words();
+            self.set_baseline(total);
+        }
+    }
+
+    /// The day's net change in words: below zero after cutting more than has
+    /// been written, so every word typed still moves it. Cut and paste
+    /// elsewhere in the book comes out even.
+    pub fn today_words(&self) -> i64 {
+        self.project.total_words() as i64 - self.baseline as i64
+    }
+
+    /// Deleting a scene, or bringing one back, isn't writing: it moves the
+    /// day's starting point by the same amount, so "today" doesn't change.
+    fn keep_today(&mut self, before: usize) {
+        let after = self.project.total_words();
+        if after != before {
+            self.set_baseline((self.baseline + after).saturating_sub(before));
+        }
+    }
+
+    fn set_baseline(&mut self, n: usize) {
+        if n == self.baseline {
+            return;
+        }
+        self.baseline = n;
+        let dir = self.project.root.join(".grimoire");
+        write_baseline(&dir, &dir.join("progress.toml"), &self.baseline_date, n);
+    }
+
     pub fn autosave_tick(&mut self) {
         if self.project.dirty_count() == 0 {
             self.unsaved_since = None;
@@ -1669,6 +1708,12 @@ impl App {
     }
 
     fn finish_delete(&mut self, path: PathBuf, name: String, permanent: bool) {
+        let before = self.project.total_words();
+        self.delete_path(path, name, permanent);
+        self.keep_today(before);
+    }
+
+    fn delete_path(&mut self, path: PathBuf, name: String, permanent: bool) {
         self.flush();
         if !self.commit_saves() {
             return;
@@ -1892,6 +1937,12 @@ impl App {
     /// Ctrl-Z (`back`) or Ctrl-Y outside the editor: take back the last thing
     /// done in the tree, or do again the last thing taken back.
     fn tree_step(&mut self, back: bool) {
+        let before = self.project.total_words();
+        self.take_step(back);
+        self.keep_today(before);
+    }
+
+    fn take_step(&mut self, back: bool) {
         let Some(step) = (if back { self.tree_undo.pop() } else { self.tree_redo.pop() }) else {
             self.msg = if back { "nothing to undo".into() } else { "nothing to redo".into() };
             return;
@@ -3404,8 +3455,12 @@ fn rank_suggestions(word: &str, mut found: Vec<String>, max: usize) -> Vec<Strin
 
 /// Today's starting word count, so the status line can show a session delta.
 /// Stored in `.grimoire/progress.toml`, which belongs in .gitignore.
+fn today_string() -> String {
+    chrono::Local::now().format("%Y-%m-%d").to_string()
+}
+
 fn load_baseline(project: &Project) -> Result<usize> {
-    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let today = today_string();
     let dir = project.root.join(".grimoire");
     let path = dir.join("progress.toml");
     let total = project.total_words();
