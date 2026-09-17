@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.3
+
+- **Closing the terminal window really closes Grimoire.** It used to be left
+  running, stuck at full CPU on the closed terminal (a crossterm reader that
+  never returns), without the save-on-close ever happening. Keys are now read on
+  their own thread, so closing the window saves and exits in a moment.
+
 ## 0.3.2
 
 - **Everything in the tree moves**: drag a section, or press `K`/`J` on it, to

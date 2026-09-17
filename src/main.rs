@@ -405,6 +405,21 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
     let mut confirm_quit = false;
     let mut last_frame = Instant::now();
 
+    // Keys and the mouse are read on a thread of their own. When the terminal
+    // window closes, crossterm 0.29's reader spins forever on the dead tty
+    // instead of returning; on this thread that can't stop the loop below from
+    // seeing the hang-up, saving, and leaving (which ends the spinning thread).
+    let (events_tx, events) = std::sync::mpsc::channel::<std::io::Result<Event>>();
+    std::thread::spawn(move || {
+        loop {
+            let ev = event::read();
+            let failed = ev.is_err();
+            if events_tx.send(ev).is_err() || failed {
+                break;
+            }
+        }
+    });
+
     loop {
         // Closing the window or being told to stop: save, then go.
         if shutdown::requested() {
@@ -433,34 +448,36 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
             app.viz.update();
         }
 
-        terminal.draw(|f| ui::draw(f, app))?;
-
-        // If the terminal itself goes away, reading from it fails: save what
-        // there is before reporting that.
-        let ready = match event::poll(if spectrum { FAST_TICK } else { TICK }) {
-            Ok(r) => r,
-            Err(e) => {
-                if !app.try_quit() {
-                    app.rescue();
-                }
-                return Err(e.into());
+        // If the terminal itself goes away, drawing to it or reading from it
+        // fails: save what there is before reporting that.
+        if let Err(e) = terminal.draw(|f| ui::draw(f, app)) {
+            if !app.try_quit() {
+                app.rescue();
             }
-        };
-        if !ready {
-            // The scenes animate on TICK whatever the repaint rate.
-            if last_frame.elapsed() >= TICK {
-                app.frame = app.frame.wrapping_add(1);
-                last_frame = Instant::now();
-            }
-            continue;
+            return Err(e.into());
         }
-        let ev = match event::read() {
-            Ok(ev) => ev,
-            Err(e) => {
+
+        let ev = match events.recv_timeout(if spectrum { FAST_TICK } else { TICK }) {
+            Ok(Ok(ev)) => ev,
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                // The scenes animate on TICK whatever the repaint rate.
+                if last_frame.elapsed() >= TICK {
+                    app.frame = app.frame.wrapping_add(1);
+                    last_frame = Instant::now();
+                }
+                continue;
+            }
+            Ok(Err(e)) => {
                 if !app.try_quit() {
                     app.rescue();
                 }
                 return Err(e.into());
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                if !app.try_quit() {
+                    app.rescue();
+                }
+                return Ok(());
             }
         };
 
