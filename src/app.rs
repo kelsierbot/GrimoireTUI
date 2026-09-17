@@ -51,6 +51,20 @@ pub enum Focus {
     Music,
 }
 
+/// Something done to the book's files from the tree, kept so it can be taken
+/// back.
+#[derive(Debug, Clone)]
+enum TreeStep {
+    /// Things moved on disk: a delete (to the trash) or a move. Each batch was
+    /// one rename-all; a drag is several. `links` if `[[links]]` followed.
+    Moved { what: String, batches: Vec<Vec<(PathBuf, PathBuf)>>, links: bool },
+    /// A rename, by name, so a scene's `title:` goes back too.
+    Renamed { from: PathBuf, to: PathBuf, old: String, new: String },
+    /// Something new. Undoing it sends it to the trash (where it waits, words
+    /// and all), and redoing brings it back from there.
+    Created { what: String, path: PathBuf, trashed: Option<PathBuf> },
+}
+
 pub struct App {
     pub project: Project,
     pub visible: Vec<usize>,
@@ -108,6 +122,10 @@ pub struct App {
     pre_snapshotted: HashSet<PathBuf>,
     /// Undo for scenes that aren't open, so switching back still undoes.
     undo_stash: HashMap<PathBuf, editor::History>,
+    /// What was done in the tree — deletes, renames, moves, new things — so
+    /// Ctrl-Z outside the editor can take it back, and Ctrl-Y put it again.
+    tree_undo: Vec<TreeStep>,
+    tree_redo: Vec<TreeStep>,
     /// Spellcheck underlines are showing.
     pub spell_on: bool,
     /// The dictionary, once it has loaded in the background.
@@ -375,6 +393,8 @@ impl App {
             last_attempt: None,
             pre_snapshotted: HashSet::new(),
             undo_stash: HashMap::new(),
+            tree_undo: Vec::new(),
+            tree_redo: Vec::new(),
             spell_on: Settings::load().spellcheck,
             speller: None,
             speller_rx: None,
@@ -605,6 +625,7 @@ impl App {
 
     pub fn undo(&mut self) {
         if self.focus != Focus::Editor || self.open.is_none() {
+            self.tree_step(true);
             return;
         }
         if self.editor.undo() {
@@ -616,6 +637,7 @@ impl App {
 
     pub fn redo(&mut self) {
         if self.focus != Focus::Editor || self.open.is_none() {
+            self.tree_step(false);
             return;
         }
         if self.editor.redo() {
@@ -707,9 +729,8 @@ impl App {
             Action::History => self.open_history(),
             Action::Save => self.save(),
             Action::Undo | Action::Redo => {
-                if self.open.is_some() {
-                    self.focus = Focus::Editor;
-                }
+                // The tree's own actions are undone from anywhere but the
+                // editor; from the editor, it's the typing.
                 if action == Action::Undo { self.undo() } else { self.redo() }
             }
             Action::ProjectMap => self.run_menu(7),
@@ -1478,6 +1499,8 @@ impl App {
                 return;
             }
         };
+        let what = if name.trim().is_empty() { plan.noun.clone() } else { name.trim().to_string() };
+        self.record(TreeStep::Created { what, path: path.clone(), trashed: None });
         if let Err(e) = self.reload_tree() {
             self.msg = format!("created, but couldn't re-read the tree: {e}");
             return;
@@ -1568,6 +1591,13 @@ impl App {
         if !self.commit_saves() {
             return;
         }
+        let old = self
+            .project
+            .nodes
+            .iter()
+            .find(|n| n.path == path)
+            .map(|n| n.title.clone())
+            .unwrap_or_default();
         let to = match project::rename(&path, &name) {
             Ok(p) => p,
             Err(e) => {
@@ -1575,6 +1605,7 @@ impl App {
                 return;
             }
         };
+        self.record(TreeStep::Renamed { from: path.clone(), to: to.clone(), old, new: name.trim().to_string() });
         self.follow_paths(&path, &to);
         if let Err(e) = self.reload_tree() {
             self.msg = format!("renamed, but couldn't re-read the tree: {e}");
@@ -1616,7 +1647,15 @@ impl App {
         let done = if permanent {
             project::destroy(&path).map(|_| String::new())
         } else {
-            project::trash(&root, &path).map(|_| " — it's in the trash if you want it back".into())
+            let m = self.mod_label();
+            project::trash(&root, &path).map(|to| {
+                self.record(TreeStep::Moved {
+                    what: format!("delete {name}"),
+                    batches: vec![vec![(path.clone(), to)]],
+                    links: false,
+                });
+                format!(" — {m}Z puts it back")
+            })
         };
         match done {
             Ok(where_to) => {
@@ -1803,6 +1842,119 @@ impl App {
         }
     }
 
+    // ---- undoing what the tree did ---------------------------------------
+
+    fn record(&mut self, step: TreeStep) {
+        self.tree_undo.push(step);
+        if self.tree_undo.len() > 100 {
+            self.tree_undo.remove(0);
+        }
+        self.tree_redo.clear();
+    }
+
+    /// Ctrl-Z (`back`) or Ctrl-Y outside the editor: take back the last thing
+    /// done in the tree, or do again the last thing taken back.
+    fn tree_step(&mut self, back: bool) {
+        let Some(step) = (if back { self.tree_undo.pop() } else { self.tree_redo.pop() }) else {
+            self.msg = if back { "nothing to undo".into() } else { "nothing to redo".into() };
+            return;
+        };
+        self.flush();
+        if !self.commit_saves() {
+            // Nothing was touched; keep the step for when saving works.
+            if back { self.tree_undo.push(step) } else { self.tree_redo.push(step) }
+            return;
+        }
+        let root = self.project.root.clone();
+        let (result, step, show, what) = match step {
+            TreeStep::Moved { what, batches, links } => {
+                let order: Vec<Vec<(PathBuf, PathBuf)>> = if back {
+                    batches.iter().rev().map(|b| b.iter().map(|(f, t)| (t.clone(), f.clone())).collect()).collect()
+                } else {
+                    batches.clone()
+                };
+                let mut result = Ok(());
+                let mut show = None;
+                for batch in &order {
+                    self.close_if_trashed(batch);
+                    if let Err(e) = project::apply_moves(&root, batch, links) {
+                        result = Err(e);
+                        break;
+                    }
+                    self.follow_many(batch);
+                    show = batch.first().map(|(_, t)| t.clone());
+                }
+                (result, TreeStep::Moved { what: what.clone(), batches, links }, show, what)
+            }
+            TreeStep::Renamed { from, to, old, new } => {
+                let (at, name) = if back { (&to, &old) } else { (&from, &new) };
+                let result = project::rename(at, name).map(|now| {
+                    self.follow_paths(at, &now);
+                });
+                let show = Some(if back { from.clone() } else { to.clone() });
+                let what = format!("rename to {new}");
+                (result, TreeStep::Renamed { from, to, old, new }, show, what)
+            }
+            TreeStep::Created { what, path, trashed } => {
+                let (result, trashed, show) = if back {
+                    let pair = project::trash(&root, &path).map(|t| vec![(path.clone(), t)]);
+                    match pair {
+                        Ok(batch) => {
+                            self.close_if_trashed(&batch);
+                            let t = batch[0].1.clone();
+                            (Ok(()), Some(t), None)
+                        }
+                        Err(e) => (Err(e), trashed, None),
+                    }
+                } else {
+                    match &trashed {
+                        Some(t) => {
+                            let batch = vec![(t.clone(), path.clone())];
+                            (project::apply_moves(&root, &batch, false), None, Some(path.clone()))
+                        }
+                        None => (Ok(()), None, Some(path.clone())),
+                    }
+                };
+                let label = format!("create {what}");
+                (result, TreeStep::Created { what, path, trashed }, show, label)
+            }
+        };
+        match result {
+            Ok(()) => {
+                if back { self.tree_redo.push(step) } else { self.tree_undo.push(step) }
+                if let Err(e) = self.reload_tree() {
+                    self.msg = format!("couldn't re-read the tree: {e}");
+                    return;
+                }
+                if let Some(i) = show.and_then(|p| self.project.nodes.iter().position(|n| n.path == p)) {
+                    self.reveal(i);
+                }
+                let m = self.mod_label();
+                self.msg = if back {
+                    format!("undid: {what} · {m}Y redoes it")
+                } else {
+                    format!("redid: {what}")
+                };
+            }
+            Err(e) => {
+                // It can't be taken back now (something else changed on disk);
+                // drop it rather than leave a step that will never work.
+                self.msg = format!("couldn't {} {what}: {e}", if back { "undo" } else { "redo" });
+            }
+        }
+    }
+
+    /// If a move sends the open scene (or what holds it) to the trash, close it.
+    fn close_if_trashed(&mut self, batch: &[(PathBuf, PathBuf)]) {
+        let bin = project::trash_dir(&self.project.root);
+        let Some(open) = self.open.map(|i| self.project.nodes[i].path.clone()) else { return };
+        if batch.iter().any(|(from, to)| to.starts_with(&bin) && open.starts_with(from)) {
+            self.open = None;
+            self.editor = Editor::from_str("");
+            self.focus = Focus::Tree;
+        }
+    }
+
     // ---- moving scenes and chapters -------------------------------------
 
     /// Alt-↑ / Alt-↓: move the selected scene or folder one place.
@@ -1828,6 +1980,11 @@ impl App {
             }
         };
         self.follow_many(&moved.renames);
+        self.record(TreeStep::Moved {
+            what: format!("move {name}"),
+            batches: vec![moved.renames.clone()],
+            links: true,
+        });
         if let Err(e) = self.reload_tree() {
             self.msg = format!("moved, but couldn't re-read the tree: {e}");
             return;
@@ -1863,8 +2020,26 @@ impl App {
         }
         let up = to < from;
         let mut path = self.project.nodes[idx].path.clone();
+        // However many single moves a drag takes, it's one thing to undo.
+        let before = self.tree_undo.len();
+        self.drag_moves(up, to, &mut path);
+        if self.tree_undo.len() > before + 1 {
+            let steps: Vec<TreeStep> = self.tree_undo.drain(before..).collect();
+            let batches = steps
+                .into_iter()
+                .flat_map(|s| match s {
+                    TreeStep::Moved { batches, .. } => batches,
+                    _ => Vec::new(),
+                })
+                .collect();
+            let name = self.project.nodes.iter().find(|n| n.path == path).map(|n| n.title.clone()).unwrap_or_default();
+            self.tree_undo.push(TreeStep::Moved { what: format!("move {name}"), batches, links: true });
+        }
+    }
+
+    fn drag_moves(&mut self, up: bool, to: usize, path: &mut PathBuf) {
         for _ in 0..40 {
-            let Some(i) = self.project.nodes.iter().position(|n| n.path == path) else { return };
+            let Some(i) = self.project.nodes.iter().position(|n| n.path == *path) else { return };
             let Some(pos) = self.visible.iter().position(|&v| v == i) else { return };
             if (up && pos <= to) || (!up && pos >= to) {
                 return;
@@ -1874,7 +2049,7 @@ impl App {
             self.move_selected(up);
             // Follow the dragged thing under its new name.
             match self.visible.get(self.sel).map(|&v| self.project.nodes[v].path.clone()) {
-                Some(p) if p != path => path = p,
+                Some(p) if p != *path => *path = p,
                 _ => return,
             }
         }
@@ -3050,7 +3225,7 @@ impl App {
                     .map(|(k, w)| format!("{k} {w}"))
                     .collect();
                 format!(
-                    "Tab pane  ↵ fold  {}  r rename  d delete  H history  F1 menu  {m}Q quit ",
+                    "Tab pane  ↵ fold  {}  r rename  d delete  {m}Z undo  H history  F1 menu  {m}Q quit ",
                     keys.join("  ")
                 )
             }

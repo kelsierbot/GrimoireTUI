@@ -1161,6 +1161,26 @@ fn cousin_folder(root: &Path, folder: &Path, up: bool) -> Option<PathBuf> {
     if up { kids.last().cloned() } else { kids.first().cloned() }
 }
 
+/// Carry out moves that were done once before, or take them back (pass them
+/// reversed). Refuses before touching anything if a source has gone or a
+/// destination is taken. `links` rewrites `[[links]]` to follow, as a move or
+/// rename did the first time; a trip to or from the trash leaves them alone.
+pub fn apply_moves(root: &Path, renames: &[(PathBuf, PathBuf)], links: bool) -> Result<()> {
+    for (from, to) in renames {
+        if !from.exists() {
+            anyhow::bail!("{} isn't there any more", from.file_name().unwrap_or_default().to_string_lossy());
+        }
+        if to.exists() && !renames.iter().any(|(f, _)| f == to) {
+            anyhow::bail!("{} is already taken", to.file_name().unwrap_or_default().to_string_lossy());
+        }
+    }
+    rename_all(renames)?;
+    if links {
+        rewrite_links(root, renames);
+    }
+    Ok(())
+}
+
 /// Rename in two passes through temporary names, so a swap (or a shift along)
 /// never collides with itself.
 fn rename_all(renames: &[(PathBuf, PathBuf)]) -> Result<()> {
@@ -1660,6 +1680,36 @@ mod tests {
         assert!(move_item(&d, &d.join("manuscript/01-Act-One"), true).is_err());
         assert!(move_item(&d, &d.join("manuscript/02-Act-Two/03-Chapter-Three/01-Lantern.md"), false).is_err());
         assert!(move_item(&d, &d.join("manuscript"), true).is_err());
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn a_move_can_be_taken_back_and_done_again_with_its_links() {
+        let d = move_book("move-undo");
+        let ch1 = d.join("manuscript/01-Act-One/01-Chapter-One");
+        let m = move_item(&d, &ch1.join("02-Low-Tide.md"), true).unwrap();
+        let back: Vec<(PathBuf, PathBuf)> = m.renames.iter().map(|(f, t)| (t.clone(), f.clone())).collect();
+        apply_moves(&d, &back, true).unwrap();
+        assert_eq!(names_in(&ch1), ["01-Gravel.md", "02-Low-Tide.md"]);
+        let note = fs::read_to_string(d.join("notes/01-Characters/01-Wren.md")).unwrap();
+        assert!(note.contains("[[02-Low-Tide]]"), "links follow it back: {note}");
+        apply_moves(&d, &m.renames, true).unwrap();
+        assert_eq!(names_in(&ch1), ["01-Low-Tide.md", "02-Gravel.md"]);
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn a_delete_comes_back_out_of_the_trash_unless_its_place_is_taken() {
+        let d = temp_dir("untrash");
+        let scene = create(&d, "Cut This", false).unwrap();
+        let gone = trash(&d, &scene).unwrap();
+        apply_moves(&d, &[(gone.clone(), scene.clone())], false).unwrap();
+        assert!(scene.exists() && !gone.exists());
+
+        let gone = trash(&d, &scene).unwrap();
+        fs::write(&scene, "something new in its place").unwrap();
+        assert!(apply_moves(&d, &[(gone.clone(), scene.clone())], false).is_err(), "never overwrites");
+        assert!(gone.exists(), "and touches nothing when it refuses");
         fs::remove_dir_all(&d).unwrap();
     }
 

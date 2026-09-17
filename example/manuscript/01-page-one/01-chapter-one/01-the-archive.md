@@ -10,4 +10,4 @@ The building had no windows on the north face, which was the first thing that st
 
 She checked the address again. Correct. Of course it was correct — she had written it down twice, once in the car and once standing here in the gravel, as if the second writing might reveal a different building.
 
-Inside, the air was cold and smelled faintly of paper dust and machine oil. A single lamp burned at the far end of a corridor that went on longer than the exterior had any right to allow.
+Inside, the air was cold an
