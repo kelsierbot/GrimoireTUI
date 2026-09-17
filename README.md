@@ -44,7 +44,8 @@ every download is on the [releases page](https://github.com/kelsierbot/GrimoireT
 **With Homebrew** (macOS or Linux):
 
 ```sh
-brew install kelsierbot/tap/grimoire
+brew tap kelsierbot/tap
+brew install grimoire
 ```
 
 `brew upgrade` then brings each new release.
