@@ -71,6 +71,19 @@ fn drop_copy(path: String) -> Reply<()> {
     plainly(grimoire_app::drop_conflict_copy(Path::new(&path)))
 }
 
+/// Where the writer stopped, on any device that shares this shelf.
+#[tauri::command]
+fn resuming(app: tauri::AppHandle) -> Reply<Option<grimoire_app::Resuming>> {
+    Ok(grimoire_app::resuming(&shelf(&app)?))
+}
+
+/// Remember this scene as the place to pick up. The desktop reads the same
+/// file, so a sentence started on the sofa is waiting on the shelf at the desk.
+#[tauri::command]
+fn mark_place(book: String, scene: String, line: usize) -> Reply<()> {
+    plainly(grimoire_app::mark_place(Path::new(&book), Path::new(&scene), line))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -81,7 +94,9 @@ pub fn run() {
             outline,
             read_scene,
             save_scene,
-            drop_copy
+            drop_copy,
+            resuming,
+            mark_place
         ])
         .run(tauri::generate_context!())
         .expect("Grimoire could not start");

@@ -267,6 +267,75 @@ pub fn drop_conflict_copy(path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Where the writer stopped, ready for the one button that matters on a
+/// shelf: the scene, where it sits in the book, and whose hands were last on
+/// it. The phone and the desktop write the same `resume.md`, so picking up a
+/// sentence on the sofa needs no thinking about which file that was.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Resuming {
+    pub book: PathBuf,
+    pub book_title: String,
+    pub path: PathBuf,
+    pub title: String,
+    pub place: String,
+    pub paragraph: usize,
+    pub machine: String,
+    /// Already a phrase, not a timestamp: "Thursday 18 September, 11:47 am".
+    pub when: String,
+}
+
+/// The most recent stopping point across every book on the shelf. `None` when
+/// nothing has been written yet, or when the scene it names has since gone —
+/// a button that opens nothing is worse than no button.
+pub fn resuming(base: &Path) -> Option<Resuming> {
+    let mut best: Option<(chrono::DateTime<chrono::Local>, Resuming)> = None;
+    for book in books(base) {
+        let Some(r) = grimoire_core::resume::read(&book.path) else { continue };
+        let scene = book.path.join(&r.scene);
+        if !scene.is_file() {
+            continue;
+        }
+        let row = outline(&book.path).ok().and_then(|o| o.scenes.into_iter().find(|s| s.path == scene));
+        let here = Resuming {
+            book: book.path.clone(),
+            book_title: book.title.clone(),
+            title: row.as_ref().map(|s| s.title.clone()).unwrap_or_else(|| scene_title(&scene)),
+            place: row.map(|s| s.place).unwrap_or_default(),
+            path: scene,
+            paragraph: r.line + 1,
+            machine: r.machine.clone(),
+            when: r.when.format("%A %-d %B, %-I:%M %P").to_string(),
+        };
+        if best.as_ref().is_none_or(|(w, _)| r.when > *w) {
+            best = Some((r.when, here));
+        }
+    }
+    best.map(|(_, r)| r)
+}
+
+/// Remember this scene as the place to pick up. Called when a scene is saved,
+/// so the desktop's shelf offers the paragraph the phone was just in.
+pub fn mark_place(book: &Path, scene: &Path, line: usize) -> Result<()> {
+    let p = Project::load(book)?;
+    let place = outline(book)
+        .ok()
+        .and_then(|o| o.scenes.into_iter().find(|s| s.path == scene).map(|s| s.place))
+        .unwrap_or_default();
+    let r = grimoire_core::resume::Resume {
+        scene: grimoire_core::resume::relative(book, scene),
+        line,
+        column: 0,
+        machine: grimoire_core::resume::machine_name(),
+        when: chrono::Local::now(),
+    };
+    grimoire_core::resume::write(book, &r, &p.meta.title, &place)
+}
+
+/// A scene's name when the outline cannot supply one: its file name, tidied.
+fn scene_title(path: &Path) -> String {
+    path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -397,6 +466,29 @@ mod tests {
 
         assert!(drop_conflict_copy(&scene).is_err(), "a scene must never be deletable this way");
         assert!(scene.exists(), "and it is still there");
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn the_shelf_offers_the_newest_stopping_point() {
+        let base = shelf("resume");
+        let book = create_book(&base, "The Crossing").unwrap();
+        let o = outline(&book.path).unwrap();
+        let scene = o.scenes[1].path.clone();
+
+        assert!(resuming(&base).is_none(), "nothing written yet, so no button");
+
+        mark_place(&book.path, &scene, 41).unwrap();
+        let r = resuming(&base).expect("a place to pick up");
+        assert_eq!(r.path, scene);
+        assert_eq!(r.book_title, "The Crossing");
+        assert_eq!(r.paragraph, 42);
+        assert!(!r.place.is_empty(), "the card says where in the book: {:?}", r.place);
+        assert!(r.when.contains(','), "a phrase, not a timestamp: {}", r.when);
+
+        // a scene that has since been deleted must not leave a dead button
+        fs::remove_file(&scene).unwrap();
+        assert!(resuming(&base).is_none());
         fs::remove_dir_all(&base).unwrap();
     }
 }

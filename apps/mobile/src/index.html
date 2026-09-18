@@ -520,6 +520,9 @@
   const stamp = t => ({ len: t.length, hash: t.length * 31 + t.charCodeAt(0) || 0, existed: true });
   const same = (a, b) => a && b && a.len === b.len && a.hash === b.hash;
 
+  /* the demo's stand-in for resume.md */
+  let place_ = { scene: demoScenes[1].path, line: 41, when: "Thursday 18 September, 9:41 pm" };
+
   const mock = {
     books: async () => [
       { title: "The Crossing", path: "/books/the-crossing", words: scenes.reduce((n, s) => n + words(s.text), 0), scenes: scenes.length },
@@ -550,6 +553,18 @@
       persist();
       return { result: "ok", seen: stamp(text), words: words(text) };
     },
+    resuming: async () => {
+      const s = scenes.find(x => x.path === place_.scene) ?? scenes[0];
+      return place_.scene === null ? null : {
+        book: "/books/the-crossing", book_title: "The Crossing",
+        path: s.path, title: s.title, place: s.place,
+        paragraph: place_.line + 1, machine: "bazzite",
+        when: place_.when,
+      };
+    },
+    mark_place: async ({ scene, line }) => {
+      place_ = { scene, line, when: new Date().toLocaleString(undefined, { weekday: "long", day: "numeric", month: "long", hour: "numeric", minute: "2-digit" }) };
+    },
     drop_copy: async ({ path }) => {
       scenes = scenes.filter(s => s.path !== path);
       persist();
@@ -567,11 +582,11 @@
   if (tauri) {
     for (const id of ["simulate"]) el(id).hidden = true;
     document.querySelector(".demo-note").hidden = true;
-    el("resume").hidden = true;            // until resume.md is wired through
-    document.querySelectorAll(".eyebrow")[0].hidden = true;
   }
   const views = { shelf: el("shelf-view"), outline: el("outline-view"), editor: el("editor-view") };
   let open = null;   // the scene being edited
+  let picked_up = null;  // what the resume card is offering
+  let book_ = null;      // the book the open scene belongs to
   let seen_ = null;  // what the file looked like when it was opened
   let timer = null;
 
@@ -590,11 +605,19 @@
     list.innerHTML = "";
     const shelved = await call("books");
     el("empty-shelf").hidden = shelved.length > 0;
-    // nothing to carry on with until a book exists — and on a device the card
-    // stays away until resume.md is actually wired through
-    const noResume = tauri || shelved.length === 0;
+
+    // the one button that matters on a shelf: carry on where you stopped,
+    // wherever you stopped — this device or the one in the other room
+    picked_up = await call("resuming");
+    const noResume = !picked_up;
     el("resume").hidden = noResume;
     document.querySelectorAll(".eyebrow")[0].hidden = noResume;
+    if (picked_up) {
+      el("resume-scene").textContent = `${picked_up.title} · ${picked_up.book_title}`;
+      const where = picked_up.place ? `${picked_up.place} · ` : "";
+      el("resume-meta").textContent =
+        `${where}paragraph ${picked_up.paragraph} · on ${picked_up.machine}, ${picked_up.when}`;
+    }
     for (const book of shelved) {
       const li = document.createElement("li");
       const b = document.createElement("button");
@@ -609,6 +632,7 @@
   }
 
   async function showOutline(book) {
+    book_ = book.path;
     const outline = await call("outline", { book: book.path });
     const list = el("scene-list");
     list.innerHTML = "";
@@ -643,13 +667,14 @@
     // desktop wrote since. The file is the truth, always.
     el("scene-text").value = "";
     const scene = await call("read_scene", { path: row.path });
+    if (row.book) book_ = row.book;   // arriving straight from the resume card
     open = { ...row, ...scene };
     seen_ = scene.seen;
     open.text = scene.text;   // the last text known to match the file
     el("scene-text").value = scene.text;
     state("idle", scene.text.trim() ? "Opened" : "Empty scene — start writing");
     show("editor", { title: scene.title, place: row.place, count: `${words(scene.text).toLocaleString()} w` });
-    el("back").onclick = () => showOutline({ path: "/books/the-crossing" });
+    el("back").onclick = () => (book_ ? showOutline({ path: book_ }) : showShelf());
   }
 
   function state(kind, text) {
@@ -701,6 +726,7 @@
     }
     seen_ = out.seen;
     open.text = text;
+    markPlace(text);
     state("saved", `Saved · ${out.words.toLocaleString()} words`);
   }
 
@@ -716,6 +742,16 @@
     if (!path) return;
     try { await call("drop_copy", { path }); } catch (e) { /* a leftover copy is not worth an error */ }
     kept_ = null;
+  }
+
+  /* Leave a note for the other device: which scene, which paragraph. It is
+     the same resume.md the desktop writes, so either machine can offer the
+     other's stopping point on its shelf. */
+  function markPlace(text) {
+    if (!book_ || !open) return;
+    const caret = el("scene-text").selectionStart ?? text.length;
+    const line = (text.slice(0, caret).match(/\n/g) || []).length;
+    call("mark_place", { book: book_, scene: open.path, line }).catch(() => { /* a lost place is not worth an error */ });
   }
 
   async function afterConflict(text, seen, note) {
@@ -776,8 +812,8 @@
   });
 
   el("resume").addEventListener("click", () => {
-    const row = scenes.find(s => s.title === "The Crossing");
-    showEditor({ title: row.title, place: row.place, path: row.path, words: words(row.text) });
+    if (!picked_up) return;
+    showEditor({ title: picked_up.title, place: picked_up.place, path: picked_up.path, book: picked_up.book });
   });
 
   showShelf();
