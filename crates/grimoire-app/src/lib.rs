@@ -336,6 +336,155 @@ fn scene_title(path: &Path) -> String {
     path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default()
 }
 
+/// Where the books live.
+///
+/// A phone app that owns one private folder is the easy answer, and it was the
+/// right first answer: no permissions, nothing to explain. But a manuscript
+/// that only exists inside one app is a manuscript with no way home. So the
+/// shelf is a setting — point it at a folder in an Obsidian vault, a pCloud
+/// folder, anywhere something else already syncs, and Grimoire will work there
+/// instead. Everything above this line already assumes files can change
+/// underneath it, which is exactly what a synced folder does.
+pub mod shelf {
+    use super::*;
+
+    /// Remembered in the front end's config directory, not in the books: a
+    /// shelf that pointed at itself would be lost the moment it moved.
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    struct Saved {
+        root: PathBuf,
+    }
+
+    fn settings(config: &Path) -> PathBuf {
+        config.join("shelf.json")
+    }
+
+    /// The chosen shelf, or `fallback` when the writer has never chosen one —
+    /// or when what they chose has since gone (an unplugged drive, a vault
+    /// folder deleted on the desktop). A missing shelf must not be a dead app.
+    pub fn root(config: &Path, fallback: &Path) -> PathBuf {
+        let chosen = fs::read_to_string(settings(config))
+            .ok()
+            .and_then(|t| serde_json::from_str::<Saved>(&t).ok())
+            .map(|s| s.root);
+        match chosen {
+            Some(dir) if dir.is_dir() => dir,
+            _ => fallback.to_path_buf(),
+        }
+    }
+
+    /// Choose a shelf. The folder is made if it does not exist and checked by
+    /// actually writing to it: on Android a path can look perfectly ordinary
+    /// and still be refused, and finding that out at the first save would mean
+    /// finding it out with a paragraph in hand.
+    pub fn choose(config: &Path, dir: &Path) -> Result<PathBuf> {
+        fs::create_dir_all(dir).with_context(|| format!("making {}", dir.display()))?;
+        let probe = dir.join(".grimoire-write-test");
+        fs::write(&probe, b"grimoire")
+            .with_context(|| format!("{} cannot be written to", dir.display()))?;
+        let _ = fs::remove_file(&probe);
+
+        fs::create_dir_all(config)?;
+        let text = serde_json::to_string_pretty(&Saved { root: dir.to_path_buf() })?;
+        grimoire_core::project::write_atomic(&settings(config), &text)?;
+        Ok(dir.to_path_buf())
+    }
+
+    /// One row in the folder picker.
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    pub struct Folder {
+        pub name: String,
+        pub path: PathBuf,
+        /// Books already sitting in it, so a folder that holds work says so
+        /// before it is chosen.
+        pub books: usize,
+        /// An Obsidian vault. Worth naming out loud: it is the folder most
+        /// likely to be the right answer, and the one whose contents another
+        /// app is also writing.
+        pub vault: bool,
+    }
+
+    /// The folders inside `dir`, for browsing. Hidden folders are left out —
+    /// they are never where a writer keeps a novel — but they are read for
+    /// what they say about their parent.
+    pub fn folders(dir: &Path) -> Result<Vec<Folder>> {
+        let mut out = Vec::new();
+        let entries = fs::read_dir(dir).with_context(|| format!("reading {}", dir.display()))?;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.starts_with('.') {
+                continue;
+            }
+            out.push(describe(&path, name));
+        }
+        out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        Ok(out)
+    }
+
+    fn describe(path: &Path, name: String) -> Folder {
+        Folder {
+            books: books(path).len(),
+            vault: path.join(".obsidian").is_dir(),
+            name,
+            path: path.to_path_buf(),
+        }
+    }
+
+    /// Somewhere to start browsing: the places a writer's folders actually
+    /// live on this device, each under the name they would use for it, and
+    /// skipping any that are not there.
+    pub fn places(roots: &[(PathBuf, String)]) -> Vec<Folder> {
+        roots.iter().filter(|(p, _)| p.is_dir()).map(|(p, name)| describe(p, name.clone())).collect()
+    }
+
+    /// Take the books with you when the shelf moves. Anything that is not a
+    /// book is left alone: the new folder may be someone else's vault, full of
+    /// notes that are none of Grimoire's business.
+    pub fn move_books(from: &Path, to: &Path) -> Result<usize> {
+        if from == to {
+            return Ok(0);
+        }
+        fs::create_dir_all(to)?;
+        let mut moved = 0;
+        for book in books(from) {
+            let Some(name) = book.path.file_name() else { continue };
+            let target = to.join(name);
+            if target.exists() {
+                continue; // never write over a book already standing there
+            }
+            match fs::rename(&book.path, &target) {
+                Ok(()) => moved += 1,
+                // across devices rename fails; a phone's private folder and a
+                // vault on shared storage are exactly that case
+                Err(_) => {
+                    copy_dir(&book.path, &target)?;
+                    fs::remove_dir_all(&book.path)?;
+                    moved += 1;
+                }
+            }
+        }
+        Ok(moved)
+    }
+
+    fn copy_dir(from: &Path, to: &Path) -> Result<()> {
+        fs::create_dir_all(to)?;
+        for entry in fs::read_dir(from)?.flatten() {
+            let path = entry.path();
+            let target = to.join(entry.file_name());
+            if path.is_dir() {
+                copy_dir(&path, &target)?;
+            } else {
+                fs::copy(&path, &target)?;
+            }
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -489,6 +638,80 @@ mod tests {
         // a scene that has since been deleted must not leave a dead button
         fs::remove_file(&scene).unwrap();
         assert!(resuming(&base).is_none());
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn a_shelf_is_remembered_and_falls_back_when_it_is_gone() {
+        let base = shelf("settings");
+        let config = base.join("config");
+        let fallback = base.join("private");
+        fs::create_dir_all(&fallback).unwrap();
+        let vault = base.join("vault").join("Novels");
+
+        assert_eq!(shelf::root(&config, &fallback), fallback, "never chosen: the private folder");
+
+        shelf::choose(&config, &vault).unwrap();
+        assert_eq!(shelf::root(&config, &fallback), vault, "chosen: the vault folder");
+
+        fs::remove_dir_all(base.join("vault")).unwrap();
+        assert_eq!(shelf::root(&config, &fallback), fallback, "vault gone: back to the private folder, not a dead app");
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn the_picker_shows_folders_and_says_which_hold_work() {
+        let base = shelf("picker");
+        fs::create_dir_all(base.join("Vault").join(".obsidian")).unwrap();
+        fs::create_dir_all(base.join("Empty")).unwrap();
+        fs::write(base.join("not-a-folder.md"), "x").unwrap();
+        fs::create_dir_all(base.join(".hidden")).unwrap();
+        create_book(&base.join("Vault"), "The Crossing").unwrap();
+
+        let seen = shelf::folders(&base).unwrap();
+        let names: Vec<_> = seen.iter().map(|f| f.name.as_str()).collect();
+        assert_eq!(names, vec!["Empty", "Vault"], "files and hidden folders are not places to put a book");
+
+        let vault = seen.iter().find(|f| f.name == "Vault").unwrap();
+        assert!(vault.vault, "an Obsidian vault is worth naming");
+        assert_eq!(vault.books, 1);
+        assert_eq!(seen.iter().find(|f| f.name == "Empty").unwrap().books, 0);
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn books_follow_the_shelf_and_nothing_else_does() {
+        let base = shelf("move");
+        let from = base.join("private");
+        let to = base.join("vault");
+        fs::create_dir_all(&from).unwrap();
+        create_book(&from, "The Crossing").unwrap();
+        fs::create_dir_all(to.join("Someone Elses Notes")).unwrap();
+        fs::write(to.join("Someone Elses Notes").join("note.md"), "not mine").unwrap();
+
+        assert_eq!(shelf::move_books(&from, &to).unwrap(), 1);
+        assert!(to.join("The Crossing").join("novel.toml").is_file(), "the book arrived whole");
+        assert!(!from.join("The Crossing").exists(), "and did not stay behind");
+        assert_eq!(fs::read_to_string(to.join("Someone Elses Notes").join("note.md")).unwrap(), "not mine");
+        assert_eq!(books(&to).len(), 1);
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn places_are_named_the_way_a_person_names_them() {
+        let base = shelf("places");
+        let docs = base.join("Documents");
+        fs::create_dir_all(&docs).unwrap();
+        let missing = base.join("Nowhere");
+
+        let named = vec![
+            (docs.clone(), "Documents".to_string()),
+            (base.clone(), "Phone storage".to_string()),
+            (missing, "Gone".to_string()),
+        ];
+        let seen = shelf::places(&named);
+        let names: Vec<_> = seen.iter().map(|f| f.name.as_str()).collect();
+        assert_eq!(names, vec!["Documents", "Phone storage"], "a folder that is not there is not a place to offer");
         fs::remove_dir_all(&base).unwrap();
     }
 }

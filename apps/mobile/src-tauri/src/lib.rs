@@ -11,6 +11,9 @@
 //! it can reach the rest of the filesystem, which keeps the door open for the
 //! sync we choose later without changing any of these commands.
 
+mod storage;
+
+use grimoire_app::shelf::Folder;
 use grimoire_app::{Book, Outline, Saved, Scene, Stamp};
 use std::path::{Path, PathBuf};
 use tauri::Manager;
@@ -22,13 +25,27 @@ fn plainly<T>(r: anyhow::Result<T>) -> Reply<T> {
     r.map_err(|e| e.to_string())
 }
 
-/// The shelf: `<app data>/Books`, made on first run.
-fn shelf(app: &tauri::AppHandle) -> Reply<PathBuf> {
+/// The app's own folder, where books live until the writer says otherwise.
+fn private_shelf(app: &tauri::AppHandle) -> Reply<PathBuf> {
     let dir = app
         .path()
         .app_data_dir()
         .map_err(|e| format!("no app folder: {e}"))?
         .join("Books");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("creating {}: {e}", dir.display()))?;
+    Ok(dir)
+}
+
+/// Where settings live — never inside the books themselves, which move.
+fn config(app: &tauri::AppHandle) -> Reply<PathBuf> {
+    app.path().app_config_dir().map_err(|e| format!("no config folder: {e}"))
+}
+
+/// The shelf in use: what the writer chose, or the app's own folder when they
+/// never chose, or when what they chose has since gone.
+fn shelf(app: &tauri::AppHandle) -> Reply<PathBuf> {
+    let fallback = private_shelf(app)?;
+    let dir = grimoire_app::shelf::root(&config(app)?, &fallback);
     std::fs::create_dir_all(&dir).map_err(|e| format!("creating {}: {e}", dir.display()))?;
     Ok(dir)
 }
@@ -71,6 +88,55 @@ fn drop_copy(path: String) -> Reply<()> {
     plainly(grimoire_app::drop_conflict_copy(Path::new(&path)))
 }
 
+/// Everything the "where your books live" screen needs in one answer: the
+/// shelf now, whether it is the app's own folder, whether folders outside the
+/// sandbox can be reached at all, and somewhere to start browsing.
+#[derive(serde::Serialize)]
+struct Where {
+    root: PathBuf,
+    private: bool,
+    books: usize,
+    shared_storage: bool,
+    places: Vec<Folder>,
+}
+
+#[tauri::command]
+fn shelf_now(app: tauri::AppHandle) -> Reply<Where> {
+    let root = shelf(&app)?;
+    let private = root == private_shelf(&app)?;
+    Ok(Where {
+        books: grimoire_app::books(&root).len(),
+        private,
+        shared_storage: storage::shared_storage_ready(),
+        places: grimoire_app::shelf::places(&storage::candidate_roots()),
+        root,
+    })
+}
+
+/// Browse: the folders inside one folder, with what each already holds.
+#[tauri::command]
+fn folders(dir: String) -> Reply<Vec<Folder>> {
+    plainly(grimoire_app::shelf::folders(Path::new(&dir)))
+}
+
+/// Put the shelf somewhere else. `bring_books` moves what is already written —
+/// a writer who changes this setting and finds their book gone would be right
+/// to never trust the app again.
+#[tauri::command]
+fn choose_shelf(app: tauri::AppHandle, dir: String, bring_books: bool) -> Reply<usize> {
+    let from = shelf(&app)?;
+    let to = Path::new(&dir);
+    let moved = if bring_books { plainly(grimoire_app::shelf::move_books(&from, to))? } else { 0 };
+    plainly(grimoire_app::shelf::choose(&config(&app)?, to))?;
+    Ok(moved)
+}
+
+/// Open the system screen that grants access to folders outside the sandbox.
+#[tauri::command]
+fn ask_for_storage() -> Reply<()> {
+    storage::ask_for_shared_storage()
+}
+
 /// Where the writer stopped, on any device that shares this shelf.
 #[tauri::command]
 fn resuming(app: tauri::AppHandle) -> Reply<Option<grimoire_app::Resuming>> {
@@ -96,7 +162,11 @@ pub fn run() {
             save_scene,
             drop_copy,
             resuming,
-            mark_place
+            mark_place,
+            shelf_now,
+            folders,
+            choose_shelf,
+            ask_for_storage
         ])
         .run(tauri::generate_context!())
         .expect("Grimoire could not start");

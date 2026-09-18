@@ -228,6 +228,109 @@
   }
   .rows li:first-child .act { border-top: 0; padding-top: 4px; }
 
+  /* ---- where the books live -------------------------------------------- */
+  .lives {
+    font-family: var(--font-mono);
+    font-size: .72rem;
+    color: var(--dim);
+    letter-spacing: .03em;
+    margin: 26px 0 0;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    align-items: baseline;
+  }
+  .link {
+    font-family: var(--font-mono);
+    font-size: .72rem;
+    color: var(--accent);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    letter-spacing: .03em;
+    padding: 0;
+  }
+
+  .here {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: rgba(20,29,24,.6);
+    padding: 14px;
+    margin-bottom: 22px;
+  }
+  .here .path {
+    font-family: var(--font-mono);
+    font-size: .78rem;
+    color: var(--text);
+    word-break: break-all;
+    display: block;
+  }
+  .here .note { color: var(--dim); font-size: .92rem; display: block; margin-top: 8px; }
+
+  .ask {
+    border: 1px solid var(--warn);
+    border-radius: 12px;
+    padding: 14px;
+    margin-bottom: 22px;
+    background: rgba(209,116,94,.08);
+  }
+  .ask h2 { font-family: var(--font-display); font-size: 1.2rem; margin: 0 0 6px; }
+  .ask p { color: var(--dim); font-size: .92rem; margin: 0 0 12px; }
+  .ask-row { display: flex; gap: 10px; flex-wrap: wrap; }
+
+  .crumb {
+    font-family: var(--font-mono);
+    font-size: .72rem;
+    color: var(--dim);
+    word-break: break-all;
+    margin: 0 0 6px;
+  }
+  .tag {
+    display: inline-block;
+    border: 1px solid var(--foliage);
+    border-radius: 999px;
+    padding: 1px 8px;
+    margin-left: 8px;
+    color: var(--accent);
+    font-family: var(--font-mono);
+    font-size: .62rem;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    vertical-align: middle;
+  }
+
+  #new-folder-form { display: flex; gap: 10px; align-items: stretch; margin: 18px 0 22px; }
+  #new-folder-form input {
+    flex: 1;
+    min-width: 0;
+    background: rgba(20,29,24,.6);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--text);
+    font-family: var(--font-prose);
+    padding: 10px 12px;
+  }
+  #new-folder-form input:focus { outline: none; border-color: var(--foliage); }
+
+  .choose {
+    width: 100%;
+    border: 1px solid var(--foliage);
+    border-radius: 12px;
+    background: linear-gradient(180deg, rgba(74,130,80,.22), rgba(47,74,55,.12));
+    padding: 14px;
+    font-family: var(--font-display);
+    font-size: 1.15rem;
+    font-weight: 600;
+  }
+  .choose:active { background: var(--sel); }
+
+  /* the last controls on this screen must clear the phone's own buttons, which
+     sit over the page on a device even when the inset says otherwise */
+  #where-view .pad { padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px)); }
+  .bring { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 14px; }
+  .bring p { color: var(--dim); font-size: .92rem; margin: 0 0 12px; }
+
   /* ---- editor ---------------------------------------------------------- */
   #editor-view { display: flex; flex-direction: column; overflow: hidden; }
   #scene-text {
@@ -392,6 +495,11 @@
       <p class="eyebrow">Your books</p>
       <ul class="rows" id="book-list"></ul>
 
+      <p class="lives" id="lives">
+        <span id="lives-where"></span>
+        <button class="link" id="change-place">Change</button>
+      </p>
+
       <div id="empty-shelf" hidden>
         <p class="empty">No books here yet. Grimoire will lay out the acts,
           chapters and scenes; you bring the words.</p>
@@ -407,6 +515,53 @@
         (<code>books</code>, <code>outline</code>, <code>read_scene</code>, <code>save_scene</code>) —
         here they are answered by a demo book instead of your files.
       </p>
+    </div>
+  </section>
+
+  <!-- where the books live -->
+  <section class="view" id="where-view" hidden>
+    <div class="pad">
+      <p class="eyebrow">Where your books live</p>
+      <div class="here">
+        <span class="path" id="here-path"></span>
+        <span class="note" id="here-note"></span>
+      </div>
+
+      <div class="ask" id="ask-storage" hidden>
+        <h2>Grimoire can only see its own folder</h2>
+        <p>To keep your books somewhere you already sync — a vault, a cloud folder —
+          Android needs you to allow this app to manage files.</p>
+        <div class="ask-row">
+          <button class="ghost" id="open-settings">Open settings</button>
+          <button class="ghost" id="check-again">Check again</button>
+        </div>
+      </div>
+
+      <p class="eyebrow" id="places-eyebrow">Places</p>
+      <ul class="rows" id="place-list"></ul>
+
+      <div id="browse" hidden>
+        <p class="eyebrow">Inside</p>
+        <p class="crumb" id="crumb"></p>
+        <ul class="rows" id="folder-list"></ul>
+        <p class="empty" id="no-folders" hidden>No folders in here.</p>
+
+        <form id="new-folder-form">
+          <label class="sr-only" for="new-folder-name">Name of a new folder</label>
+          <input id="new-folder-name" type="text" placeholder="Novels" autocomplete="off">
+          <button class="ghost" type="submit">Make folder</button>
+        </form>
+
+        <button class="choose" id="use-folder">Keep my books here</button>
+
+        <div class="bring" id="bring" hidden>
+          <p id="bring-ask"></p>
+          <div class="ask-row">
+            <button class="ghost" id="bring-yes">Move them</button>
+            <button class="ghost" id="bring-no">Leave them</button>
+          </div>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -520,8 +675,20 @@
   const stamp = t => ({ len: t.length, hash: t.length * 31 + t.charCodeAt(0) || 0, existed: true });
   const same = (a, b) => a && b && a.len === b.len && a.hash === b.hash;
 
+  /* the demo's stand-in for a phone's folders */
+  const demoFolders = {
+    "/storage/emulated/0/Documents": [
+      { name: "Vault", path: "/storage/emulated/0/Documents/Vault", books: 0, vault: true },
+      { name: "Scans", path: "/storage/emulated/0/Documents/Scans", books: 0, vault: false },
+    ],
+    "/storage/emulated/0/Documents/Vault": [
+      { name: "Novels", path: "/storage/emulated/0/Documents/Vault/Novels", books: 1, vault: false },
+      { name: "Daily", path: "/storage/emulated/0/Documents/Vault/Daily", books: 0, vault: false },
+    ],
+  };
+
   /* the demo's stand-in for resume.md */
-  let place_ = { scene: demoScenes[1].path, line: 41, when: "Thursday 18 September, 9:41 pm" };
+  let place_ = { root: "/data/data/grimoire/Books", scene: demoScenes[1].path, line: 41, when: "Thursday 18 September, 9:41 pm" };
 
   const mock = {
     books: async () => [
@@ -553,6 +720,17 @@
       persist();
       return { result: "ok", seen: stamp(text), words: words(text) };
     },
+    shelf_now: async () => ({
+      root: place_.root, private: place_.root === "/data/data/grimoire/Books",
+      books: 1, shared_storage: true,
+      places: [
+        { name: "Documents", path: "/storage/emulated/0/Documents", books: 0, vault: false },
+        { name: "Vault", path: "/storage/emulated/0/Documents/Vault", books: 0, vault: true },
+      ],
+    }),
+    folders: async ({ dir }) => (demoFolders[dir] ?? []),
+    choose_shelf: async ({ dir }) => { place_.root = dir; return 1; },
+    ask_for_storage: async () => {},
     resuming: async () => {
       const s = scenes.find(x => x.path === place_.scene) ?? scenes[0];
       return place_.scene === null ? null : {
@@ -583,7 +761,7 @@
     for (const id of ["simulate"]) el(id).hidden = true;
     document.querySelector(".demo-note").hidden = true;
   }
-  const views = { shelf: el("shelf-view"), outline: el("outline-view"), editor: el("editor-view") };
+  const views = { shelf: el("shelf-view"), where: el("where-view"), outline: el("outline-view"), editor: el("editor-view") };
   let open = null;   // the scene being edited
   let picked_up = null;  // what the resume card is offering
   let book_ = null;      // the book the open scene belongs to
@@ -628,8 +806,15 @@
       li.append(b);
       list.append(li);
     }
+    const home = await call("shelf_now");
+    el("lives-where").textContent = home.private
+      ? "Your books are in Grimoire's own folder"
+      : `Your books live in ${name_of(home.root)}`;
     show("shelf", { title: "Grimoire" });
   }
+
+  /* the last part of a path is what a person calls the folder */
+  const name_of = p => (String(p).replace(/\/+$/, "").split("/").pop() || p);
 
   async function showOutline(book) {
     book_ = book.path;
@@ -742,6 +927,124 @@
     if (!path) return;
     try { await call("drop_copy", { path }); } catch (e) { /* a leftover copy is not worth an error */ }
     kept_ = null;
+  }
+
+  /* ---------------------------------------------------------------------
+     Where the books live.
+
+     The private folder is a fine place to start and a poor place to stay: a
+     manuscript that only one app can see has no way home. This screen moves
+     the shelf into a folder something else already syncs — a vault, a cloud
+     folder — and the guarded save upstairs already assumes files can change
+     underneath it, which is exactly what that folder does.
+  --------------------------------------------------------------------- */
+  let at_ = null;    // the folder being browsed
+  let home_ = null;  // what shelf_now last said
+
+  async function showWhere() {
+    home_ = await call("shelf_now");
+    el("here-path").textContent = home_.root;
+    el("here-note").textContent = home_.private
+      ? "Only Grimoire can see this folder. Nothing else on this phone can sync it."
+      : "Anything that syncs this folder syncs your book.";
+    el("ask-storage").hidden = home_.shared_storage;
+    el("places-eyebrow").hidden = !home_.shared_storage;
+
+    const list = el("place-list");
+    list.innerHTML = "";
+    for (const place of (home_.shared_storage ? home_.places : [])) {
+      list.append(folderRow(place, () => browse(place.path)));
+    }
+    el("browse").hidden = true;
+    el("bring").hidden = true;
+    show("where", { title: "Your books" });
+    el("back").onclick = showShelf;
+  }
+
+  function folderRow(folder, onPick) {
+    const li = document.createElement("li");
+    const b = document.createElement("button");
+    b.className = "row";
+    const tag = folder.vault ? `<span class="tag">vault</span>` : "";
+    const held = folder.books === 1 ? "1 book" : `${folder.books} books`;
+    b.innerHTML = `<span class="title">${folder.name}${tag}
+                     <span class="sub">${folder.books ? held : ""}</span></span>`;
+    b.addEventListener("click", onPick);
+    li.append(b);
+    return li;
+  }
+
+  async function browse(dir) {
+    at_ = dir;
+    el("crumb").textContent = dir;
+    const list = el("folder-list");
+    list.innerHTML = "";
+    let inside = [];
+    try {
+      inside = await call("folders", { dir });
+    } catch (e) {
+      // the write probe can pass while a folder another app made stays shut,
+      // so a refusal here is the honest moment to offer the permission
+      el("crumb").textContent = `${dir} — Grimoire is not allowed to open this`;
+      el("ask-storage").hidden = false;
+    }
+    for (const folder of inside) list.append(folderRow(folder, () => browse(folder.path)));
+    el("no-folders").hidden = inside.length > 0;
+    el("browse").hidden = false;
+    el("bring").hidden = true;
+    el("use-folder").textContent = `Keep my books in ${name_of(dir)}`;
+    el("new-folder-name").value = "";
+  }
+
+  el("change-place").addEventListener("click", showWhere);
+
+  el("open-settings").addEventListener("click", async () => {
+    try { await call("ask_for_storage"); } catch (e) { /* desktop has nothing to ask */ }
+  });
+  el("check-again").addEventListener("click", showWhere);
+
+  el("new-folder-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const name = el("new-folder-name").value.trim();
+    if (!name || !at_) return;
+    // choosing a folder makes it, so the shelf and the new folder are one step
+    await settle(`${at_}/${name}`);
+  });
+
+  el("use-folder").addEventListener("click", () => settle(at_));
+
+  /* Moving the shelf while books are standing on it is the one place this
+     screen can frighten someone. Ask, in their own numbers, before anything
+     moves. */
+  async function settle(dir) {
+    if (!dir) return;
+    if (home_ && home_.books > 0 && dir !== home_.root) {
+      const one = home_.books === 1;
+      el("bring-ask").textContent = one
+        ? `Bring your book to ${name_of(dir)}, or leave it where it is?`
+        : `Bring all ${home_.books} of your books to ${name_of(dir)}, or leave them where they are?`;
+      el("bring-yes").textContent = one ? "Move it" : "Move them";
+      el("bring-no").textContent = one ? "Leave it" : "Leave them";
+      el("bring").hidden = false;
+      // a question asked below the fold is a question nobody answers
+      el("bring").scrollIntoView({ block: "center", behavior: "smooth" });
+      el("bring-yes").onclick = () => keepHere(dir, true);
+      el("bring-no").onclick = () => keepHere(dir, false);
+      return;
+    }
+    keepHere(dir, false);
+  }
+
+  async function keepHere(dir, bring_books) {
+    try {
+      await call("choose_shelf", { dir, bringBooks: bring_books });
+    } catch (e) {
+      el("crumb").textContent = `${dir} — ${e}`;
+      el("ask-storage").hidden = false;
+      el("bring").hidden = true;
+      return;
+    }
+    showShelf();
   }
 
   /* Leave a note for the other device: which scene, which paragraph. It is

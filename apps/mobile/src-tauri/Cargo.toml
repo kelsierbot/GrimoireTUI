@@ -27,6 +27,13 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 tauri = { version = "2", features = [] }
 
+# Android only: asking the system for permission to reach a folder the writer
+# actually shares with their other apps means talking to Java. Nothing else in
+# this crate needs it, and nothing in grimoire-app does.
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21"
+ndk-context = "0.1"
+
 [profile.release]
 opt-level = "s"
 lto = true
