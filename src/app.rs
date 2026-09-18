@@ -7,22 +7,22 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use crate::codex;
-use crate::cork;
-use crate::create::{self, New, Plan};
-use crate::editor::{self, Editor};
-use crate::export;
-use crate::history;
-use crate::manuscript;
+use grimoire_core::codex;
+use grimoire_core::cork;
+use grimoire_core::create::{self, New, Plan};
+use grimoire_core::editor::{self, Editor};
+use grimoire_core::export;
+use grimoire_core::history;
+use grimoire_core::manuscript;
 use crate::palette::{self, Action};
-use crate::recovery;
-use crate::resume;
-use crate::sessions;
-use crate::search;
-use crate::settings::Settings;
-use crate::spell;
+use grimoire_core::recovery;
+use grimoire_core::resume;
+use grimoire_core::sessions;
+use grimoire_core::search;
+use grimoire_core::settings::Settings;
+use grimoire_core::spell;
 use crate::music::{self, Music};
-use crate::project::{self, Kind, Project};
+use grimoire_core::project::{self, Kind, Project};
 use crate::scene::{Mode, Pomodoro};
 use crate::theme::{self, Theme};
 use crate::visualizer::Visualizer;
@@ -84,7 +84,7 @@ enum TreeStep {
     /// A rename, by name, so a scene's `title:` goes back too.
     Renamed { from: PathBuf, to: PathBuf, old: String, new: String },
     /// The sections were put in a new order.
-    Sections { what: String, before: Vec<crate::project::Area>, after: Vec<crate::project::Area> },
+    Sections { what: String, before: Vec<grimoire_core::project::Area>, after: Vec<grimoire_core::project::Area> },
     /// Something new. Undoing it sends it to the trash (where it waits, words
     /// and all), and redoing brings it back from there.
     Created { what: String, path: PathBuf, trashed: Option<PathBuf> },
@@ -1527,7 +1527,7 @@ impl App {
         // What's there now goes into history first, so restoring is undoable
         // from the history list as well as with Ctrl-Z.
         let _ = history::snapshot(&root, scene, &self.project.nodes[idx].file_text(), None);
-        let (front, body) = crate::project::split_frontmatter(text);
+        let (front, body) = grimoire_core::project::split_frontmatter(text);
         if self.open != Some(idx) {
             self.open_scene(idx);
         }
@@ -1626,8 +1626,8 @@ impl App {
                 return "folder".into();
             }
             return match n.area {
-                crate::project::Area::FrontMatter | crate::project::Area::Format => "document",
-                crate::project::Area::Templates => "sheet",
+                grimoire_core::project::Area::FrontMatter | grimoire_core::project::Area::Format => "document",
+                grimoire_core::project::Area::Templates => "sheet",
                 _ => "note",
             }
             .into();
@@ -2109,7 +2109,7 @@ impl App {
     /// Move a whole section one place up or down among the others. The order
     /// is the book's, kept in novel.toml; the trash stays at the bottom.
     fn move_section(&mut self, idx: usize, up: bool) {
-        use crate::project::Area;
+        use grimoire_core::project::Area;
         let area = self.project.nodes[idx].area;
         let name = self.project.nodes[idx].title.clone();
         if area == Area::Trash {
@@ -2135,7 +2135,7 @@ impl App {
         self.msg = format!("moved section {name} {}", if up { "up" } else { "down" });
     }
 
-    fn set_section_order(&mut self, order: &[crate::project::Area], show: Option<crate::project::Area>) -> Result<()> {
+    fn set_section_order(&mut self, order: &[grimoire_core::project::Area], show: Option<grimoire_core::project::Area>) -> Result<()> {
         project::save_section_order(&self.project.root, order)?;
         self.reload_tree()?;
         if let Some(i) = show.and_then(|a| self.project.roots.iter().copied().find(|&r| self.project.nodes[r].area == a)) {
@@ -2859,8 +2859,8 @@ impl App {
                                 self.overlay = Overlay::SessionDiff {
                                     title,
                                     label: s.label.clone(),
-                                    before: crate::project::split_frontmatter(&before).1,
-                                    after: crate::project::split_frontmatter(&after).1,
+                                    before: grimoire_core::project::split_frontmatter(&before).1,
+                                    after: grimoire_core::project::split_frontmatter(&after).1,
                                     scroll: 0,
                                 };
                             }
@@ -3004,7 +3004,7 @@ impl App {
                         let Some(idx) = self.project.nodes.iter().position(|n| n.path == it.scene) else {
                             continue;
                         };
-                        let (front, body) = crate::project::split_frontmatter(&it.text);
+                        let (front, body) = grimoire_core::project::split_frontmatter(&it.text);
                         self.project.nodes[idx].front = front;
                         if self.open == Some(idx) {
                             self.editor.set_text(&body);

@@ -17,6 +17,7 @@ name = "grimoire"
 path = "src/main.rs"
 
 [dependencies]
+grimoire-core = { path = "crates/grimoire-core", version = "0.3.4" }
 anyhow = "1.0.104"
 chrono = "0.4.45"
 # Same cpal that rodio already pulls in; used directly for loopback capture.
@@ -25,13 +26,9 @@ ratatui = "0.30.2"
 rodio = { version = "0.22.2", default-features = false, features = ["playback", "symphonia-mp3", "symphonia-flac", "symphonia-vorbis", "symphonia-wav"], optional = true }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
-# Pure-Rust Hunspell-compatible spellchecker (MPL-2.0, unmodified dependency).
-spellbook = "0.4.2"
 toml = "1.1.6"
 unicode-width = "0.2.2"
 ureq = { version = "3.4.1", features = ["json"] }
-# Word-level diffs for scene history.
-similar = "2"
 # DOCX and EPUB are zip files. Deflate only, through flate2's pure-Rust backend
 # (miniz_oxide), so export builds the same everywhere with no C compiler.
 zip = { version = "8.6", default-features = false, features = ["deflate-flate2"] }
@@ -66,3 +63,6 @@ lto = "thin"
 # keep the other sources.
 default = ["audio"]
 audio = ["dep:rodio", "dep:cpal"]
+
+[workspace]
+members = ["crates/grimoire-core"]

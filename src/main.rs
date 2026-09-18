@@ -1,26 +1,13 @@
 //! grimoire — a terminal writing desk for novels.
 
 mod app;
-mod codex;
-mod cork;
-mod create;
-mod editor;
-mod export;
-mod history;
+mod theme;
+use grimoire_core::paths::home;
 mod library;
-mod manuscript;
 mod music;
 mod palette;
-mod project;
-mod recovery;
-mod resume;
 mod scene;
-mod search;
-mod sessions;
-mod settings;
-mod spell;
 mod shutdown;
-mod theme;
 mod ui;
 mod visualizer;
 
@@ -35,7 +22,8 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use app::{App, Focus, Key, Overlay};
-use project::Project;
+use grimoire_core::project::{self, Project};
+use grimoire_core::{export, manuscript};
 
 /// How often we wake to repaint. Also the animation clock.
 const TICK: Duration = Duration::from_millis(250);
@@ -280,12 +268,6 @@ fn part_numbers(list: &str) -> Result<Vec<usize>> {
         return Err(bad());
     }
     Ok(out)
-}
-
-/// The user's home folder. `$HOME` on macOS and Linux; on Windows, where
-/// `HOME` usually isn't set at all, the profile folder (`C:\Users\name`).
-pub fn home() -> PathBuf {
-    std::env::home_dir().unwrap_or_else(|| PathBuf::from("."))
 }
 
 /// Where a first-time manuscript goes if the user never names one.

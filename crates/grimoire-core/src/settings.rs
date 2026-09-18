@@ -18,7 +18,7 @@ impl Default for Settings {
 }
 
 fn path() -> PathBuf {
-    crate::home().join(".config").join("grimoire").join("settings.toml")
+    crate::paths::home().join(".config").join("grimoire").join("settings.toml")
 }
 
 impl Settings {
