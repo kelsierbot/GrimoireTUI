@@ -716,6 +716,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "grimoire-app"
+version = "0.3.4"
+dependencies = [
+ "anyhow",
+ "grimoire-core",
+ "serde",
+]
+
+[[package]]
 name = "grimoire-core"
 version = "0.3.4"
 dependencies = [

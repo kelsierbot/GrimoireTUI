@@ -1,0 +1,13 @@
+[package]
+name = "grimoire-app"
+version = "0.3.4"
+edition = "2024"
+description = "Front-end-facing services over grimoire-core: shelf, outline, scene, guarded save"
+authors = ["Josh King"]
+license = "MIT"
+repository = "https://github.com/kelsierbot/GrimoireTUI"
+
+[dependencies]
+grimoire-core = { path = "../grimoire-core", version = "0.3.4" }
+anyhow = "1.0.104"
+serde = { version = "1.0.229", features = ["derive"] }

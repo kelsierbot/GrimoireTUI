@@ -65,4 +65,4 @@ default = ["audio"]
 audio = ["dep:rodio", "dep:cpal"]
 
 [workspace]
-members = ["crates/grimoire-core"]
+members = ["crates/grimoire-core", "crates/grimoire-app"]
