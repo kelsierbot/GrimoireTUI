@@ -23,6 +23,10 @@ use std::path::{Path, PathBuf};
 pub struct Book {
     pub title: String,
     pub path: PathBuf,
+    /// What the shelf shows beside the title, so a book reads as a body of
+    /// work rather than a folder name.
+    pub words: usize,
+    pub scenes: usize,
 }
 
 /// A scene as the outline lists it: enough to show a row and open it.
@@ -96,12 +100,22 @@ pub fn books(base: &Path) -> Vec<Book> {
         if !dir.join("novel.toml").is_file() {
             continue;
         }
-        let title = Project::load(&dir)
-            .ok()
+        let loaded = Project::load(&dir).ok();
+        let title = loaded
+            .as_ref()
             .map(|p| p.meta.title.clone())
             .filter(|t| !t.is_empty())
             .unwrap_or_else(|| dir.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default());
-        out.push(Book { title, path: dir });
+        let (words, scenes) = match loaded {
+            Some(p) => {
+                let live: Vec<_> = (0..p.nodes.len())
+                    .filter(|&i| p.nodes[i].kind == Kind::Scene && p.nodes[i].in_manuscript && !p.in_trash(i))
+                    .collect();
+                (live.iter().map(|&i| p.nodes[i].words()).sum(), live.len())
+            }
+            None => (0, 0),
+        };
+        out.push(Book { title, path: dir, words, scenes });
     }
     out.sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase()));
     out
@@ -112,8 +126,8 @@ pub fn create_book(base: &Path, name: &str) -> Result<Book> {
     let dir = base.join(name);
     fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
     grimoire_core::project::scaffold(&dir)?;
-    let title = Project::load(&dir).map(|p| p.meta.title.clone()).unwrap_or_else(|_| name.to_string());
-    Ok(Book { title, path: dir })
+    let made = books(base).into_iter().find(|b| b.path == dir);
+    Ok(made.unwrap_or(Book { title: name.to_string(), path: dir, words: 0, scenes: 0 }))
 }
 
 /// Every manuscript scene in book order, with where it sits and how long it is.
@@ -198,6 +212,8 @@ mod tests {
         let shelved = books(&base);
         assert_eq!(shelved.len(), 1);
         assert_eq!(shelved[0].path, book.path);
+        assert_eq!(shelved[0].words, 0, "a new book has no words yet");
+        assert!(shelved[0].scenes > 0, "but it does have scenes waiting");
 
         let outline = outline(&book.path).unwrap();
         assert!(!outline.scenes.is_empty(), "a scaffolded book has scenes to open");

@@ -1,0 +1,658 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Grimoire Pocket</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600&family=Literata:opsz,wght@7..72,400;7..72,500&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+  /* Lost Forest — Grimoire's own preset, green-led with cyan only as a rare
+     contrast (the theme's test in theme.rs enforces exactly that). The app
+     commits to this one dark world on purpose: it is what Grimoire looks like. */
+  :root {
+    --accent:  #7cc47f;
+    --text:    #cdddc6;
+    --dim:     #5f7a63;
+    --border:  #24332a;
+    --sel:     #2e4436;
+    --warn:    #d1745e;
+    --sun:     #d9c87e;
+    --moon:    #7fd4c8;
+    --foliage: #4a8250;
+    --bark:    #5f4c3a;
+    --turf:    #2f4a37;
+    --ground:  #141d18;
+    --raised:  #1a241d;
+    --font-display: "Cormorant Garamond", Georgia, "Times New Roman", serif;
+    --font-prose: "Literata", Georgia, serif;
+    --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--text);
+    font-family: var(--font-prose);
+    font-size: 16px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* the canopy: a suggestion of light through leaves, never loud enough to
+     compete with the words */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background:
+      radial-gradient(120% 60% at 50% -10%, rgba(124,196,127,.10), transparent 60%),
+      linear-gradient(180deg, #16211a 0%, var(--ground) 45%, #111a15 100%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  #app {
+    position: relative;
+    z-index: 1;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    max-width: 720px;
+    margin: 0 auto;
+  }
+
+  /* ---- bars ------------------------------------------------------------ */
+  .bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(20,29,24,.92);
+    backdrop-filter: blur(8px);
+  }
+  .bar--bottom {
+    border-bottom: 0;
+    border-top: 1px solid var(--border);
+    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  }
+  .bar h1 {
+    font-family: var(--font-display);
+    font-size: 1.25rem;
+    font-weight: 600;
+    letter-spacing: .01em;
+    margin: 0;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .bar .place {
+    font-family: var(--font-mono);
+    font-size: .68rem;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--dim);
+    display: block;
+    margin-top: 2px;
+  }
+
+  button {
+    font: inherit;
+    color: inherit;
+    background: none;
+    border: 0;
+    cursor: pointer;
+  }
+  button:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .icon-btn {
+    width: 40px; height: 40px;
+    display: grid; place-items: center;
+    border-radius: 999px;
+    color: var(--accent);
+    font-size: 1.3rem;
+    flex: none;
+  }
+  .icon-btn:active { background: var(--sel); }
+
+  .count {
+    font-family: var(--font-mono);
+    font-size: .8rem;
+    font-variant-numeric: tabular-nums;
+    color: var(--dim);
+    flex: none;
+  }
+
+  .ghost {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 14px;
+    color: var(--accent);
+    font-family: var(--font-mono);
+    font-size: .78rem;
+    letter-spacing: .04em;
+  }
+  .ghost:active { background: var(--sel); }
+
+  /* ---- views ----------------------------------------------------------- */
+  .view { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+  .pad { padding: 20px 16px calc(28px + env(safe-area-inset-bottom, 0px)); }
+
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: .68rem;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--dim);
+    margin: 0 0 10px;
+  }
+
+  /* the resume card is the one lifted object on the shelf — everything else
+     is a quiet row, so "carry on" is the obvious thing to touch */
+  .resume {
+    display: block;
+    width: 100%;
+    text-align: left;
+    border: 1px solid var(--foliage);
+    border-radius: 14px;
+    background: linear-gradient(180deg, rgba(74,130,80,.18), rgba(47,74,55,.10));
+    padding: 16px;
+    margin-bottom: 28px;
+  }
+  .resume:active { background: var(--sel); }
+  .resume .scene {
+    font-family: var(--font-display);
+    font-size: 1.45rem;
+    font-weight: 600;
+    display: block;
+    text-wrap: balance;
+  }
+  .resume .meta {
+    font-family: var(--font-mono);
+    font-size: .72rem;
+    color: var(--accent);
+    letter-spacing: .04em;
+    display: block;
+    margin-top: 6px;
+  }
+
+  .rows { list-style: none; margin: 0; padding: 0; }
+  .rows li + li { border-top: 1px solid var(--border); }
+  .row {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    width: 100%;
+    text-align: left;
+    padding: 14px 2px;
+  }
+  .row:active { background: var(--sel); }
+  .row .title {
+    font-family: var(--font-display);
+    font-size: 1.22rem;
+    font-weight: 600;
+    flex: 1;
+    min-width: 0;
+  }
+  .row .sub {
+    font-family: var(--font-mono);
+    font-size: .7rem;
+    color: var(--dim);
+    letter-spacing: .04em;
+    display: block;
+    margin-top: 2px;
+  }
+  .row .words {
+    font-family: var(--font-mono);
+    font-size: .78rem;
+    font-variant-numeric: tabular-nums;
+    color: var(--dim);
+    flex: none;
+  }
+  .row .words[data-empty="true"] { color: var(--bark); }
+
+  .act {
+    font-family: var(--font-mono);
+    font-size: .68rem;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--foliage);
+    padding: 22px 2px 6px;
+    border-top: 1px solid var(--border);
+  }
+  .rows li:first-child .act { border-top: 0; padding-top: 4px; }
+
+  /* ---- editor ---------------------------------------------------------- */
+  #editor-view { display: flex; flex-direction: column; overflow: hidden; }
+  #scene-text {
+    flex: 1;
+    width: 100%;
+    resize: none;
+    border: 0;
+    outline: none;
+    background: transparent;
+    color: var(--text);
+    font-family: var(--font-prose);
+    font-size: 1.06rem;
+    line-height: 1.75;
+    padding: 20px 16px;
+    caret-color: var(--accent);
+  }
+  #scene-text::selection { background: var(--sel); }
+
+  .saved-state {
+    font-family: var(--font-mono);
+    font-size: .74rem;
+    letter-spacing: .04em;
+    flex: 1;
+    color: var(--dim);
+  }
+  .saved-state[data-state="saving"] { color: var(--sun); }
+  .saved-state[data-state="saved"] { color: var(--accent); }
+  .saved-state[data-state="conflict"] { color: var(--warn); }
+
+  /* ---- conflict sheet --------------------------------------------------- */
+  #conflict {
+    position: fixed;
+    inset: 0;
+    z-index: 5;
+    background: rgba(10,16,12,.72);
+    display: flex;
+    align-items: flex-end;
+  }
+  .sheet {
+    width: 100%;
+    max-height: 88%;
+    overflow-y: auto;
+    background: var(--raised);
+    border-top: 2px solid var(--warn);
+    border-radius: 18px 18px 0 0;
+    padding: 20px 16px calc(20px + env(safe-area-inset-bottom, 0px));
+    animation: rise .22s ease-out;
+  }
+  @keyframes rise { from { transform: translateY(14px); opacity: 0; } to { transform: none; opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) { .sheet { animation: none; } }
+
+  .sheet h2 {
+    font-family: var(--font-display);
+    font-size: 1.5rem;
+    margin: 0 0 6px;
+    text-wrap: balance;
+  }
+  .sheet p { color: var(--dim); margin: 0 0 18px; font-size: .95rem; }
+  .version {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 14px;
+    margin-bottom: 12px;
+    background: rgba(20,29,24,.6);
+  }
+  .version h3 {
+    font-family: var(--font-mono);
+    font-size: .7rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    margin: 0 0 8px;
+    color: var(--moon);
+  }
+  .version--mine h3 { color: var(--accent); }
+  .version pre {
+    margin: 0;
+    font-family: var(--font-prose);
+    font-size: .92rem;
+    line-height: 1.55;
+    white-space: pre-wrap;
+    max-height: 7.5rem;
+    overflow-y: auto;
+    color: var(--text);
+  }
+  .choices { display: grid; gap: 10px; margin-top: 16px; }
+  .choice {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px;
+    text-align: left;
+    background: rgba(47,74,55,.16);
+  }
+  .choice:active { background: var(--sel); }
+  .choice strong { font-family: var(--font-display); font-size: 1.15rem; font-weight: 600; display: block; }
+  .choice span { font-family: var(--font-mono); font-size: .7rem; color: var(--dim); letter-spacing: .03em; }
+  .choice--keep-both { border-color: var(--foliage); }
+
+  /* ---- prototype-only affordance ---------------------------------------- */
+  .demo-note {
+    border-top: 1px dashed var(--bark);
+    margin-top: 28px;
+    padding-top: 14px;
+    color: var(--bark);
+    font-family: var(--font-mono);
+    font-size: .7rem;
+    line-height: 1.7;
+    letter-spacing: .02em;
+  }
+  .demo-note button {
+    color: var(--sun);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    font-family: inherit;
+    font-size: inherit;
+  }
+</style>
+
+</head>
+<body>
+<div id="app">
+  <header class="bar">
+    <button class="icon-btn" id="back" hidden aria-label="Back">‹</button>
+    <h1 id="bar-title">Grimoire</h1>
+    <span class="count" id="bar-count"></span>
+  </header>
+
+  <!-- shelf -->
+  <section class="view" id="shelf-view">
+    <div class="pad">
+      <p class="eyebrow">Where you left off</p>
+      <button class="resume" id="resume">
+        <span class="scene" id="resume-scene">The Crossing</span>
+        <span class="meta" id="resume-meta">Act Two › Chapter Fourteen · paragraph 42 · on bazzite, 9:41 pm</span>
+      </button>
+
+      <p class="eyebrow">Your books</p>
+      <ul class="rows" id="book-list"></ul>
+
+      <p class="demo-note">
+        Prototype. The three screens run against the same calls the Android app will make
+        (<code>books</code>, <code>outline</code>, <code>read_scene</code>, <code>save_scene</code>) —
+        here they are answered by a demo book instead of your files.
+      </p>
+    </div>
+  </section>
+
+  <!-- outline -->
+  <section class="view" id="outline-view" hidden>
+    <div class="pad">
+      <p class="eyebrow" id="outline-eyebrow">Manuscript</p>
+      <ul class="rows" id="scene-list"></ul>
+    </div>
+  </section>
+
+  <!-- editor -->
+  <section class="view" id="editor-view" hidden>
+    <textarea id="scene-text" spellcheck="true" aria-label="Scene text"></textarea>
+  </section>
+
+  <footer class="bar bar--bottom" id="editor-bar" hidden>
+    <span class="saved-state" id="saved-state" data-state="idle">Opened</span>
+    <button class="ghost" id="simulate">Simulate other device</button>
+  </footer>
+</div>
+
+<!-- conflict -->
+<div id="conflict" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="conflict-title">
+    <h2 id="conflict-title">This scene changed somewhere else</h2>
+    <p>Nothing was overwritten. Your words are safe on this phone until you choose.</p>
+
+    <div class="version version--mine">
+      <h3>On this phone</h3>
+      <pre id="mine-text"></pre>
+    </div>
+    <div class="version">
+      <h3>On the other device</h3>
+      <pre id="theirs-text"></pre>
+    </div>
+
+    <div class="choices">
+      <button class="choice choice--keep-both" id="keep-both">
+        <strong>Keep both</strong>
+        <span>Theirs stays · yours saved beside it as a conflict copy</span>
+      </button>
+      <button class="choice" id="keep-mine">
+        <strong>Keep mine</strong>
+        <span>Overwrite the other device's version</span>
+      </button>
+      <button class="choice" id="keep-theirs">
+        <strong>Keep theirs</strong>
+        <span>Discard what this phone wrote</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  "use strict";
+
+  /* ---------------------------------------------------------------------
+     The backend. On a phone this is Tauri talking to grimoire-app in Rust;
+     in a browser it is the demo book below, so the screens can be judged
+     before the Android toolchain exists. The shapes match the Rust types:
+     Book, Outline { title, words, scenes[] }, Scene { text, seen }, and
+     Saved = { result: "ok" | "conflict" }.
+  --------------------------------------------------------------------- */
+  const tauri = window.__TAURI__?.core?.invoke;
+
+  const demoScenes = [
+    {
+      path: "manuscript/01-Act-One/01-Chapter-One/01-Gravel.md",
+      title: "Gravel",
+      place: "Act One › Chapter One",
+      text: "The road out of the valley was gravel for the first three miles, and Kaelen counted every one of them under her boots.\n\nShe had been told the ferry left at dawn. She had not been told that dawn, this far north, was a rumour the sky spread for an hour before it committed to anything.\n",
+    },
+    {
+      path: "manuscript/01-Act-One/01-Chapter-One/02-Tide.md",
+      title: "Tide",
+      place: "Act One › Chapter One",
+      text: "The tide was out, and the boats sat in the mud like things that had been dropped rather than moored.\n",
+    },
+    {
+      path: "manuscript/02-Act-Two/14-Chapter-Fourteen/02-The-Crossing.md",
+      title: "The Crossing",
+      place: "Act Two › Chapter Fourteen",
+      text: "Kaelen Voss had crossed water before. Never water that argued back.\n\nThe ferryman took her coin without looking at it, which told her the coin did not matter, which told her something else entirely about what would be asked for instead.\n",
+    },
+    {
+      path: "manuscript/02-Act-Two/14-Chapter-Fourteen/03-Ash.md",
+      title: "Ash",
+      place: "Act Two › Chapter Fourteen",
+      text: "",
+    },
+  ];
+
+  const STORE_KEY = "grimoire-pocket-demo";
+  let scenes = load() ?? demoScenes.map(s => ({ ...s }));
+
+  function load() {
+    try {
+      const raw = localStorage.getItem(STORE_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+  }
+  function persist() {
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(scenes)); } catch { /* private window */ }
+  }
+
+  const words = t => (t.split(/\s+/).filter(Boolean)).length;
+  const stamp = t => ({ len: t.length, hash: t.length * 31 + t.charCodeAt(0) || 0, existed: true });
+  const same = (a, b) => a && b && a.len === b.len && a.hash === b.hash;
+
+  const mock = {
+    books: async () => [
+      { title: "The Crossing", path: "/books/the-crossing", words: scenes.reduce((n, s) => n + words(s.text), 0), scenes: scenes.length },
+      { title: "Notes on the Ferryman", path: "/books/ferryman", words: 2140, scenes: 9 },
+    ],
+    outline: async () => ({
+      title: "The Crossing",
+      words: scenes.reduce((n, s) => n + words(s.text), 0),
+      scenes: scenes.map(s => ({ title: s.title, place: s.place, path: s.path, words: words(s.text) })),
+    }),
+    read_scene: async ({ path }) => {
+      const s = scenes.find(s => s.path === path);
+      return { path, title: s.title, text: s.text, seen: stamp(s.text) };
+    },
+    save_scene: async ({ path, text, seen }) => {
+      const s = scenes.find(s => s.path === path);
+      if (!same(stamp(s.text), seen)) {
+        return { result: "conflict", theirs: s.text, kept: path.replace(/\.md$/, " (from this phone).md") };
+      }
+      s.text = text;
+      persist();
+      return { result: "ok", seen: stamp(text), words: words(text) };
+    },
+  };
+
+  const call = (cmd, args = {}) => (tauri ? tauri(cmd, args) : mock[cmd](args));
+
+  /* ---------------------------------------------------------------------
+     Screens
+  --------------------------------------------------------------------- */
+  const el = id => document.getElementById(id);
+  const views = { shelf: el("shelf-view"), outline: el("outline-view"), editor: el("editor-view") };
+  let open = null;   // the scene being edited
+  let seen = null;   // what the file looked like when it was opened
+  let timer = null;
+
+  function show(name, { title, place, count } = {}) {
+    for (const [key, node] of Object.entries(views)) node.hidden = key !== name;
+    el("editor-bar").hidden = name !== "editor";
+    el("back").hidden = name === "shelf";
+    el("bar-title").innerHTML = place
+      ? `${title}<span class="place">${place}</span>`
+      : (title ?? "Grimoire");
+    el("bar-count").textContent = count ?? "";
+  }
+
+  async function showShelf() {
+    const list = el("book-list");
+    list.innerHTML = "";
+    for (const book of await call("books")) {
+      const li = document.createElement("li");
+      const b = document.createElement("button");
+      b.className = "row";
+      b.innerHTML = `<span class="title">${book.title}<span class="sub">${book.scenes} scenes</span></span>
+                     <span class="words">${book.words.toLocaleString()} w</span>`;
+      b.addEventListener("click", () => showOutline(book));
+      li.append(b);
+      list.append(li);
+    }
+    show("shelf", { title: "Grimoire" });
+  }
+
+  async function showOutline(book) {
+    const outline = await call("outline", { book: book.path });
+    const list = el("scene-list");
+    list.innerHTML = "";
+    let lastPlace = null;
+    for (const row of outline.scenes) {
+      const li = document.createElement("li");
+      if (row.place !== lastPlace) {
+        const head = document.createElement("div");
+        head.className = "act";
+        head.textContent = row.place;
+        li.append(head);
+        lastPlace = row.place;
+      }
+      const b = document.createElement("button");
+      b.className = "row";
+      b.innerHTML = `<span class="title">${row.title}</span>
+                     <span class="words" data-empty="${row.words === 0}">${row.words ? row.words.toLocaleString() + " w" : "empty"}</span>`;
+      b.addEventListener("click", () => showEditor(row));
+      li.append(b);
+      list.append(li);
+    }
+    el("outline-eyebrow").textContent = `${outline.scenes.length} scenes`;
+    show("outline", { title: outline.title, count: `${outline.words.toLocaleString()} w` });
+    el("back").onclick = showShelf;
+  }
+
+  async function showEditor(row) {
+    const scene = await call("read_scene", { path: row.path });
+    open = { ...row, ...scene };
+    seen = scene.seen;
+    el("scene-text").value = scene.text;
+    state("idle", scene.text.trim() ? "Opened" : "Empty scene — start writing");
+    show("editor", { title: scene.title, place: row.place, count: `${words(scene.text).toLocaleString()} w` });
+    el("back").onclick = () => showOutline({ path: "/books/the-crossing" });
+  }
+
+  function state(kind, text) {
+    const node = el("saved-state");
+    node.dataset.state = kind;
+    node.textContent = text;
+  }
+
+  /* autosave: a writer should never think about saving, and never lose a
+     sentence to a phone deciding to sleep */
+  el("scene-text").addEventListener("input", () => {
+    el("bar-count").textContent = `${words(el("scene-text").value).toLocaleString()} w`;
+    state("saving", "Saving…");
+    clearTimeout(timer);
+    timer = setTimeout(save, 700);
+  });
+
+  async function save() {
+    if (!open) return;
+    const text = el("scene-text").value;
+    const out = await call("save_scene", { path: open.path, text, seen });
+    if (out.result === "conflict") {
+      el("mine-text").textContent = text.trim() || "(empty)";
+      el("theirs-text").textContent = out.theirs.trim() || "(empty)";
+      el("conflict").hidden = false;
+      state("conflict", "Not saved — changed elsewhere");
+      return;
+    }
+    seen = out.seen;
+    state("saved", `Saved · ${out.words.toLocaleString()} words`);
+  }
+
+  /* conflict choices mirror what the Rust side can actually do */
+  el("keep-both").addEventListener("click", async () => {
+    const mine = el("scene-text").value;
+    const theirs = el("theirs-text").textContent;
+    const s = scenes.find(s => s.path === open.path);
+    s.text = theirs; persist();
+    el("scene-text").value = theirs;
+    seen = stamp(theirs);
+    el("conflict").hidden = true;
+    state("saved", "Kept both — yours saved beside it");
+    el("bar-count").textContent = `${words(theirs).toLocaleString()} w`;
+    void mine;
+  });
+  el("keep-mine").addEventListener("click", async () => {
+    const s = scenes.find(s => s.path === open.path);
+    seen = stamp(s.text);
+    el("conflict").hidden = true;
+    await save();
+  });
+  el("keep-theirs").addEventListener("click", () => {
+    const s = scenes.find(s => s.path === open.path);
+    el("scene-text").value = s.text;
+    seen = stamp(s.text);
+    el("conflict").hidden = true;
+    state("saved", "Kept theirs");
+    el("bar-count").textContent = `${words(s.text).toLocaleString()} w`;
+  });
+
+  /* prototype-only: pretend the desktop wrote to this scene while it is open */
+  el("simulate").addEventListener("click", () => {
+    if (!open) return;
+    const s = scenes.find(s => s.path === open.path);
+    s.text = `${s.text.trimEnd()}\n\nThe desktop added this line while the phone was open.\n`;
+    persist();
+    state("idle", "Another device just wrote — type to try saving");
+  });
+
+  el("resume").addEventListener("click", () => {
+    const row = scenes.find(s => s.title === "The Crossing");
+    showEditor({ title: row.title, place: row.place, path: row.path, words: words(row.text) });
+  });
+
+  showShelf();
+})();
+</script>
+
+</body>
+</html>
