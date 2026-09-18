@@ -59,8 +59,16 @@ fn read_scene(path: String) -> Reply<Scene> {
 }
 
 #[tauri::command]
-fn save_scene(path: String, text: String, seen: Stamp) -> Reply<Saved> {
-    plainly(grimoire_app::save_scene(Path::new(&path), &text, seen))
+fn save_scene(path: String, text: String, front: Option<String>, seen: Stamp) -> Reply<Saved> {
+    plainly(grimoire_app::save_scene(Path::new(&path), &text, front.as_deref(), &seen))
+}
+
+/// Remove a parked version once the writer has settled a conflict. The crate
+/// refuses anything that is not a conflict copy, so a slip here cannot eat a
+/// scene.
+#[tauri::command]
+fn drop_copy(path: String) -> Reply<()> {
+    plainly(grimoire_app::drop_conflict_copy(Path::new(&path)))
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -72,7 +80,8 @@ pub fn run() {
             create_book,
             outline,
             read_scene,
-            save_scene
+            save_scene,
+            drop_copy
         ])
         .run(tauri::generate_context!())
         .expect("Grimoire could not start");

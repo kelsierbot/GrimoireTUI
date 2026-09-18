@@ -1153,6 +1153,7 @@ dependencies = [
  "anyhow",
  "grimoire-core",
  "serde",
+ "serde_json",
 ]
 
 [[package]]

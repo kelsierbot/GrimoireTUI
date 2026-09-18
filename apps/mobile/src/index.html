@@ -28,6 +28,7 @@
     --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   }
 
+  [hidden] { display: none !important; }
   html, body { height: 100%; }
   body {
     margin: 0;
@@ -214,6 +215,8 @@
   }
   .row .words[data-empty="true"] { color: var(--bark); }
 
+  .chip { color: var(--warn); }
+
   .act {
     font-family: var(--font-mono);
     font-size: .68rem;
@@ -322,6 +325,32 @@
   .choice span { font-family: var(--font-mono); font-size: .7rem; color: var(--dim); letter-spacing: .03em; }
   .choice--keep-both { border-color: var(--foliage); }
 
+  .empty {
+    color: var(--dim);
+    font-size: .98rem;
+    margin: 4px 0 18px;
+    max-width: 34ch;
+  }
+  #new-book-form { display: flex; gap: 10px; align-items: stretch; }
+  #new-book-form input {
+    flex: 1;
+    min-width: 0;
+    background: rgba(20,29,24,.6);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    color: var(--text);
+    font-family: var(--font-display);
+    font-size: 1.1rem;
+  }
+  #new-book-form input::placeholder { color: var(--bark); }
+  #new-book-form input:focus { outline: none; border-color: var(--foliage); }
+  .sr-only {
+    position: absolute; width: 1px; height: 1px;
+    padding: 0; margin: -1px; overflow: hidden;
+    clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+  }
+
   /* ---- prototype-only affordance ---------------------------------------- */
   .demo-note {
     border-top: 1px dashed var(--bark);
@@ -363,6 +392,16 @@
       <p class="eyebrow">Your books</p>
       <ul class="rows" id="book-list"></ul>
 
+      <div id="empty-shelf" hidden>
+        <p class="empty">No books here yet. Grimoire will lay out the acts,
+          chapters and scenes; you bring the words.</p>
+        <form id="new-book-form">
+          <label class="sr-only" for="new-book-name">Title of the new book</label>
+          <input id="new-book-name" type="text" placeholder="The Crossing" autocomplete="off" required>
+          <button class="ghost" type="submit">Start it</button>
+        </form>
+      </div>
+
       <p class="demo-note">
         Prototype. The three screens run against the same calls the Android app will make
         (<code>books</code>, <code>outline</code>, <code>read_scene</code>, <code>save_scene</code>) —
@@ -381,7 +420,7 @@
 
   <!-- editor -->
   <section class="view" id="editor-view" hidden>
-    <textarea id="scene-text" spellcheck="true" aria-label="Scene text"></textarea>
+    <textarea id="scene-text" spellcheck="true" autocomplete="off" autocapitalize="sentences" aria-label="Scene text"></textarea>
   </section>
 
   <footer class="bar bar--bottom" id="editor-bar" hidden>
@@ -435,8 +474,10 @@
   --------------------------------------------------------------------- */
   const tauri = window.__TAURI__?.core?.invoke;
 
+  const FRONT = 'title: "Gravel"\npov:\nstatus: draft\nsynopsis:\ntarget: 1500';
   const demoScenes = [
     {
+      front: FRONT,
       path: "manuscript/01-Act-One/01-Chapter-One/01-Gravel.md",
       title: "Gravel",
       place: "Act One › Chapter One",
@@ -487,20 +528,31 @@
     outline: async () => ({
       title: "The Crossing",
       words: scenes.reduce((n, s) => n + words(s.text), 0),
-      scenes: scenes.map(s => ({ title: s.title, place: s.place, path: s.path, words: words(s.text) })),
+      scenes: scenes.map(s => ({ title: s.title, place: s.place, path: s.path, words: words(s.text), conflict_copy: !!s.conflict_copy })),
     }),
     read_scene: async ({ path }) => {
       const s = scenes.find(s => s.path === path);
-      return { path, title: s.title, text: s.text, seen: stamp(s.text) };
+      return { path, title: s.title, text: s.text, front: s.front ?? null, seen: stamp(s.text) };
     },
-    save_scene: async ({ path, text, seen }) => {
+    save_scene: async ({ path, text, front, seen }) => {
       const s = scenes.find(s => s.path === path);
       if (!same(stamp(s.text), seen)) {
-        return { result: "conflict", theirs: s.text, kept: path.replace(/\.md$/, " (from this phone).md") };
+        // the real backend parks this device's words beside the scene before
+        // it refuses; the demo does the same so the outline tells the truth
+        const kept = path.replace(/\.md$/, " (from this phone).md");
+        if (!scenes.some(x => x.path === kept)) {
+          scenes.push({ ...s, path: kept, title: `${s.title} (from this phone)`, text, conflict_copy: true });
+          persist();
+        }
+        return { result: "conflict", theirs: s.text, kept };
       }
       s.text = text;
       persist();
       return { result: "ok", seen: stamp(text), words: words(text) };
+    },
+    drop_copy: async ({ path }) => {
+      scenes = scenes.filter(s => s.path !== path);
+      persist();
     },
   };
 
@@ -510,9 +562,17 @@
      Screens
   --------------------------------------------------------------------- */
   const el = id => document.getElementById(id);
+
+  // the demo affordances belong to the browser prototype, not to a device
+  if (tauri) {
+    for (const id of ["simulate"]) el(id).hidden = true;
+    document.querySelector(".demo-note").hidden = true;
+    el("resume").hidden = true;            // until resume.md is wired through
+    document.querySelectorAll(".eyebrow")[0].hidden = true;
+  }
   const views = { shelf: el("shelf-view"), outline: el("outline-view"), editor: el("editor-view") };
   let open = null;   // the scene being edited
-  let seen = null;   // what the file looked like when it was opened
+  let seen_ = null;  // what the file looked like when it was opened
   let timer = null;
 
   function show(name, { title, place, count } = {}) {
@@ -528,7 +588,14 @@
   async function showShelf() {
     const list = el("book-list");
     list.innerHTML = "";
-    for (const book of await call("books")) {
+    const shelved = await call("books");
+    el("empty-shelf").hidden = shelved.length > 0;
+    // nothing to carry on with until a book exists — and on a device the card
+    // stays away until resume.md is actually wired through
+    const noResume = tauri || shelved.length === 0;
+    el("resume").hidden = noResume;
+    document.querySelectorAll(".eyebrow")[0].hidden = noResume;
+    for (const book of shelved) {
       const li = document.createElement("li");
       const b = document.createElement("button");
       b.className = "row";
@@ -557,7 +624,8 @@
       }
       const b = document.createElement("button");
       b.className = "row";
-      b.innerHTML = `<span class="title">${row.title}</span>
+      const mark = row.conflict_copy ? `<span class="sub chip">parked copy</span>` : "";
+      b.innerHTML = `<span class="title">${row.title}${mark}</span>
                      <span class="words" data-empty="${row.words === 0}">${row.words ? row.words.toLocaleString() + " w" : "empty"}</span>`;
       b.addEventListener("click", () => showEditor(row));
       li.append(b);
@@ -569,9 +637,15 @@
   }
 
   async function showEditor(row) {
+    // Android's web view restores what a textarea held last time it was alive.
+    // For a writing app that is the worst possible helpfulness: reopening a
+    // scene would show yesterday's words and then save them over whatever the
+    // desktop wrote since. The file is the truth, always.
+    el("scene-text").value = "";
     const scene = await call("read_scene", { path: row.path });
     open = { ...row, ...scene };
-    seen = scene.seen;
+    seen_ = scene.seen;
+    open.text = scene.text;   // the last text known to match the file
     el("scene-text").value = scene.text;
     state("idle", scene.text.trim() ? "Opened" : "Empty scene — start writing");
     show("editor", { title: scene.title, place: row.place, count: `${words(scene.text).toLocaleString()} w` });
@@ -583,6 +657,26 @@
     node.dataset.state = kind;
     node.textContent = text;
   }
+
+  /* A phone is backgrounded mid-sentence and comes back minutes later, by
+     which time the desktop may have written to this very scene. On the way
+     back in, check: if nothing is unsaved here, quietly take what is on disk;
+     if there are unsaved words, say so rather than racing. */
+  document.addEventListener("visibilitychange", async () => {
+    if (document.visibilityState !== "visible" || !open || views.editor.hidden) return;
+    const fresh = await call("read_scene", { path: open.path });
+    if (fresh.seen.hash === seen_.hash && fresh.seen.len === seen_.len) return;   // unchanged
+    const unsaved = el("scene-text").value !== open.text;
+    if (!unsaved) {
+      open = { ...open, ...fresh };
+      seen_ = fresh.seen;
+      el("scene-text").value = fresh.text;
+      el("bar-count").textContent = `${words(fresh.text).toLocaleString()} w`;
+      state("saved", "Updated from another device");
+    } else {
+      state("conflict", "Changed elsewhere — saving will ask you");
+    }
+  });
 
   /* autosave: a writer should never think about saving, and never lose a
      sentence to a phone deciding to sleep */
@@ -596,44 +690,71 @@
   async function save() {
     if (!open) return;
     const text = el("scene-text").value;
-    const out = await call("save_scene", { path: open.path, text, seen });
+    const out = await call("save_scene", { path: open.path, text, front: open.front ?? null, seen: seen_ });
     if (out.result === "conflict") {
+      kept_ = out.kept;
       el("mine-text").textContent = text.trim() || "(empty)";
       el("theirs-text").textContent = out.theirs.trim() || "(empty)";
       el("conflict").hidden = false;
       state("conflict", "Not saved — changed elsewhere");
       return;
     }
-    seen = out.seen;
+    seen_ = out.seen;
+    open.text = text;
     state("saved", `Saved · ${out.words.toLocaleString()} words`);
   }
 
-  /* conflict choices mirror what the Rust side can actually do */
+  /* The three ways out of a conflict. Each one re-reads the scene first, so
+     whatever it does is measured against the file as it is now, not as it was
+     when the save was refused — and each works the same whether the answer
+     came from Rust or from the demo book. */
+  /* Where this device's words were parked when the save was refused. "Keep
+     both" leaves it; the other two choices mean the writer has no use for it. */
+  let kept_ = null;
+
+  async function drop(path) {
+    if (!path) return;
+    try { await call("drop_copy", { path }); } catch (e) { /* a leftover copy is not worth an error */ }
+    kept_ = null;
+  }
+
+  async function afterConflict(text, seen, note) {
+    el("scene-text").value = text;
+    open.seen = seen;
+    open.text = text;   // settled: this is what the file holds now
+    seen_ = seen;
+    el("conflict").hidden = true;
+    el("bar-count").textContent = `${words(text).toLocaleString()} w`;
+    state("saved", note);
+  }
+
   el("keep-both").addEventListener("click", async () => {
-    const mine = el("scene-text").value;
-    const theirs = el("theirs-text").textContent;
-    const s = scenes.find(s => s.path === open.path);
-    s.text = theirs; persist();
-    el("scene-text").value = theirs;
-    seen = stamp(theirs);
-    el("conflict").hidden = true;
-    state("saved", "Kept both — yours saved beside it");
-    el("bar-count").textContent = `${words(theirs).toLocaleString()} w`;
-    void mine;
+    // the guarded save already parked this phone's version beside the scene
+    const fresh = await call("read_scene", { path: open.path });
+    open.front = fresh.front ?? null;
+    afterConflict(fresh.text, fresh.seen, "Kept both — yours saved beside it");
   });
+
   el("keep-mine").addEventListener("click", async () => {
-    const s = scenes.find(s => s.path === open.path);
-    seen = stamp(s.text);
-    el("conflict").hidden = true;
-    await save();
+    const mine = el("scene-text").value;
+    const fresh = await call("read_scene", { path: open.path });
+    open.front = fresh.front ?? null;
+    const out = await call("save_scene", { path: open.path, text: mine, front: open.front, seen: fresh.seen });
+    if (out.result === "ok") {
+      // these words are in the scene now, so the copy beside it is a duplicate
+      // wearing the clothes of a lost draft. Clear it out of the outline.
+      await drop(kept_);
+      afterConflict(mine, out.seen, `Kept yours · ${out.words.toLocaleString()} words`);
+    } else {
+      state("conflict", "It changed again — try once more");
+    }
   });
-  el("keep-theirs").addEventListener("click", () => {
-    const s = scenes.find(s => s.path === open.path);
-    el("scene-text").value = s.text;
-    seen = stamp(s.text);
-    el("conflict").hidden = true;
-    state("saved", "Kept theirs");
-    el("bar-count").textContent = `${words(s.text).toLocaleString()} w`;
+
+  el("keep-theirs").addEventListener("click", async () => {
+    const fresh = await call("read_scene", { path: open.path });
+    open.front = fresh.front ?? null;
+    await drop(kept_);   // the writer said discard, so discard for real
+    afterConflict(fresh.text, fresh.seen, "Kept theirs");
   });
 
   /* prototype-only: pretend the desktop wrote to this scene while it is open */
@@ -643,6 +764,15 @@
     s.text = `${s.text.trimEnd()}\n\nThe desktop added this line while the phone was open.\n`;
     persist();
     state("idle", "Another device just wrote — type to try saving");
+  });
+
+  el("new-book-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const name = el("new-book-name").value.trim();
+    if (!name) return;
+    const book = await call("create_book", { name });
+    el("new-book-name").value = "";
+    showOutline(book);
   });
 
   el("resume").addEventListener("click", () => {
