@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.4
+
+- **Click a misspelt word** (or right-click it) for its fixes, right under the
+  word, in the word's own capitals — or tell Grimoire to stop calling it one:
+  for now, always in this book, or always in every book. Typing anything else
+  just carries on writing.
+- A spelling fix undoes with one `Ctrl-Z`.
+
 ## 0.4.3
 
 - **The music pane takes every one of the player's keys** when it's

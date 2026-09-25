@@ -260,7 +260,10 @@ heard of.
   from a name in your notebook — *Kaelan* where the Characters note says
   *Kaelen* — with where they are, fixed in one go.
 - **Spellcheck** underlines misspellings from a bundled en_US dictionary and
-  never flags your notebook's names. Words you add go in `dictionary.txt` at
+  never flags your notebook's names. Click an underlined word, or right-click
+  it, for suggestions right there — or to ignore it: until you close Grimoire,
+  always in this book, or always in every book
+  (`~/.config/grimoire/dictionary.txt`). Words you add go in `dictionary.txt` at
   the book's root. On unless turned off (palette).
 - **Moving** a scene or folder renames only the files whose number changes,
   and rewrites `[[links]]` in your notes that pointed at them.
