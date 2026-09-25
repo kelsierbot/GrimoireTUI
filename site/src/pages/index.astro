@@ -20,11 +20,14 @@ const nav = [
   ]},
   { group: 'get it', items: [
     { id: 'install', label: 'install',      title: 'install' },
+    { id: 'donate',  label: 'donate',       title: 'donate' },
     { id: 'status',  label: 'status',       title: 'status' },
   ]},
 ];
 const flat = nav.flatMap((g) => g.items);
 const VERSION = 'v0.5';
+const STUDIO = 'https://catfinity.com';
+const KOFI = 'https://ko-fi.com/F2F21E0DK0';
 ---
 
 <!doctype html>
@@ -112,7 +115,10 @@ const VERSION = 'v0.5';
               print-ready paperback and an EPUB — and while you write it keeps the
               book safe in whatever syncs it: Dropbox, Google Drive, pCloud, Box.
             </p>
-            <p class="mute">Rust and Ratatui. One binary. macOS, Linux and Windows.</p>
+            <p class="mute">
+              Rust and Ratatui. One binary. macOS, Linux and Windows. Made by
+              <a href={STUDIO}>Catfinity Studios</a>.
+            </p>
           </section>
 
           <section id="why" role="tabpanel" aria-labelledby="tab-why">
@@ -171,6 +177,7 @@ const VERSION = 'v0.5';
             <table class="keys">
               <tbody>
                 <tr><td>Esc</td><td>the menu — everything is in it, down to Quit</td></tr>
+                <tr><td>F1 · ?</td><td>the help — every feature explained, opened where you are</td></tr>
                 <tr><td>Ctrl-K</td><td>find anything: actions, scenes, notes, themes</td></tr>
                 <tr><td>Tab</td><td>switch pane</td></tr>
                 <tr><td>n · c · p</td><td>new scene · chapter · part, named and placed for you</td></tr>
@@ -189,6 +196,15 @@ const VERSION = 'v0.5';
               <figcaption>02 — focus mode</figcaption>
             </figure>
             <p>
+              Every feature is explained inside, too: <code>F1</code> opens the help on the topic
+              for wherever you are, and typing searches all of it.
+            </p>
+            <figure class="shot">
+              <img src="/shots/help.webp" width="1620" height="1114" loading="lazy"
+                alt="The help inside Grimoire: the topics on the left, Writing open on the right" />
+              <figcaption>03 — the help, opened from the page</figcaption>
+            </figure>
+            <p>
               Notes between <code>%%</code> marks and <code>TK</code> placeholders never reach the
               book or the word count. Vertical movement is <strong>visual, not logical</strong>:
               Down moves one screen row inside a wrapped paragraph, which is the only behaviour
@@ -205,7 +221,7 @@ const VERSION = 'v0.5';
             <figure class="shot">
               <img src="/shots/manuscript.webp" width="3005" height="1330" loading="lazy"
                 alt="The first three pages of a compiled manuscript: a title page with contact block and word count, Part One and Chapter One on the opening page, a page with a centred # scene break" />
-              <figcaption>03 — a manuscript for agents and editors</figcaption>
+              <figcaption>04 — a manuscript for agents and editors</figcaption>
             </figure>
             <ul>
               <li>your contact block, byline and a rounded word count on the title page</li>
@@ -218,7 +234,7 @@ const VERSION = 'v0.5';
             <figure class="shot">
               <img src="/shots/paperback.webp" width="1700" height="1310" loading="lazy"
                 alt="A spread from a 6x9 paperback: a left page with the author's running head facing a chapter opener with a small-caps lead-in" />
-              <figcaption>04 — a print-ready paperback, 5×8 to 6×9</figcaption>
+              <figcaption>05 — a print-ready paperback, 5×8 to 6×9</figcaption>
             </figure>
             <p>
               The same book compiles as a <strong>paperback</strong> — mirrored margins with the
@@ -240,7 +256,7 @@ const VERSION = 'v0.5';
             <figure class="shot">
               <img src="/shots/conflicts.webp" width="1620" height="1114" loading="lazy"
                 alt="Settling a Dropbox conflict copy: the scene on the left, the copy on the right, and the choice to take the copy, keep the scene or keep both" />
-              <figcaption>05 — two devices wrote one scene; nothing was lost</figcaption>
+              <figcaption>06 — two devices wrote one scene; nothing was lost</figcaption>
             </figure>
             <ul>
               <li><strong>Nothing is written over.</strong> Every save checks the file first; a change from elsewhere is kept beside the scene.</li>
@@ -261,7 +277,7 @@ const VERSION = 'v0.5';
             <figure class="shot">
               <img src="/shots/pomodoros.webp" width="1632" height="1198" loading="lazy"
                 alt="Nineteen small Pomodoro scenes, one per theme: a tower, snowy peaks, a castle, cats, the great wave, a neon grid and more" />
-              <figcaption>06 — every theme's Pomodoro, mid-session</figcaption>
+              <figcaption>07 — every theme's Pomodoro, mid-session</figcaption>
             </figure>
             <p>
               <code>→</code> turns it into the <strong>Visualizer</strong>: a spectrum of whatever the
@@ -270,9 +286,12 @@ const VERSION = 'v0.5';
             <figure class="shot">
               <img src="/shots/visualizers.webp" width="1632" height="1198" loading="lazy"
                 alt="Nineteen music visualizers, one per theme: meters, beads, frost, a neon skyline, a rolling wave, a synthwave grid" />
-              <figcaption>07 — every theme's Visualizer</figcaption>
+              <figcaption>08 — every theme's Visualizer</figcaption>
             </figure>
-            <p class="mute">A custom theme mixes and matches: any theme's world with any theme's Visualizer.</p>
+            <p class="mute">
+              Rainbow's colours flow round the wheel every twelve seconds. A custom theme mixes and
+              matches: any theme's world with any theme's Visualizer.
+            </p>
           </section>
 
           <section id="music" role="tabpanel" aria-labelledby="tab-music">
@@ -325,6 +344,22 @@ const VERSION = 'v0.5';
             </p>
           </section>
 
+          <section id="donate" role="tabpanel" aria-labelledby="tab-donate">
+            <h2>donate</h2>
+            <p>
+              Grimoire is free, and a donation is <strong>never required</strong> — but it is
+              appreciated, and it goes toward Grimoire's development.
+            </p>
+            <p class="kofi">
+              <a href={KOFI} target="_blank" rel="noopener noreferrer"><img
+                height="36" style="border:0px;height:36px;" src="https://storage.ko-fi.com/cdn/kofi6.png?v=6"
+                alt="Buy Me a Coffee at ko-fi.com" /></a>
+            </p>
+            <p class="mute">
+              In the app it's <em>Donate…</em> in the menu. Thank you for writing with it.
+            </p>
+          </section>
+
           <section id="status" role="tabpanel" aria-labelledby="tab-status">
             <h2>status</h2>
             <p>
@@ -350,7 +385,7 @@ const VERSION = 'v0.5';
           <span class="hint"><kbd>Tab</kbd> pane</span>
           <span class="hint"><kbd>g</kbd> github</span>
         </span>
-        <span class="right">{VERSION} · MIT · Rust + Ratatui</span>
+        <span class="right">{VERSION} · MIT · <a href={STUDIO}>Catfinity Studios</a></span>
       </footer>
     </div>
 

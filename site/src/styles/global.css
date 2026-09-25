@@ -241,3 +241,5 @@ a:hover { color: var(--focus); text-decoration-color: var(--focus); }
 .shot figcaption { margin-top: 0.4em; color: var(--mute); }
 .shot figcaption::before { content: 'fig. '; }
 .cmd { overflow-wrap: anywhere; }
+.kofi { margin: 0 0 var(--row); }
+.kofi a { display: inline-block; text-decoration: none; }
