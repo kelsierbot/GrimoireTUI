@@ -62,6 +62,9 @@ pub enum Action {
     Beside(std::path::PathBuf),
     LineWidth,
     Typewriter,
+    /// An older book keeps its writing history in `.git` inside it: move it
+    /// to this machine's data folder, where no sync client can damage it.
+    MoveHistoryOut,
     Open(std::path::PathBuf),
 }
 
@@ -216,6 +219,13 @@ pub fn entries(app: &crate::app::App) -> Vec<Entry> {
             Action::MusicToggle,
         ),
     ];
+    if app.history_in_book {
+        v.push(Entry::new(
+            "Move writing history out of the synced folder",
+            "",
+            Action::MoveHistoryOut,
+        ));
+    }
     if app.music.enabled {
         v.extend([
             Entry::new("Music player", "F7", Action::MusicPlayer),

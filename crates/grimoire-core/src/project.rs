@@ -227,6 +227,11 @@ pub struct Node {
     /// A version parked beside its scene after a clash ("… (from bazzite,
     /// …).md"). Shown, never compiled or counted.
     pub parked: bool,
+    /// Another item in the same folder has this name but for capitals or
+    /// accents (`wren.md` beside `Wren.md`). Linux keeps both; Dropbox, Box,
+    /// Macs and Windows see one file. Shown so the writer can rename one —
+    /// never renamed behind their back.
+    pub clash: bool,
 }
 
 impl Node {
@@ -418,13 +423,40 @@ impl Project {
                 stat: None,
                 read_only: false,
                 parked: false,
+                clash: false,
             });
             let kids = p.scan(&path, 1, area)?;
             p.nodes[idx].children = kids;
             p.roots.push(idx);
         }
+        p.mark_clashes();
 
         Ok(p)
+    }
+
+    /// Flag items whose names differ from a sibling's only by capitals or
+    /// accents (see [`Node::clash`]).
+    fn mark_clashes(&mut self) {
+        let mut groups: Vec<Vec<usize>> = vec![self.roots.clone()];
+        groups.extend(self.nodes.iter().map(|n| n.children.clone()));
+        for siblings in groups {
+            let folded: Vec<String> = siblings
+                .iter()
+                .map(|&i| {
+                    let name = self.nodes[i].path.file_name().unwrap_or_default();
+                    crate::names::fold(&name.to_string_lossy())
+                })
+                .collect();
+            for (a, &i) in siblings.iter().enumerate() {
+                if folded
+                    .iter()
+                    .enumerate()
+                    .any(|(b, f)| b != a && *f == folded[a])
+                {
+                    self.nodes[i].clash = true;
+                }
+            }
+        }
     }
 
     /// Is this row already in the trash? Then deleting it means for good.
@@ -489,6 +521,7 @@ impl Project {
                     stat: None,
                     read_only: false,
                     parked: false,
+                    clash: false,
                 });
                 let kids = self.scan(&path, depth + 1, area)?;
                 self.nodes[idx].children = kids;
@@ -521,6 +554,7 @@ impl Project {
             stat: None,
             read_only: false,
             parked: sync::is_conflict_copy(path),
+            clash: false,
         };
         node.read_disk()?;
         Ok(self.push(node))
@@ -1179,7 +1213,7 @@ author's imagination.\n";
 
 /// `7` and "Chapter Seven" make `07-Chapter-Seven`.
 fn numbered_dir(n: usize, name: &str) -> String {
-    format!("{:02}-{}", n, file_safe(name))
+    format!("{:02}-{}", n, crate::names::stem(name))
 }
 
 fn write_new(path: &Path, body: &str) -> Result<()> {
@@ -1196,13 +1230,17 @@ pub fn create(dir: &Path, name: &str, folder: bool) -> Result<PathBuf> {
     let name = name.trim();
     let name = if name.is_empty() { "Untitled" } else { name };
     fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
-    let stem = format!("{:02}-{}", next_number(dir)?, file_safe(name));
+    let prefix = format!("{:02}-", next_number(dir)?);
+    let ext = if folder { "" } else { ".md" };
+    let file = crate::names::fit(dir, &prefix, &crate::names::stem(name), ext);
+    if let Some(other) = crate::names::clash(dir, &file, None) {
+        anyhow::bail!("{}", clash_message(&file, &other));
+    }
+    let path = dir.join(&file);
     if folder {
-        let path = dir.join(stem);
         fs::create_dir(&path).with_context(|| format!("creating {}", path.display()))?;
         return Ok(path);
     }
-    let path = dir.join(format!("{stem}.md"));
     if path.exists() {
         anyhow::bail!("{} already exists", path.display());
     }
@@ -1225,18 +1263,21 @@ pub fn rename(path: &Path, name: &str) -> Result<PathBuf> {
         anyhow::bail!("it needs a name");
     }
     let parent = path.parent().context("that has no folder to sit in")?;
-    let stem = match leading_number(path) {
-        Some(n) => format!("{:02}-{}", n, file_safe(name)),
-        None => file_safe(name),
-    };
+    let prefix = leading_number(path)
+        .map(|n| format!("{n:02}-"))
+        .unwrap_or_default();
     let folder = path.is_dir();
-    let target = if folder {
-        parent.join(stem)
-    } else {
-        parent.join(format!("{stem}.md"))
-    };
+    let ext = if folder { "" } else { ".md" };
+    let file = crate::names::fit(parent, &prefix, &crate::names::stem(name), ext);
+    let target = parent.join(&file);
     if target != path {
-        if target.exists() {
+        // Capitals or accents apart from a neighbour is still a collision on
+        // a Mac, on Windows and in Box; only this item's own name may change
+        // case.
+        if let Some(other) = crate::names::clash(parent, &file, Some(path)) {
+            anyhow::bail!("{}", clash_message(&file, &other));
+        }
+        if target.exists() && !crate::names::same_file(&target, path) {
             anyhow::bail!("{} already exists", target.display());
         }
         fs::rename(path, &target).with_context(|| format!("renaming {}", path.display()))?;
@@ -1246,9 +1287,19 @@ pub fn rename(path: &Path, name: &str) -> Result<PathBuf> {
         && let Ok(raw) = fs::read_to_string(&target)
         && let Some(updated) = retitle(&raw, name)
     {
-        fs::write(&target, updated).with_context(|| format!("writing {}", target.display()))?;
+        write_atomic(&target, &updated)?;
     }
     Ok(target)
+}
+
+/// Why a name can't be used: `file` would be the same file as `other` to a
+/// client that ignores capitals and accents.
+fn clash_message(file: &str, other: &Path) -> String {
+    let theirs = other.file_name().unwrap_or_default().to_string_lossy();
+    format!(
+        "“{file}” would clash with “{theirs}” — Dropbox, Box, Macs and Windows treat names \
+         that differ only in capitals or accents as one file"
+    )
 }
 
 /// Swap the `title:` line inside a frontmatter block. `None` when there is no
@@ -1635,6 +1686,16 @@ pub fn apply_moves(root: &Path, renames: &[(PathBuf, PathBuf)], links: bool) -> 
                 to.file_name().unwrap_or_default().to_string_lossy()
             );
         }
+        // A neighbour that differs only in capitals or accents, and isn't
+        // itself moving out of the way, is the same file to most clients.
+        if let (Some(dir), Some(name)) = (to.parent(), to.file_name())
+            && let Some(other) = crate::names::clash(dir, &name.to_string_lossy(), Some(from))
+            && !renames
+                .iter()
+                .any(|(f, _)| *f == other || crate::names::same_file(f, &other))
+        {
+            anyhow::bail!("{}", clash_message(&name.to_string_lossy(), &other));
+        }
     }
     rename_all(renames)?;
     if links {
@@ -1879,20 +1940,6 @@ pub fn leading_number(path: &Path) -> Option<usize> {
     let name = path.file_name()?.to_string_lossy();
     let digits: String = name.chars().take_while(|c| c.is_ascii_digit()).collect();
     digits.parse().ok()
-}
-
-/// A name as it can live on disk: words joined by dashes, with capitals and
-/// apostrophes kept so the tree shows a folder back the way it was typed.
-fn file_safe(name: &str) -> String {
-    let words: Vec<&str> = name
-        .split(|c: char| !(c.is_alphanumeric() || c == '\''))
-        .filter(|w| !w.is_empty())
-        .collect();
-    if words.is_empty() {
-        "untitled".into()
-    } else {
-        words.join("-")
-    }
 }
 
 #[cfg(test)]

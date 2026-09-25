@@ -352,6 +352,9 @@ fn draw_tree(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
             "read-only"
         } else if n.parked {
             "parked copy"
+        } else if n.clash {
+            // wren.md beside Wren.md: one file on a Mac, in Box, on Windows
+            "name clash"
         } else {
             ""
         };
