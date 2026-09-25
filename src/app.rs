@@ -19,7 +19,7 @@ use grimoire_core::editor::{self, Editor};
 use grimoire_core::export;
 use grimoire_core::history;
 use grimoire_core::manuscript;
-use grimoire_core::project::{self, Kind, Project};
+use grimoire_core::project::{self, DiskChange, Kind, Project};
 use grimoire_core::recovery;
 use grimoire_core::resume;
 use grimoire_core::search;
@@ -36,6 +36,10 @@ const AUTOSAVE_IDLE: Duration = Duration::from_secs(2);
 const AUTOSAVE_MAX: Duration = Duration::from_secs(20);
 /// After a failed save, try again this often rather than on every tick.
 const RETRY: Duration = Duration::from_secs(10);
+/// How often to look for changes made to the book by something else — a
+/// sync client, Obsidian, the phone. A `stat` per scene; files are only read
+/// when their size or time moved.
+const DISK_CHECK: Duration = Duration::from_secs(2);
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum SaveState {
@@ -203,6 +207,11 @@ pub struct App {
     pub echo_on: bool,
     /// A writing sprint under way: a word goal while the timer's focus runs.
     pub sprint: Option<Sprint>,
+    /// When the disk was last checked for changes made elsewhere.
+    last_disk_check: Option<Instant>,
+    /// Files were added, removed or parked on disk: re-read the tree as soon
+    /// as nothing unsaved is at risk.
+    tree_stale: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -526,6 +535,8 @@ impl App {
             backup_note: None,
             echo_on: false,
             sprint: None,
+            last_disk_check: None,
+            tree_stale: false,
         })
         .map(|mut app: App| {
             app.load_speller();
@@ -609,14 +620,44 @@ impl App {
 
     /// A scene's text changed in memory; autosave will pick it up.
     fn mark_changed(&mut self, i: usize) {
+        if self.project.nodes[i].read_only {
+            self.refuse_read_only(i);
+            return;
+        }
         self.project.nodes[i].dirty = true;
         let now = Instant::now();
         self.last_edit = Some(now);
         self.unsaved_since.get_or_insert(now);
     }
 
+    /// A file that isn't UTF-8 is shown, never changed: whatever just
+    /// happened to it in memory is put back from disk, and the writer is told
+    /// why. Writing it would replace the bytes that couldn't be read.
+    fn refuse_read_only(&mut self, i: usize) {
+        let _ = self.project.nodes[i].read_disk();
+        if self.open == Some(i) {
+            let (cy, cx) = (self.editor.cy, self.editor.cx);
+            self.editor = Editor::from_text(&self.project.nodes[i].body);
+            self.editor.place(cy, cx);
+        }
+        self.msg = format!(
+            "{} isn't UTF-8 text, so Grimoire shows it but won't change it — resave it as UTF-8 to edit it here",
+            self.project.nodes[i].title
+        );
+    }
+
     fn open_scene(&mut self, idx: usize) {
         self.flush();
+        // Always the file as it is now: something else may have written it
+        // since the book was read.
+        match self.project.check_disk(idx, true) {
+            Ok(change @ (DiskChange::Gone | DiskChange::GoneParked(_))) => {
+                self.take_disk_change(idx, change);
+                return;
+            }
+            Ok(change) => self.take_disk_change(idx, change),
+            Err(_) => {}
+        }
         self.save_resume(false);
         // Park this scene's undo so coming back to it still undoes.
         if let Some(i) = self.open {
@@ -671,6 +712,12 @@ impl App {
             }
         }
         let report = self.project.save_dirty();
+        for (i, copy) in &report.parked {
+            self.take_disk_change(*i, DiskChange::Parked(copy.clone()));
+        }
+        for (i, copy) in &report.gone {
+            self.take_disk_change(*i, DiskChange::GoneParked(copy.clone()));
+        }
         let notes_changed = report
             .saved
             .iter()
@@ -684,6 +731,9 @@ impl App {
             self.rebuild_codex();
         }
         if report.failed.is_empty() {
+            for (i, _) in report.parked.iter().chain(&report.gone) {
+                recovery::clear(&root, &self.project.nodes[*i].path);
+            }
             self.save_state = SaveState::Saved(Instant::now());
             self.unsaved_since = None;
             self.save_resume(false);
@@ -764,6 +814,138 @@ impl App {
         };
         if (idle || overdue) && may_retry {
             self.commit_saves();
+        }
+    }
+
+    /// Called every tick. Every couple of seconds, look for scenes changed,
+    /// added or removed on disk by something else and take them in; see
+    /// [`Project::check_disk`]. Nothing written elsewhere is overwritten, and
+    /// nothing unsaved here is dropped: it's parked beside the scene instead.
+    pub fn sync_tick(&mut self) {
+        let due = self
+            .last_disk_check
+            .is_none_or(|t| t.elapsed() >= DISK_CHECK);
+        if due {
+            self.last_disk_check = Some(Instant::now());
+            self.flush();
+            let mut notes_changed = false;
+            for i in 0..self.project.nodes.len() {
+                // An error is a file caught mid-write by a sync client: next time.
+                if let Ok(change) = self.project.check_disk(i, false) {
+                    notes_changed |=
+                        change != DiskChange::Same && !self.project.nodes[i].in_manuscript;
+                    self.take_disk_change(i, change);
+                }
+            }
+            if notes_changed {
+                // A note's names feed the codex and the spellchecker.
+                self.refresh_names();
+            }
+            if !self.tree_stale && self.project.tree_is_stale() {
+                self.tree_stale = true;
+            }
+        }
+        if self.tree_stale {
+            self.reload_after_sync();
+        }
+    }
+
+    /// Say what a change on disk meant, and show it if it's the open scene.
+    fn take_disk_change(&mut self, i: usize, change: DiskChange) {
+        let title = self.project.nodes[i].title.clone();
+        let open = self.open == Some(i);
+        let name = |p: &Path| {
+            p.file_stem()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_default()
+        };
+        match change {
+            DiskChange::Same => {}
+            DiskChange::Adopted => {
+                if open {
+                    let body = self.project.nodes[i].body.clone();
+                    self.editor.set_text(&body);
+                    let m = self.mod_label();
+                    self.msg = format!(
+                        "{title} was changed outside Grimoire — showing that version ({m}Z goes back)"
+                    );
+                }
+            }
+            DiskChange::Parked(copy) => {
+                if open {
+                    let body = self.project.nodes[i].body.clone();
+                    self.editor.set_text(&body);
+                }
+                self.msg = format!(
+                    "{title} was changed elsewhere while you were writing — that version is the scene now, and yours is beside it as “{}”",
+                    name(&copy)
+                );
+                self.tree_stale = true;
+            }
+            DiskChange::Gone => {
+                if open {
+                    self.msg = format!("{title} was moved or deleted outside Grimoire");
+                }
+                self.tree_stale = true;
+            }
+            DiskChange::GoneParked(copy) => {
+                self.msg = format!(
+                    "{title} was moved or deleted outside Grimoire — your unsaved words are in the Trash as “{}”",
+                    name(&copy)
+                );
+                self.tree_stale = true;
+            }
+        }
+    }
+
+    /// Take in files added or removed elsewhere. Unsaved words are saved (or
+    /// parked) first, so re-reading the tree can't drop them; if something
+    /// can't be saved yet, this waits for a later tick.
+    fn reload_after_sync(&mut self) {
+        if !self.commit_saves() {
+            return;
+        }
+        self.tree_stale = false;
+        let open_was = self.open.map(|i| {
+            (
+                self.project.nodes[i].path.clone(),
+                self.project.nodes[i].seen,
+            )
+        });
+        if let Err(e) = self.reload_tree() {
+            self.msg = format!("couldn't re-read the book: {e}");
+            return;
+        }
+        let Some((path, seen)) = open_was else {
+            return;
+        };
+        if self.open.is_some() {
+            return;
+        }
+        // The open scene went. If the same words turn up somewhere else, it
+        // was moved or renamed there: follow it.
+        let moved = seen.and_then(|fp| {
+            self.project
+                .nodes
+                .iter()
+                .position(|n| n.kind == Kind::Scene && !n.parked && n.seen == Some(fp))
+        });
+        match moved {
+            Some(j) => {
+                self.open = Some(j);
+                self.reveal(j);
+                self.msg = format!(
+                    "{} was moved outside Grimoire — followed it",
+                    self.project.nodes[j].title
+                );
+            }
+            None => {
+                self.undo_stash.remove(&path);
+                self.editor = Editor::from_text("");
+                if self.focus == Focus::Editor {
+                    self.focus = Focus::Tree;
+                }
+            }
         }
     }
 
@@ -1158,7 +1340,10 @@ impl App {
         let mut scenes = 0;
         let mut total = 0;
         for i in 0..self.project.nodes.len() {
-            if self.project.nodes[i].kind != Kind::Scene || self.project.in_trash(i) {
+            if self.project.nodes[i].kind != Kind::Scene
+                || self.project.in_trash(i)
+                || self.project.nodes[i].read_only
+            {
                 continue;
             }
             let (text, n) = search::replace_all(&self.project.nodes[i].body, query, with);
@@ -1742,7 +1927,8 @@ impl App {
         let mut total = 0;
         for i in 0..self.project.nodes.len() {
             let n = &self.project.nodes[i];
-            if n.kind != Kind::Scene || !n.in_manuscript || self.project.in_trash(i) {
+            if n.kind != Kind::Scene || !n.in_manuscript || self.project.in_trash(i) || n.read_only
+            {
                 continue;
             }
             let (text, count) = search::replace_word(&n.body, variant, name);
@@ -2096,6 +2282,16 @@ impl App {
     /// Re-read the tree from disk, keeping what's folded, which scene is open,
     /// and the editor exactly as it is.
     fn reload_tree(&mut self) -> Result<()> {
+        // Words not on disk yet survive the re-read, still guarded against
+        // the version they were written over.
+        self.flush();
+        let unsaved: Vec<project::Node> = self
+            .project
+            .nodes
+            .iter()
+            .filter(|n| n.dirty && n.kind == Kind::Scene)
+            .cloned()
+            .collect();
         let collapsed: Vec<(PathBuf, bool)> = self
             .project
             .nodes
@@ -2111,8 +2307,27 @@ impl App {
                 n.expanded = open;
             }
         }
+        for old in unsaved {
+            if let Some(n) = self.project.nodes.iter_mut().find(|n| n.path == old.path) {
+                n.front = old.front;
+                n.body = old.body;
+                n.dirty = true;
+                n.seen = old.seen;
+                n.stat = None;
+            }
+        }
         self.parents = self.project.parents();
         self.open = open_path.and_then(|p| self.project.nodes.iter().position(|n| n.path == p));
+        // Nothing unsaved in the editor, and the file says something else (a
+        // link rewritten by a move, a change from elsewhere): show the file,
+        // or the next keystroke would save the old words over it.
+        if let Some(i) = self.open
+            && !self.project.nodes[i].dirty
+            && self.editor.text() != self.project.nodes[i].body
+        {
+            let body = self.project.nodes[i].body.clone();
+            self.editor.set_text(&body);
+        }
         self.refresh_visible();
         self.refresh_names();
         Ok(())

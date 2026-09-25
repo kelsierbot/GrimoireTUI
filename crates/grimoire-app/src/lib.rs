@@ -208,11 +208,9 @@ pub fn outline(book: &Path) -> Result<Outline> {
 }
 
 /// The shape `write_conflict_copy` gives a parked version: "<scene> (from
-/// <machine>, <when>).md".
+/// <machine>, <when>).md". Shared with the terminal app, which parks the same way.
 fn is_conflict_copy(path: &Path) -> bool {
-    path.file_stem()
-        .map(|s| s.to_string_lossy().contains(" (from "))
-        .unwrap_or(false)
+    sync::is_conflict_copy(path)
 }
 
 /// "Act One › Chapter One" — `place_of` includes the scene itself, which the
@@ -303,13 +301,7 @@ pub fn save_scene(path: &Path, text: &str, front: Option<&str>, seen: &Stamp) ->
 /// It refuses anything that is not a conflict copy. A bug in a front end
 /// should never be able to ask this function to delete a scene.
 pub fn drop_conflict_copy(path: &Path) -> Result<()> {
-    if !is_conflict_copy(path) {
-        anyhow::bail!("{} is not a conflict copy", path.display());
-    }
-    if path.exists() {
-        fs::remove_file(path).with_context(|| format!("removing {}", path.display()))?;
-    }
-    Ok(())
+    sync::drop_conflict_copy(path)
 }
 
 /// Where the writer stopped, ready for the one button that matters on a
