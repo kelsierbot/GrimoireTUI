@@ -484,30 +484,7 @@ fn draw_scene(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
             },
             scene::render(app.pomo.phase, app.pomo.progress(), app.frame),
         ),
-        Mode::Spectrum => {
-            let (title, frac, playing) = match &app.music.state {
-                MusicState::Playing(tr) => (
-                    tr.title.clone(),
-                    if tr.duration > 0.0 {
-                        tr.progress / tr.duration
-                    } else {
-                        0.0
-                    },
-                    tr.playing,
-                ),
-                _ => (String::new(), 0.0, false),
-            };
-            let head = if title.is_empty() {
-                "spectrum".to_string()
-            } else {
-                truncate(&title, 22)
-            };
-            let note = app.viz.note(playing);
-            (
-                head,
-                scene::render_spectrum(&app.viz, frac, note.as_deref()),
-            )
-        }
+        Mode::Spectrum => crate::viz_view::view(app, t, area.width),
         Mode::Growth => {
             // The garden grows with what's written; a cut doesn't uproot it.
             let today = app.today_words().max(0) as usize;
@@ -535,14 +512,13 @@ fn draw_scene(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
     // On a beat the frame flashes bloom, and fades back as the beat does.
     if app.pane_mode == Mode::Spectrum && app.viz.beat > 0.0 {
         let base = if focused { t.accent } else { t.border };
-        block = block.border_style(Style::default().fg(blend(base, t.bloom, app.viz.beat)));
+        block = block.border_style(Style::default().fg(blend(base, t.bloom, app.viz.beat * 0.5)));
     }
     let inner = block.inner(area);
     app.rect_scene = inner;
     f.render_widget(block, area);
 
     let night = app.pomo.phase == Phase::Break && app.pane_mode == Mode::Clearing;
-    let lit = |v: u8| v as f32 / 255.0;
 
     let lines: Vec<Line> = grid
         .iter()
@@ -566,17 +542,7 @@ fn draw_scene(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
                             Ink::Rabbit => t.text,
                             Ink::Flower => t.bloom,
                             Ink::Ground => t.turf,
-                            Ink::Bar { h, glow } => {
-                                blend(bar_colour(t, h), t.text, lit(glow) * 0.6)
-                            }
-                            Ink::Pond { h, depth } => {
-                                blend(bar_colour(t, h), t.border, 0.45 + 0.2 * depth as f32)
-                            }
-                            Ink::Cap { heat } => blend(t.dim, t.moon, lit(heat)),
-                            Ink::Spark { life } => {
-                                blend(t.dim, blend(t.sun, t.text, 0.35), lit(life))
-                            }
-                            Ink::Played { glow } => blend(t.accent, t.bloom, lit(glow)),
+                            Ink::Paint(c) => c,
                         };
                         Span::styled(ch.to_string(), Style::default().fg(col))
                     })
@@ -705,7 +671,7 @@ pub(crate) fn blend(
 /// A spectrum bar's colour at height `h`, 0 at the roots to 255 at the tip:
 /// the theme's foliage, up through its accent and sun, to bloom at the very
 /// top. Drawn from the theme, so every palette gets its own.
-fn bar_colour(t: &Theme, h: u8) -> ratatui::style::Color {
+pub(crate) fn bar_colour(t: &Theme, h: u8) -> ratatui::style::Color {
     let x = h as f32 / 255.0;
     // The rainbow's bars climb the spectrum itself: red at the roots, violet
     // at the tips.
