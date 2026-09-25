@@ -50,6 +50,14 @@ impl Default for Pomodoro {
 }
 
 impl Pomodoro {
+    /// For the README's screenshots: a writing session `elapsed` in.
+    #[cfg(test)]
+    pub fn run_for_shots(&mut self, elapsed: Duration) {
+        self.phase = Phase::Focus;
+        self.banked = Duration::ZERO;
+        self.running_since = Instant::now().checked_sub(elapsed);
+    }
+
     pub fn elapsed(&self) -> Duration {
         self.banked + self.running_since.map_or(Duration::ZERO, |t| t.elapsed())
     }

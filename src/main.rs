@@ -14,6 +14,8 @@ mod visualizer;
 mod viz_view;
 
 #[cfg(test)]
+mod shots;
+#[cfg(test)]
 mod ui_tests;
 
 use anyhow::{Context, Result};

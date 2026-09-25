@@ -55,7 +55,8 @@ fn popup(app: &App, area: Rect) -> Option<Popup> {
     let n = suggestions.len();
     // Suggestions (or "no suggestions"), a rule, the three ignores, a hint.
     let h = (n.max(1) + 1 + IGNORES.len() + 1) as u16 + 2;
-    let w = 34u16.min(area.width);
+    // Wide enough for its hint row, " ↵ choose  esc close  or keep typing".
+    let w = 40u16.min(area.width);
     let below = word_y + 1;
     let y = if below + h <= area.bottom().saturating_sub(1) {
         below

@@ -347,6 +347,15 @@ impl std::ops::Deref for Visualizer {
 }
 
 impl Visualizer {
+    /// For the README's screenshots: bars standing as if music were playing.
+    #[cfg(test)]
+    pub fn set_for_shots(&mut self, levels: Vec<f32>, peaks: Vec<f32>) {
+        self.analyzer.hold = vec![1.0; levels.len()];
+        self.analyzer.levels = levels;
+        self.analyzer.peaks = peaks;
+        self.analyzer.silent_for = 0.0;
+    }
+
     pub fn new() -> Visualizer {
         Visualizer {
             analyzer: Analyzer::new(BARS),
