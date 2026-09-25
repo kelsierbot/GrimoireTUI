@@ -86,15 +86,6 @@ fn case_sensitive(dir: &Path) -> bool {
     apart
 }
 
-/// Whether the disk keeps a composed é and a decomposed é apart.
-fn normalisation_sensitive(dir: &Path) -> bool {
-    let probe = dir.join(".probe-\u{e9}");
-    fs::write(&probe, "x").unwrap();
-    let apart = !dir.join(".probe-e\u{301}").exists();
-    let _ = fs::remove_file(&probe);
-    apart
-}
-
 /// The names actually in `dir`, as the disk spells them.
 fn listed(dir: &Path) -> Vec<String> {
     fs::read_dir(dir)
@@ -210,7 +201,6 @@ fn twins_already_on_disk_both_load_and_are_flagged() {
 #[test]
 fn a_scene_a_mac_spelled_in_decomposed_form_keeps_its_history() {
     let d = temp("nfd");
-    let _ = normalisation_sensitive(&d); // either way, one history
     let composed = d.join("01-Ros\u{e9}.md");
     let decomposed = d.join("01-Rose\u{301}.md");
     // History written on Linux under the composed spelling…
@@ -224,9 +214,17 @@ fn a_scene_a_mac_spelled_in_decomposed_form_keeps_its_history() {
         "the scene's history is found whichever way it's spelled"
     );
     assert!(names::same_path(&composed, &decomposed));
+    // Asking for the composed spelling finds the file: on Linux under the
+    // spelling the disk holds, on a Mac under either (it treats them as one).
+    let found = names::resolve(&composed).expect("found");
+    assert!(
+        found == decomposed || names::same_file(&found, &decomposed),
+        "{}",
+        found.display()
+    );
     assert_eq!(
-        names::resolve(&composed).as_deref(),
-        Some(decomposed.as_path())
+        fs::read_to_string(&found).unwrap(),
+        "the first draft\nand more\n"
     );
     fs::remove_dir_all(&d).unwrap();
 }

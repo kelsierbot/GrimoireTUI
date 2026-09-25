@@ -69,21 +69,38 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     }
 
     if t.is_rainbow() {
-        paint_rainbow(f.buffer_mut(), t.accent, app.frame);
+        paint_rainbow(f.buffer_mut(), t.accent, rainbow_phase());
     }
+}
+
+/// Seconds for the Rainbow theme's colours to flow once round the wheel:
+/// lively enough to see move, slow enough to write beside.
+pub(crate) const RAINBOW_CYCLE: f32 = 12.0;
+
+/// Where the Rainbow theme's spectrum has flowed to by now, in degrees. Taken
+/// from the clock, not the frame count, so the speed doesn't depend on how
+/// often the screen is drawn.
+pub(crate) fn rainbow_phase() -> f32 {
+    static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    let t = START
+        .get_or_init(std::time::Instant::now)
+        .elapsed()
+        .as_secs_f32();
+    (t / RAINBOW_CYCLE).fract() * 360.0
 }
 
 /// The Rainbow theme's accent isn't one colour: every cell drawn in it — the
 /// focused border, titles, the progress bar, the word count, the open scene —
 /// takes its hue from where it sits on screen, a diagonal sweep across the
-/// spectrum that drifts round the wheel about once a minute.
+/// spectrum that flows round the wheel every [`RAINBOW_CYCLE`] seconds
+/// (`phase` in degrees, from [`rainbow_phase`]).
 pub(crate) fn paint_rainbow(
     buf: &mut ratatui::buffer::Buffer,
     accent: ratatui::style::Color,
-    frame: u64,
+    phase: f32,
 ) {
     let area = buf.area;
-    let drift = (frame % 240) as f32 * 1.5;
+    let drift = phase;
     for y in area.top()..area.bottom() {
         for x in area.left()..area.right() {
             let Some(cell) = buf.cell_mut((x, y)) else {

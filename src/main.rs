@@ -36,6 +36,9 @@ use grimoire_core::{export, export_print, manuscript};
 const TICK: Duration = Duration::from_millis(250);
 /// Repaint rate while the spectrum is on screen, fast enough to keep up with a beat.
 const FAST_TICK: Duration = Duration::from_millis(33);
+/// How often to redraw while the Rainbow theme's colours flow: often enough
+/// that the sweep glides rather than steps.
+const RAINBOW_TICK: Duration = Duration::from_millis(80);
 
 fn main() -> Result<()> {
     let mut args = std::env::args().skip(1);
@@ -555,7 +558,14 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
             return Err(e.into());
         }
 
-        let ev = match events.recv_timeout(if spectrum { FAST_TICK } else { TICK }) {
+        let tick = if spectrum {
+            FAST_TICK
+        } else if app.theme.is_rainbow() {
+            RAINBOW_TICK
+        } else {
+            TICK
+        };
+        let ev = match events.recv_timeout(tick) {
             Ok(Ok(ev)) => ev,
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                 // The scenes animate on TICK whatever the repaint rate.

@@ -1351,7 +1351,10 @@ fn export_says_what_tks_are_left_before_it_writes_anything() {
     assert!(d.shows("took the TK from her coat"));
     assert!(!d.root.join("exports").exists(), "nothing written yet");
     d.typed("x");
-    assert!(d.shows("✓ exports/"), "the second x exports anyway");
+    assert!(
+        (d.shows("✓ exports/") || d.shows("✓ exports\\")),
+        "the second x exports anyway"
+    );
     assert!(d.shows("1 TK is left in the text"));
     assert!(d.root.join("exports").exists());
 }
@@ -1483,4 +1486,23 @@ fn the_export_dialog_fits_a_short_terminal_and_scrolls_to_the_cursor() {
             "row {row}: the cursor is on screen"
         );
     }
+}
+
+#[test]
+fn the_rainbow_flows_over_time() {
+    let mut d = Desk::open(book("rainbow-flow", true), 120, 35);
+    d.app.theme = theme::presets()
+        .into_iter()
+        .find(|t| t.is_rainbow())
+        .unwrap();
+    let corner = |d: &Desk| d.term.backend().buffer()[(0, 0)].fg;
+    d.draw();
+    let before = corner(&d);
+    // A quarter of a cycle later the same cell is a different colour.
+    std::thread::sleep(std::time::Duration::from_secs_f32(ui::RAINBOW_CYCLE / 4.0));
+    d.draw();
+    assert_ne!(corner(&d), before, "the border's colour moved");
+    // And the phase always stays on the wheel.
+    let p = ui::rainbow_phase();
+    assert!((0.0..360.0).contains(&p));
 }
