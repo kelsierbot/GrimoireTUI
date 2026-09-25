@@ -2029,16 +2029,28 @@ impl App {
             .into_iter()
             .map(|p| moved(&p).unwrap_or(p))
             .collect();
-        if let Some(i) = self.open
-            && let Some(p) = moved(&self.project.nodes[i].path)
-        {
-            self.project.nodes[i].path = p;
+        // Every node follows, not just the open one: a scene with unsaved
+        // words is found again by its new path when the tree is re-read.
+        for n in &mut self.project.nodes {
+            if let Some(p) = moved(&n.path) {
+                n.path = p;
+            }
         }
     }
 
     /// Re-read the tree from disk, keeping what's folded, which scene is open,
-    /// and the editor exactly as it is.
+    /// and the editor exactly as it is. Words not on disk yet ride across: the
+    /// new tree comes from the files, and anything unsaved would otherwise go
+    /// with the old one.
     fn reload_tree(&mut self) -> Result<()> {
+        self.flush();
+        let unsaved: Vec<(PathBuf, Option<String>, String, String)> = self
+            .project
+            .nodes
+            .iter()
+            .filter(|n| n.dirty && n.kind == Kind::Scene)
+            .map(|n| (n.path.clone(), n.front.clone(), n.body.clone(), n.file_text()))
+            .collect();
         let collapsed: Vec<(PathBuf, bool)> = self
             .project
             .nodes
@@ -2056,6 +2068,20 @@ impl App {
         }
         self.parents = self.project.parents();
         self.open = open_path.and_then(|p| self.project.nodes.iter().position(|n| n.path == p));
+        for (path, front, body, text) in unsaved {
+            match self.project.nodes.iter().position(|n| n.path == path) {
+                Some(i) => {
+                    self.project.nodes[i].front = front;
+                    self.project.nodes[i].body = body;
+                    self.mark_changed(i);
+                }
+                // Gone from where it was: keep its words where the next launch
+                // looks for them rather than let them drop.
+                None => {
+                    let _ = recovery::keep(&root, &path, &text);
+                }
+            }
+        }
         self.refresh_visible();
         self.refresh_names();
         Ok(())
@@ -2513,6 +2539,8 @@ impl App {
         order: &[grimoire_core::project::Area],
         show: Option<grimoire_core::project::Area>,
     ) -> Result<()> {
+        // Save first, like every other change to the tree.
+        self.commit_saves();
         project::save_section_order(&self.project.root, order)?;
         self.reload_tree()?;
         if let Some(i) = show.and_then(|a| {
