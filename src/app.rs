@@ -63,6 +63,7 @@ pub enum MenuItem {
     Delete,
     ProjectMap,
     Compile,
+    Export,
     Player,
     Settings,
     Close,
@@ -404,6 +405,17 @@ impl App {
 
     pub fn new(mut project: Project) -> Result<Self> {
         let parents = project.parents();
+        // A book no one has opened yet: no day's baseline, nowhere to resume,
+        // no words. It opens on the Novel Format guide instead of an empty
+        // scene. Checked before load_baseline writes the first baseline.
+        let never_opened = !project.root.join(".grimoire/progress.toml").exists()
+            && resume::read(&project.root).is_none()
+            && project.total_words() == 0;
+        let guide = project
+            .nodes
+            .iter()
+            .position(|n| n.area == project::Area::Format && n.kind == Kind::Scene)
+            .filter(|_| never_opened);
         let baseline = load_baseline(&project)?;
         // Open the first scene straight away so launching lands you on prose
         // rather than an empty pane. Focus stays on the tree, so a stray
@@ -503,12 +515,16 @@ impl App {
             if !items.is_empty() {
                 app.overlay = Overlay::Recover { items };
             }
-            if let Some(i) = first_scene {
+            if let Some(i) = guide.or(first_scene) {
                 app.editor = Editor::from_text(&app.project.nodes[i].body);
                 app.open = Some(i);
                 if let Some(pos) = app.visible.iter().position(|&v| v == i) {
                     app.sel = pos;
                 }
+            }
+            if guide.is_some() {
+                app.msg =
+                    "a new book — this is how it's laid out · Tab to read, Esc for the menu".into();
             }
             app.resume_where_left();
             app
@@ -1306,12 +1322,18 @@ impl App {
             format!("on {}", r.machine)
         };
         let when = r.when.format("%a %-I:%M %P");
+        // A scene with nothing in it was only ever open, never written in.
+        // The scene and when come first, so a narrow status line keeps them.
+        let body = &self.project.nodes[i].body;
+        let (did, at) = if body.split_whitespace().next().is_some() {
+            ("last written", format!(" · paragraph {}", r.line + 1))
+        } else {
+            ("left open", String::new())
+        };
         self.msg = format!(
-            "resuming {} · {}{}paragraph {} · last written {who}, {when}",
+            "resuming {} · {did} {who}, {when}{at}{}{place}",
             self.project.nodes[i].title,
-            place,
             if place.is_empty() { "" } else { " · " },
-            r.line + 1
         );
     }
 
@@ -1510,7 +1532,7 @@ impl App {
         }
         let Some(i) = entry else {
             self.msg = if self.codex_index.is_empty() {
-                "the notebook has no notes yet — add one under Characters, Regions…".into()
+                "no notes yet — add one under Characters or Places".into()
             } else {
                 "put the cursor on a name from your notebook".into()
             };
@@ -2925,7 +2947,7 @@ impl App {
     pub fn menu(&self) -> Vec<(String, MenuItem)> {
         let row = |label: String, key: &str| format!("{label:<20}{key}");
         let m = self.mod_label();
-        vec![
+        let mut items = vec![
             (
                 row("Find anything…".into(), &format!("({m}K)")),
                 MenuItem::Find,
@@ -2939,11 +2961,9 @@ impl App {
             (row("New folder…".into(), "(N)"), MenuItem::NewFolder),
             (row("Rename…".into(), "(r)"), MenuItem::Rename),
             (row("Delete…".into(), "(d)"), MenuItem::Delete),
-            (
-                row("Update project map".into(), "(project.md)"),
-                MenuItem::ProjectMap,
-            ),
-            ("Compile manuscript".into(), MenuItem::Compile),
+            // Word, EPUB and Markdown. The project map and a bare Markdown
+            // compile are still in the palette.
+            ("Export…".into(), MenuItem::Export),
             (row("Music player…".into(), "(F7)"), MenuItem::Player),
             ("Settings…".into(), MenuItem::Settings),
             (row("Close".into(), "(Esc)"), MenuItem::Close),
@@ -2951,7 +2971,12 @@ impl App {
                 row("Quit Grimoire".into(), &format!("({m}Q)")),
                 MenuItem::Quit,
             ),
-        ]
+        ];
+        // Nothing to play with music off; Settings is where it comes back on.
+        if !self.music.enabled {
+            items.retain(|(_, i)| *i != MenuItem::Player);
+        }
+        items
     }
 
     /// How Grimoire looks and sounds: the menu's Settings, nested.
@@ -3105,6 +3130,7 @@ impl App {
                     .unwrap_or(0);
                 self.overlay = Overlay::Menu { sel };
             }
+            MenuItem::Export => self.open_export(),
             MenuItem::Close => self.overlay = Overlay::None,
             MenuItem::Quit => {
                 self.overlay = Overlay::None;

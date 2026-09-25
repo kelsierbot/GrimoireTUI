@@ -756,7 +756,11 @@ fn draw_editor(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
 fn draw_codex(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
     let Some(pane) = &app.codex else { return };
     let focused = app.focus == Focus::Codex;
-    let title = format!("{} · {}", pane.entry.title, pane.entry.section);
+    let title = if pane.entry.section.is_empty() {
+        pane.entry.title.clone()
+    } else {
+        format!("{} · {}", pane.entry.title, pane.entry.section)
+    };
     let block = pane_block(&title, focused, t).padding(Padding::new(1, 1, 0, 0));
     let inner = block.inner(area);
     f.render_widget(block, area);
@@ -1434,7 +1438,7 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             done,
         } => {
             let h = (3 + parts.len() as u16 + 10).min(area.height);
-            let box_area = centred(area, 66, h);
+            let box_area = centred(area, area.width.saturating_sub(4).clamp(40, 76), h);
             f.render_widget(Clear, box_area);
             let block = pane_block("EXPORT FOR READERS", true, t);
             let inner = block.inner(box_area);
@@ -1459,6 +1463,8 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
                 f.render_widget(Paragraph::new(lines), inner);
                 return;
             }
+            // Cursor, tick box and label take 23 columns; the note gets the rest.
+            let note_room = (inner.width as usize).saturating_sub(24);
             let row = |i: usize, on: bool, label: String, note: &str, lines: &mut Vec<Line>| {
                 let cursor = i == *sel;
                 let l = Line::from(vec![
@@ -1474,7 +1480,7 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
                         format!("{label:<16}"),
                         Style::default().fg(if cursor { t.accent } else { t.text }),
                     ),
-                    Span::styled(note.to_string(), dim),
+                    Span::styled(truncate(note, note_room), dim),
                 ]);
                 lines.push(if cursor {
                     l.style(Style::default().bg(t.sel))
@@ -1490,7 +1496,7 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
                 0,
                 formats[0],
                 "Word document".into(),
-                "standard manuscript format, for agents and editors",
+                "manuscript format, for agents and editors",
                 &mut lines,
             );
             row(
@@ -1778,7 +1784,7 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             let inner = block.inner(box_area);
             f.render_widget(block, box_area);
             let [list_area, _, diff_area] = Layout::horizontal([
-                Constraint::Length(34),
+                Constraint::Length(36),
                 Constraint::Length(2),
                 Constraint::Min(20),
             ])
@@ -1797,18 +1803,14 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             let room = list_area.height.saturating_sub(3) as usize;
             let start = sel.saturating_sub(room.saturating_sub(1));
             let mut left: Vec<Line> = vec![
-                Line::from(Span::styled(" kept versions", dim)),
+                Line::from(Span::styled(" kept versions · length vs now", dim)),
                 Line::from(""),
             ];
             for (i, v) in versions.iter().enumerate().skip(start).take(room) {
                 let on = i == *sel;
                 let words = v.words() as i64;
                 let delta = words - now_words;
-                let change = match delta {
-                    0 => "same length".to_string(),
-                    d if d < 0 => format!("{} fewer", thousands((-d) as usize)),
-                    d => format!("{} more", thousands(d as usize)),
-                };
+                let change = length_vs_now(delta);
                 let row = Line::from(vec![
                     Span::styled(
                         if on { " ▸ " } else { "   " },
@@ -1818,7 +1820,7 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
                         format!("{:<17}", when_label(v.when)),
                         Style::default().fg(if on { t.accent } else { t.text }),
                     ),
-                    Span::styled(truncate(&change, 13), dim),
+                    Span::styled(truncate(&change, 16), dim),
                 ]);
                 left.push(if on {
                     row.style(Style::default().bg(t.sel))
@@ -2561,15 +2563,25 @@ fn draw_cork(
                 Style::default().fg(if lit { status_col } else { t.border }),
             ),
         ])];
-        let synopsis = match typing {
-            Some((crate::app::CardField::Synopsis, buf)) if editing_here => format!("{buf}█"),
-            _ => card.synopsis.clone().unwrap_or_default(),
+        // No synopsis yet: the scene's own first line stands in, dimmed.
+        let (synopsis, standin) = match typing {
+            Some((crate::app::CardField::Synopsis, buf)) if editing_here => {
+                (format!("{buf}█"), false)
+            }
+            _ => match card.synopsis.as_deref().filter(|s| !s.trim().is_empty()) {
+                Some(s) => (s.to_string(), false),
+                None => (first_line(&app.project.nodes[card.idx].body), true),
+            },
         };
         let wrapped = wrap_words(&synopsis, w);
         for i in 0..2 {
             lines.push(Line::from(Span::styled(
                 wrapped.get(i).cloned().unwrap_or_default(),
-                Style::default().fg(if lit { t.text } else { t.border }),
+                Style::default().fg(match (lit, standin) {
+                    (true, false) => t.text,
+                    (true, true) => t.dim,
+                    (false, _) => t.border,
+                }),
             )));
         }
         if let Some((crate::app::CardField::Pov, buf)) = typing.filter(|_| editing_here) {
@@ -2771,6 +2783,37 @@ fn fit_hints(hints: &str, room: usize) -> String {
     out
 }
 
+/// A kept version's length against the scene now, in 16 columns or fewer:
+/// "6 words shorter", "1,204 words longer", "12,345 shorter", "same length".
+fn length_vs_now(delta: i64) -> String {
+    let n = thousands(delta.unsigned_abs() as usize);
+    let (way, one) = match delta {
+        0 => return "same length".into(),
+        d if d < 0 => ("shorter", "word"),
+        _ => ("longer", "word"),
+    };
+    let plural = if delta.unsigned_abs() == 1 {
+        one.to_string()
+    } else {
+        format!("{one}s")
+    };
+    let long = format!("{n} {plural} {way}");
+    if long.chars().count() <= 16 {
+        long
+    } else {
+        format!("{n} {way}")
+    }
+}
+
+/// A scene's first line of prose, for a card with no synopsis.
+fn first_line(body: &str) -> String {
+    body.lines()
+        .map(|l| l.trim().trim_start_matches('#').trim())
+        .find(|l| !l.is_empty())
+        .unwrap_or("")
+        .to_string()
+}
+
 fn truncate(s: &str, w: usize) -> String {
     if s.chars().count() <= w {
         return s.to_string();
@@ -2795,6 +2838,27 @@ fn thousands(n: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A kept version reads against now, never as a loss: "6 fewer" looked
+    /// like six words had gone missing.
+    #[test]
+    fn a_version_says_how_its_length_compares_with_now() {
+        assert_eq!(length_vs_now(0), "same length");
+        assert_eq!(length_vs_now(-6), "6 words shorter");
+        assert_eq!(length_vs_now(1), "1 word longer");
+        assert_eq!(length_vs_now(12), "12 words longer");
+        assert_eq!(length_vs_now(-12_345), "12,345 shorter");
+        for d in [-99_999i64, -999, 7, 99_999] {
+            assert!(length_vs_now(d).chars().count() <= 16, "{d}");
+        }
+    }
+
+    #[test]
+    fn a_card_without_a_synopsis_shows_the_first_line_of_prose() {
+        assert_eq!(first_line("\n\n# A heading\nThe rain.\n"), "A heading");
+        assert_eq!(first_line("\n  The rain came.\nMore.\n"), "The rain came.");
+        assert_eq!(first_line("\n\n"), "");
+    }
 
     #[test]
     fn hints_that_do_not_fit_drop_whole_from_the_right() {

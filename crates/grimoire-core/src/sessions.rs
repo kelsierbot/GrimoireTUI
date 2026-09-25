@@ -588,7 +588,7 @@ fn part_noun(root: &Path) -> String {
                 .map(|s| s.trim().to_lowercase())
         })
         .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "page".into())
+        .unwrap_or_else(|| "part".into())
 }
 
 // ---------------------------------------------------------------------------

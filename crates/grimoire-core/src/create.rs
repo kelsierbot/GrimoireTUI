@@ -35,7 +35,7 @@ impl New {
 /// Everything the naming prompt needs.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Plan {
-    /// "scene", "chapter", "act", "note", "page" or "folder" — the book's own
+    /// "scene", "chapter", "part", "act", "note" or "folder" — the book's own
     /// word, so a project that calls its parts Acts is told "new act".
     pub noun: String,
     /// What it turned out to be, whichever key was pressed.
@@ -325,10 +325,10 @@ mod tests {
     fn p_adds_the_next_part_at_the_end_of_the_manuscript() {
         let d = book("p");
         let plan = press(&d, "Opening", New::Part).unwrap();
-        assert_eq!(plan.noun, "page");
+        assert_eq!(plan.noun, "part");
         assert!(plan.folder);
         assert_eq!(plan.dir, d.join("manuscript"));
-        assert_eq!(plan.name, "Page Two");
+        assert_eq!(plan.name, "Part Two");
         assert_eq!(plan.place, "in the manuscript, after Part One");
         fs::remove_dir_all(&d).unwrap();
     }
@@ -372,7 +372,7 @@ mod tests {
         assert_eq!(beside_chapter.noun, "chapter");
         assert_eq!(beside_chapter.dir, d.join("manuscript/01-part-one"));
         let beside_part = press(&d, "Part One", New::Folder).unwrap();
-        assert_eq!(beside_part.noun, "page");
+        assert_eq!(beside_part.noun, "part");
         assert_eq!(beside_part.dir, d.join("manuscript"));
         fs::remove_dir_all(&d).unwrap();
     }
@@ -398,7 +398,7 @@ mod tests {
             vec![
                 ('n', "scene".to_string()),
                 ('c', "chapter".to_string()),
-                ('p', "page".to_string())
+                ('p', "part".to_string())
             ]
         );
         assert_eq!(
