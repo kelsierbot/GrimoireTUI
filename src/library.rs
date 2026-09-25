@@ -22,6 +22,8 @@ pub struct TrackRef {
     pub title: String,
     pub artist: String,
     pub duration: f64,
+    /// Where to fetch it from — only read when there's audio to play it with.
+    #[cfg_attr(not(feature = "audio"), allow(dead_code))]
     pub url: String,
 }
 

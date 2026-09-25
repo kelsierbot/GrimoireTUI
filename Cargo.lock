@@ -750,19 +750,13 @@ dependencies = [
  "anyhow",
  "chrono",
  "cpal",
- "flate2",
  "grimoire-core",
  "ratatui",
  "rodio",
- "roxmltree",
- "serde",
  "serde_json",
  "signal-hook",
- "toml",
- "unicode-width",
  "ureq",
  "windows-sys 0.61.2",
- "zip",
 ]
 
 [[package]]
