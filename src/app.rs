@@ -3193,12 +3193,16 @@ impl App {
         }
     }
 
+    /// The music pane answers the same keys as the player (F7): `[` `]`
+    /// change track, `←` `→` seek ten seconds.
     pub fn on_music_key(&mut self, key: Key) {
         match key {
             Key::Enter => self.open_player(),
             Key::Char(' ') => self.music.send(music::Cmd::PlayPause),
-            Key::Right | Key::Char('l') | Key::Char('n') => self.music.send(music::Cmd::Next),
-            Key::Left | Key::Char('h') | Key::Char('p') => self.music.send(music::Cmd::Prev),
+            Key::Char(']') | Key::Char('n') => self.music.send(music::Cmd::Next),
+            Key::Char('[') | Key::Char('p') => self.music.send(music::Cmd::Prev),
+            Key::Right | Key::Char('l') => self.music.send(music::Cmd::Seek(10)),
+            Key::Left | Key::Char('h') => self.music.send(music::Cmd::Seek(-10)),
             _ => {}
         }
     }
@@ -3835,7 +3839,7 @@ impl App {
                 format!("{esc}{focus}  Tab pane  ←→ view  ↵ start/pause  r reset  {m}Q quit ")
             }
             Focus::Music => {
-                format!("{esc}  Tab pane  ↵ open player  space pause  ←→ track  {m}Q quit ")
+                format!("{esc}  [ ] track  space pause  ←→ seek  ↵ player  Tab pane  {m}Q quit ")
             }
         }
     }

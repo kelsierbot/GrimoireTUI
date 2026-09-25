@@ -577,3 +577,40 @@ fn focus_mode_is_named_where_it_can_be_used() {
     assert!(d.shows("writing · "), "timer label while running");
     assert!(!d.rows().iter().any(|r| r.contains("┌ focus ·")));
 }
+
+#[test]
+fn the_music_pane_says_its_keys_when_focused() {
+    let root = book("music-keys", true);
+    let setup = Setup {
+        // On but unconfigured: the pane shows, nothing is polled.
+        music: music::Config {
+            enabled: true,
+            ..music::Config::default()
+        },
+        theme: theme::default_theme(),
+        settings: Settings::default(),
+        background: false,
+    };
+    let app = App::with(Project::load(&root).unwrap(), setup).unwrap();
+    let mut d = Desk {
+        app,
+        term: Terminal::new(TestBackend::new(140, 42)).unwrap(),
+        armed: false,
+        left: false,
+        root,
+    };
+    d.draw();
+    assert!(!d.shows("[ prev · space ⏯ · ] next"), "only while focused");
+    for _ in 0..5 {
+        if d.app.focus == Focus::Music {
+            break;
+        }
+        d.key(KeyCode::Tab);
+    }
+    assert_eq!(d.app.focus, Focus::Music);
+    assert!(
+        d.shows("[ prev · space ⏯ · ] next"),
+        "the pane's edge names the keys"
+    );
+    assert!(d.status().contains("[ ] track"), "{}", d.status());
+}

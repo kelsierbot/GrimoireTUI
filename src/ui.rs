@@ -729,7 +729,15 @@ fn bar_colour(t: &Theme, h: u8) -> ratatui::style::Color {
 
 fn draw_music(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
     let title = format!("♪ {} · F7", app.music.source.label());
-    let block = pane_block(&title, app.focus == Focus::Music, t);
+    let focused = app.focus == Focus::Music;
+    let mut block = pane_block(&title, focused, t);
+    if focused {
+        // Focused, the pane's own edge says what the keys do.
+        block = block.title_bottom(Line::from(Span::styled(
+            " [ prev · space ⏯ · ] next ",
+            Style::default().fg(t.accent),
+        )));
+    }
     let inner = block.inner(area);
     app.rect_music = inner;
     f.render_widget(block, area);
