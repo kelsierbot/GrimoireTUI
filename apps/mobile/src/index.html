@@ -833,7 +833,7 @@
       }
       const b = document.createElement("button");
       b.className = "row";
-      const mark = row.conflict_copy ? `<span class="sub chip">parked copy</span>` : "";
+      const mark = row.conflict_copy ? `<span class="sub chip">${row.copy_source || "parked copy"}</span>` : "";
       b.innerHTML = `<span class="title">${row.title}${mark}</span>
                      <span class="words" data-empty="${row.words === 0}">${row.words ? row.words.toLocaleString() + " w" : "empty"}</span>`;
       b.addEventListener("click", () => showEditor(row));

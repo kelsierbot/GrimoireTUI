@@ -15,6 +15,7 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 
 mod cards;
 mod command;
+mod conflicts;
 mod find;
 mod looks;
 mod marks;
@@ -54,6 +55,8 @@ impl App {
             Overlay::Create { .. } => self.on_create_key(key),
             Overlay::Rename { .. } => self.on_rename_key(key),
             Overlay::Confirm { .. } => self.on_confirm_key(key),
+            Overlay::Conflicts { .. } => self.on_conflicts_key(key),
+            Overlay::Settle { .. } => self.on_settle_key(key),
         }
     }
 }
@@ -168,6 +171,8 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
         Overlay::Create { .. } => naming::draw_create(f, app, area, t),
         Overlay::Rename { .. } => naming::draw_rename(f, app, area, t),
         Overlay::Confirm { .. } => naming::draw_confirm(f, app, area, t),
+        Overlay::Conflicts { .. } => conflicts::draw_conflicts(f, app, area, t),
+        Overlay::Settle { .. } => conflicts::draw_settle(f, app, area, t),
         Overlay::Sources { .. } => looks::draw_sources(f, app, area, t),
         Overlay::Themes { .. } => looks::draw_themes(f, app, area, t),
         Overlay::Custom { .. } => looks::draw_custom(f, app, area, t),

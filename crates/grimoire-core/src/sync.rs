@@ -143,24 +143,315 @@ pub fn park_in_trash(root: &Path, scene: &Path, text: &str) -> Result<PathBuf> {
     park(&crate::project::trash_dir(root), scene, text)
 }
 
-/// The shape a parked version has: "<scene> (from <machine>, <when>).md".
-pub fn is_conflict_copy(path: &Path) -> bool {
-    path.file_stem()
-        .map(|s| s.to_string_lossy().contains(" (from "))
-        .unwrap_or(false)
+// ── other programs' conflict copies ─────────────────────────────────
+
+/// Who left a conflict copy beside a scene. Grimoire parks its own; every
+/// sync app has its own way of keeping the version that lost, and each one
+/// is that app telling you two devices wrote the same scene.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Source {
+    Grimoire,
+    Dropbox,
+    PCloud,
+    Box,
+    OneDrive,
+    ICloud,
+    Syncthing,
+    GoogleDrive,
+    /// A numbered copy ("Scene (1)") from a sync app that couldn't be told
+    /// apart from its neighbours by the name alone.
+    SyncApp,
 }
 
-/// Throw away a parked version once the writer has settled the conflict. It
-/// refuses anything that is not a conflict copy: a bug in a front end should
-/// never be able to ask this to delete a scene.
-pub fn drop_conflict_copy(path: &Path) -> Result<()> {
+impl Source {
+    /// The program, as a person would name it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Source::Grimoire => "Grimoire",
+            Source::Dropbox => "Dropbox",
+            Source::PCloud => "pCloud",
+            Source::Box => "Box",
+            Source::OneDrive => "OneDrive",
+            Source::ICloud => "iCloud",
+            Source::Syncthing => "Syncthing",
+            Source::GoogleDrive => "Google Drive",
+            Source::SyncApp => "your sync app",
+        }
+    }
+
+    /// The tag the tree shows where a word count would be.
+    pub fn label(self) -> &'static str {
+        match self {
+            Source::Grimoire => "parked copy",
+            Source::Dropbox => "Dropbox copy",
+            Source::PCloud => "pCloud copy",
+            Source::Box => "Box copy",
+            Source::OneDrive => "OneDrive copy",
+            Source::ICloud => "iCloud copy",
+            Source::Syncthing => "Syncthing copy",
+            Source::GoogleDrive => "Google Drive copy",
+            Source::SyncApp => "sync copy",
+        }
+    }
+}
+
+/// A conflict copy of another file in the same folder.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CopyOf {
+    pub source: Source,
+    /// The original's file stem: "01-Scene-One".
+    pub original: String,
+    /// What the copy's name adds after the original's stem, kept as it is
+    /// when the original is renamed or moved, so the copy follows it:
+    /// " (Josh's conflicted copy 2026-09-25)".
+    pub suffix: String,
+}
+
+/// Which sync app a book lives in, from the folders around it, for the
+/// copies whose names several apps share ("Scene (1)", "… conflicted copy").
+pub fn provider_of(path: &Path) -> Option<Source> {
+    path.ancestors().find_map(|a| {
+        let name = a.file_name()?.to_string_lossy().to_string();
+        let lower = name.to_lowercase();
+        if lower == "dropbox" || lower.starts_with("dropbox (") || lower.starts_with("dropbox-") {
+            Some(Source::Dropbox)
+        } else if lower == "box" || lower == "box drive" || lower.starts_with("box-box") {
+            Some(Source::Box)
+        } else if lower == "google drive"
+            || lower == "my drive"
+            || lower.starts_with("googledrive-")
+        {
+            Some(Source::GoogleDrive)
+        } else if lower == "pclouddrive" || lower == "pcloud drive" || lower == "pcloud sync" {
+            Some(Source::PCloud)
+        } else if lower.starts_with("onedrive") {
+            Some(Source::OneDrive)
+        } else if lower == "mobile documents" || lower == "icloud drive" || lower == "iclouddrive" {
+            Some(Source::ICloud)
+        } else {
+            None
+        }
+    })
+}
+
+/// Is the file stem `stem` a conflict copy, and of what? `has` says whether
+/// a sibling `.md` with a given stem exists. The names that could be an
+/// ordinary title — "Part (1)", "Draft 2", "Notes-NYC2" — only count when the
+/// file they'd be a copy of is right there beside them; the unmistakable
+/// ones ("… conflicted copy …", ".sync-conflict-…") always do. A copy of a
+/// copy resolves to the first original. `hint` is [`provider_of`] the book.
+pub fn copy_of(stem: &str, has: &dyn Fn(&str) -> bool, hint: Option<Source>) -> Option<CopyOf> {
+    let mut base = stem;
+    let mut outer = None;
+    while let Some((source, shorter)) = strip_once(base, has, hint) {
+        outer.get_or_insert(source);
+        base = shorter;
+    }
+    let source = outer?;
+    Some(CopyOf {
+        source,
+        original: base.to_string(),
+        suffix: stem[base.len()..].to_string(),
+    })
+}
+
+/// The conflict copy at `path`, judged against the files beside it.
+pub fn copy_of_path(path: &Path) -> Option<CopyOf> {
+    if path.extension().and_then(|e| e.to_str()) != Some("md") {
+        return None;
+    }
+    let stem = path.file_stem()?.to_string_lossy().to_string();
+    let stems = md_stems(path.parent()?);
+    copy_of(&stem, &|s| stems.contains(s), provider_of(path))
+}
+
+/// The stems of the `.md` files in `dir`, hidden ones left out.
+pub fn md_stems(dir: &Path) -> std::collections::HashSet<String> {
+    fs::read_dir(dir)
+        .map(|rd| {
+            rd.flatten()
+                .map(|e| e.path())
+                .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("md"))
+                .filter_map(|p| p.file_stem().map(|s| s.to_string_lossy().to_string()))
+                .filter(|s| !s.starts_with('.'))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Every conflict copy of the scene at `path`, beside it on disk, with what
+/// makes each one a copy.
+pub fn copies_of(path: &Path) -> Vec<(PathBuf, CopyOf)> {
+    let (Some(dir), Some(stem)) = (path.parent(), path.file_stem()) else {
+        return Vec::new();
+    };
+    let stem = stem.to_string_lossy().to_string();
+    let stems = md_stems(dir);
+    let hint = provider_of(path);
+    let mut out: Vec<(PathBuf, CopyOf)> = stems
+        .iter()
+        .filter(|s| **s != stem)
+        .filter_map(|s| {
+            copy_of(s, &|x| stems.contains(x), hint)
+                .filter(|c| c.original == stem)
+                .map(|c| (dir.join(format!("{s}.md")), c))
+        })
+        .collect();
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    out
+}
+
+/// One layer of copy-naming taken off the end of `stem`, if there is one.
+fn strip_once<'a>(
+    stem: &'a str,
+    has: &dyn Fn(&str) -> bool,
+    hint: Option<Source>,
+) -> Option<(Source, &'a str)> {
+    // Grimoire's own: "<scene> (from <machine>, <when>)", maybe " 2" after.
+    if let Some(i) = stem.rfind(" (from ") {
+        let tail = stem[i + 7..].trim_end_matches(|c: char| c.is_ascii_digit());
+        let tail = tail.trim_end();
+        if tail.ends_with(')') && tail.contains(", ") && i > 0 {
+            return Some((Source::Grimoire, &stem[..i]));
+        }
+    }
+    // Syncthing: "<name>.sync-conflict-20260925-140233-ABCDEFG".
+    if let Some(i) = stem.rfind(".sync-conflict-") {
+        let rest = &stem[i + ".sync-conflict-".len()..];
+        let parts: Vec<&str> = rest.split('-').collect();
+        if parts.len() >= 3
+            && parts[0].len() == 8
+            && parts[0].chars().all(|c| c.is_ascii_digit())
+            && parts[1].len() == 6
+            && parts[1].chars().all(|c| c.is_ascii_digit())
+            && i > 0
+        {
+            return Some((Source::Syncthing, &stem[..i]));
+        }
+    }
+    // pCloud and Google Drive's bracketed tags.
+    for (tag, source) in [
+        (" [conflicted]", Source::PCloud),
+        ("[conflicted]", Source::PCloud),
+        (" [Conflict]", Source::GoogleDrive),
+        ("[Conflict]", Source::GoogleDrive),
+        (".conflicted", Source::PCloud),
+    ] {
+        if let Some(base) = stem.strip_suffix(tag).filter(|b| !b.is_empty()) {
+            return Some((source, base));
+        }
+    }
+    // Google Drive: "<name>_conf(1)".
+    if let Some(i) = stem.rfind("_conf(")
+        && stem.ends_with(')')
+        && stem[i + 6..stem.len() - 1]
+            .chars()
+            .all(|c| c.is_ascii_digit())
+        && stem.len() > i + 7
+        && i > 0
+    {
+        return Some((Source::GoogleDrive, &stem[..i]));
+    }
+    // "<name> (…)": the tag inside the last parentheses says who.
+    if stem.ends_with(')')
+        && let Some(i) = stem.rfind(" (")
+        && i > 0
+    {
+        let base = &stem[..i];
+        let inner = &stem[i + 2..stem.len() - 1];
+        let lower = inner.to_lowercase();
+        if lower.contains("conflicted copy") {
+            // Dropbox's shape; Box names the same way in some versions.
+            let source = if hint == Some(Source::Box) {
+                Source::Box
+            } else {
+                Source::Dropbox
+            };
+            return Some((source, base));
+        }
+        if lower.contains("copie en conflit") {
+            return Some((Source::Dropbox, base));
+        }
+        let plain = lower
+            .trim_end_matches(|c: char| c.is_ascii_digit())
+            .trim_end();
+        if matches!(
+            plain,
+            "case conflict" | "unicode encoding conflict" | "whitespace conflict"
+        ) {
+            return Some((Source::Dropbox, base));
+        }
+        if plain == "conflicted" {
+            return Some((Source::PCloud, base));
+        }
+        // Ambiguous: only beside the original.
+        if !inner.is_empty() && inner.chars().all(|c| c.is_ascii_digit()) && has(base) {
+            let source = match hint {
+                Some(s @ (Source::Box | Source::GoogleDrive)) => s,
+                _ => Source::SyncApp,
+            };
+            return Some((source, base));
+        }
+        if inner.contains('@') && !inner.contains(' ') && has(base) {
+            return Some((Source::Box, base));
+        }
+    }
+    // iCloud: "<name> 2", beside the original.
+    if let Some(i) = stem.rfind(' ') {
+        let n = &stem[i + 1..];
+        if !n.is_empty()
+            && n.len() <= 3
+            && n.chars().all(|c| c.is_ascii_digit())
+            && n != "0"
+            && n != "1"
+            && i > 0
+            && has(&stem[..i])
+        {
+            return Some((Source::ICloud, &stem[..i]));
+        }
+    }
+    // OneDrive: "<name>-DEVICENAME", beside the original. A device name is
+    // how Windows spells a computer: capitals and digits, up to fifteen, so
+    // an ordinary title word ("-One") never reads as one.
+    for (i, _) in stem.match_indices('-').rev() {
+        let device = &stem[i + 1..];
+        let looks = (2..=15).contains(&device.len())
+            && device
+                .chars()
+                .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '-')
+            && device.chars().any(|c| c.is_ascii_uppercase())
+            && !device.starts_with('-')
+            && (device.len() >= 5 || device.chars().any(|c| c.is_ascii_digit()));
+        if looks && i > 0 && has(&stem[..i]) {
+            return Some((Source::OneDrive, &stem[..i]));
+        }
+    }
+    None
+}
+
+/// The shape a parked version has: Grimoire's own "<scene> (from <machine>,
+/// <when>).md", or any sync app's conflict copy of a file beside it.
+pub fn is_conflict_copy(path: &Path) -> bool {
+    copy_of_path(path).is_some()
+}
+
+/// Put a parked version away once the writer has settled the conflict: into
+/// the book's trash, never deleted. It refuses anything that is not a
+/// conflict copy, so a bug in a front end can never ask this to remove a
+/// scene. Returns where it went.
+pub fn drop_conflict_copy(path: &Path) -> Result<Option<PathBuf>> {
     if !is_conflict_copy(path) {
         anyhow::bail!("{} is not a conflict copy", path.display());
     }
-    if path.exists() {
-        fs::remove_file(path).with_context(|| format!("removing {}", path.display()))?;
+    if !path.exists() {
+        return Ok(None);
     }
-    Ok(())
+    let root = path
+        .ancestors()
+        .skip(1)
+        .find(|a| a.join("novel.toml").is_file())
+        .with_context(|| format!("{} isn't inside a book", path.display()))?;
+    crate::project::trash(root, path).map(Some)
 }
 
 #[cfg(test)]

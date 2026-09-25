@@ -197,6 +197,20 @@ pub(super) fn draw_confirm(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
         1 => "1 word goes with it".to_string(),
         n => format!("{n} words go with it"),
     };
+    // Its conflict copies go too — say so, and which.
+    let Overlay::Confirm { path, .. } = &app.overlay else {
+        return;
+    };
+    let copies = if path.is_file() && !*permanent {
+        grimoire_core::sync::copies_of(path)
+    } else {
+        Vec::new()
+    };
+    let toll = match copies.as_slice() {
+        [] => toll,
+        [(_, c)] => format!("{toll}, and its {}", c.source.label()),
+        more => format!("{toll}, and its {} conflict copies", more.len()),
+    };
     let lines = vec![
         Line::from(vec![
             Span::styled(" Delete ", Style::default().fg(t.text)),

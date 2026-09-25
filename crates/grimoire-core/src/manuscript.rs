@@ -220,12 +220,12 @@ fn structure_block(p: &Project) -> String {
     let scenes = p
         .nodes
         .iter()
-        .filter(|n| n.kind == Kind::Scene && n.in_manuscript)
+        .filter(|n| n.kind == Kind::Scene && n.in_manuscript && !n.parked)
         .count();
     let excluded = p
         .nodes
         .iter()
-        .filter(|n| n.kind == Kind::Scene && n.in_manuscript && !n.compile)
+        .filter(|n| n.kind == Kind::Scene && n.in_manuscript && !n.compile && !n.parked)
         .count();
 
     let _ = writeln!(
@@ -299,6 +299,8 @@ fn emit(p: &Project, idx: usize, s: &mut String) {
             }
             s.push('\n');
         }
+        // A conflict copy is a version of a scene, not a place in the book.
+        Section::Scene if n.parked => {}
         Section::Scene => {
             let mut bits: Vec<String> = Vec::new();
             if let Some(st) = &n.status {
