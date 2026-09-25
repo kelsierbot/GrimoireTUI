@@ -298,9 +298,10 @@ mentions it. Nothing extra is stored; it's all read from the files.
   at, so opening the book on any computer the folder reaches lands you there.
 - **Writing sessions** (palette): turn on history for the book and each
   session is kept as a snapshot labelled like a diary line — *Tuesday evening ·
-  Act Two · 1,240 words* — with what changed that session. It's Git inside the
-  book folder; connect a remote and sessions back themselves up in the
-  background. Needs Git installed.
+  Act Two · 1,240 words* — with what changed that session. It's Git, kept on
+  this machine outside the book folder (so a sync service can't damage it);
+  connect a remote and sessions back themselves up in the background. Needs
+  Git installed.
 
 Vertical movement in the editor is **visual, not logical** — Down moves one
 screen row inside a wrapped paragraph rather than jumping the whole paragraph,
@@ -310,6 +311,47 @@ Grimoire accepts `Ctrl` or `Cmd`, and the status bar labels whichever your
 terminal can actually deliver. Cmd only reaches a terminal application through
 the Kitty keyboard protocol — Ghostty, Kitty, WezTerm and foot support it,
 Apple Terminal cannot send it at all. Ctrl always works.
+
+## Keeping a book in Dropbox, Google Drive, pCloud or Box
+
+A book is a folder, so any sync service carries it — OneDrive and iCloud
+Drive too. What Grimoire does about the ways syncing goes wrong:
+
+- **Two devices change one scene.** Nothing is written over. Grimoire checks
+  the file before every save; if it changed elsewhere, the other version stays
+  the scene and this one is kept beside it as a *parked copy*. The copies a
+  sync service makes itself are recognised too — they're parked, never
+  counted or exported twice — and *Settle conflicts…* shows the two side by
+  side to keep one, the other or both.
+- **A file isn't here yet** (online-only, still downloading, offline). It
+  shows as offline and is never saved over; Grimoire tries again later.
+- **A file blinks** while a service replaces it. A scene that vanishes for a
+  moment isn't treated as deleted.
+- **Names.** Everything Grimoire names is safe on every service and system:
+  no `? : * " < > |`, no names Windows reserves, nothing too long, and never
+  two names that differ only in capitals or accents (`Wren.md` and `wren.md`
+  are one file on a Mac, on Windows and in Box). Two such files already in a
+  folder are both shown, marked *name clash*, for you to rename.
+- **Writing-session history** stays on each machine, outside the book. An
+  older book with `.git` inside a synced folder is told once, and *Move
+  writing history out…* moves it.
+
+Advice: keep the book folder available offline ("Always keep on this
+device" / "Make available offline"); don't put one book in two sync services
+at once; and let a service finish syncing before opening the book on another
+device.
+
+What each service calls its conflict copies (Grimoire recognises them all):
+
+| Service | Conflict copy |
+|---|---|
+| Dropbox | `Scene (Ann's conflicted copy 2026-09-25).md` |
+| Google Drive | `Scene (1).md` — only a copy when `Scene.md` is beside it |
+| pCloud | `Scene (conflicted).md`, `Scene [conflicted].md` |
+| Box | `Scene (1).md`, `Scene (ann@example.com).md` |
+| OneDrive | `Scene-LAPTOP.md` |
+| iCloud Drive | `Scene 2.md` |
+| Grimoire itself | `Scene (from laptop, 2026-09-25 14-02).md` |
 
 ## Themes
 
