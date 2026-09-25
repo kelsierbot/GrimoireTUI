@@ -490,30 +490,7 @@ fn draw_scene(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
                 app.frame,
             ),
         ),
-        Mode::Visualizer => {
-            let (title, frac, playing) = match &app.music.state {
-                MusicState::Playing(tr) => (
-                    tr.title.clone(),
-                    if tr.duration > 0.0 {
-                        tr.progress / tr.duration
-                    } else {
-                        0.0
-                    },
-                    tr.playing,
-                ),
-                _ => (String::new(), 0.0, false),
-            };
-            let head = if title.is_empty() {
-                "visualizer".to_string()
-            } else {
-                truncate(&title, 22)
-            };
-            let note = app.viz.note(playing);
-            (
-                head,
-                scene::render_spectrum(&app.viz, frac, note.as_deref()),
-            )
-        }
+        Mode::Visualizer => crate::viz_view::view(app, t, area.width),
     };
 
     let focused = app.focus == Focus::Clearing;
@@ -521,7 +498,7 @@ fn draw_scene(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
     // On a beat the frame flashes bloom, and fades back as the beat does.
     if app.pane_mode == Mode::Visualizer && app.viz.beat > 0.0 {
         let base = if focused { t.accent } else { t.border };
-        block = block.border_style(Style::default().fg(blend(base, t.bloom, app.viz.beat)));
+        block = block.border_style(Style::default().fg(blend(base, t.bloom, app.viz.beat * 0.5)));
     }
     let inner = block.inner(area);
     app.rect_scene = inner;
@@ -590,11 +567,8 @@ pub(crate) fn scene_colour(ink: Ink, t: &Theme, night: bool) -> ratatui::style::
         Ink::Sand => blend(t.sun, t.bark, 0.5),
         Ink::Trail => t.accent,
         Ink::Dim => t.dim,
-        Ink::Bar { h, glow } => blend(bar_colour(t, h), t.text, lit(glow) * 0.6),
-        Ink::Pond { h, depth } => blend(bar_colour(t, h), t.border, 0.45 + 0.2 * depth as f32),
-        Ink::Cap { heat } => blend(t.dim, t.moon, lit(heat)),
-        Ink::Spark { life } => blend(t.dim, blend(t.sun, t.text, 0.35), lit(life)),
-        Ink::Played { glow } => blend(t.accent, t.bloom, lit(glow)),
+        // The Visualizer picks its colours itself (crate::viz_view).
+        Ink::Paint(c) => c,
     }
 }
 
@@ -731,7 +705,7 @@ pub(crate) fn blend(
 /// A spectrum bar's colour at height `h`, 0 at the roots to 255 at the tip:
 /// the theme's foliage, up through its accent and sun, to bloom at the very
 /// top. Drawn from the theme, so every palette gets its own.
-fn bar_colour(t: &Theme, h: u8) -> ratatui::style::Color {
+pub(crate) fn bar_colour(t: &Theme, h: u8) -> ratatui::style::Color {
     let x = h as f32 / 255.0;
     // The rainbow's bars climb the spectrum itself: red at the roots, violet
     // at the tips.

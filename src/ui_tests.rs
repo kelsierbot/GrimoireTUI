@@ -912,3 +912,48 @@ fn the_pane_switches_between_pomodoro_and_visualizer_and_there_is_no_garden() {
         assert!(!d.shows(word), "{word} is still on screen");
     }
 }
+
+// ---- the Visualizer names the song -------------------------------------------
+
+/// The left column's text (the tree, then the timer/visualizer pane).
+fn left_column(d: &Desk) -> Vec<String> {
+    d.rows()
+        .iter()
+        .map(|r| r.chars().take(crate::ui::LEFT_W as usize).collect())
+        .collect()
+}
+
+fn playing_a_long_song(d: &mut Desk) {
+    d.app.music.state = crate::music::State::Playing(crate::music::Track {
+        title: "An Extraordinarily Long Song Title That Keeps On Going".into(),
+        artist: "Somebody With A Long Name".into(),
+        progress: 40.0,
+        duration: 200.0,
+        playing: true,
+    });
+    d.app.pane_mode = crate::scene::Mode::Visualizer;
+    d.draw();
+}
+
+#[test]
+fn the_visualizer_names_the_song_truncated_to_the_pane() {
+    // Grimoire writes the song along the bottom; Nord puts it in the title.
+    for name in ["Grimoire", "Nord"] {
+        let mut d = Desk::open(book(&format!("viz-song-{}", name.len()), true), 120, 42);
+        d.app.theme = theme::presets()
+            .into_iter()
+            .find(|t| t.name == name)
+            .unwrap();
+        playing_a_long_song(&mut d);
+        let col = left_column(&d);
+        let row = col
+            .iter()
+            .find(|r| r.contains("♪ An Extraordinarily"))
+            .unwrap_or_else(|| panic!("{name}: the song isn't named:\n{}", col.join("\n")));
+        assert!(row.contains('…'), "{name}: cut with an ellipsis: {row}");
+        assert!(
+            !row.contains("Keeps On Going"),
+            "{name}: and cut to fit: {row}"
+        );
+    }
+}

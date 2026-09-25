@@ -11,6 +11,7 @@ mod scenery;
 mod shutdown;
 mod ui;
 mod visualizer;
+mod viz_view;
 
 #[cfg(test)]
 mod ui_tests;
