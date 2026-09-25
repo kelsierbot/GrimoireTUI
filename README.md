@@ -1,6 +1,6 @@
 <img src="assets/readme/banner.svg" alt="grimoire — a terminal writing desk for novels" width="100%">
 
-**[grimoire.joshking.ai](https://grimoire.joshking.ai)** · Rust + [Ratatui](https://ratatui.rs) · MIT · macOS, Linux and Windows · made by [Catfinity Studios](https://catfinity.com)
+**[grimoiretui.com](https://grimoiretui.com)** · Rust + [Ratatui](https://ratatui.rs) · MIT · macOS, Linux and Windows · made by [Catfinity Studios](https://catfinity.com)
 
 <a href="https://ko-fi.com/F2F21E0DK0"><img height="36" style="border:0px;height:36px;" src="https://storage.ko-fi.com/cdn/kofi6.png?v=6" alt="Buy Me a Coffee at ko-fi.com"></a>
 
@@ -12,7 +12,7 @@ plain files you can open with anything, even `cat`.
 <p align="center"><img src="assets/screenshots/themes.webp" alt="Grimoire's desk — the outline under a spellbook, a scene being written, the Pomodoro and the music pane — changing through all nineteen themes, from Rainbow to GitHub Dark" width="100%"></p>
 
 <p align="center"><b>Nineteen themes, and you can switch any time with <code>F9</code>.</b><br>
-<a href="#themes">See every one below</a> · or <a href="https://grimoire.joshking.ai/#themes">try them on the website</a>, which switches too.</p>
+<a href="#themes">See every one below</a> · or <a href="https://grimoiretui.com/#themes">try them on the website</a>, which switches too.</p>
 
 <img src="assets/readme/rule.svg" width="100%" alt="">
 
@@ -463,7 +463,7 @@ each one live** as you move, so you pick by looking rather than by name.
 Grimoire draws on your terminal's own background.
 
 **Pick one to see the whole desk in it** — or switch
-[the website](https://grimoire.joshking.ai/#themes) itself, with `t`:
+[the website](https://grimoiretui.com/#themes) itself, with `t`:
 
 <details><summary><img src="assets/readme/swatches/grimoire.svg" height="14" alt=""> <b>Grimoire</b></summary>
 <p><img src="site/public/shots/themes/grimoire.webp" alt="The desk in Grimoire" width="100%"></p>

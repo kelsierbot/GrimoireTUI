@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.6 — grimoiretui.com
+
+- Grimoire has its own home now: **grimoiretui.com**. *About Grimoire…*
+  and the installers point there, and the old address forwards to it.
+
 ## 0.5.5 — The license, in plain words
 
 - **License** is a new help topic: Grimoire is MIT, so commercial use is

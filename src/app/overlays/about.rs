@@ -9,7 +9,7 @@ pub(crate) const STUDIO: &str = "Catfinity Studios";
 pub(crate) const STUDIO_URL: &str = "https://catfinity.com";
 /// Where a donation goes.
 pub(crate) const KOFI_URL: &str = "https://ko-fi.com/F2F21E0DK0";
-const SITE: &str = "grimoire.joshking.ai";
+const SITE: &str = "grimoiretui.com";
 const SOURCE: &str = "github.com/kelsierbot/GrimoireTUI";
 
 impl App {
