@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.6
+
+- **`Esc` closes an open character note** whichever pane you're in — 0.3.5
+  promised this but only did it with the note itself focused; from the editor
+  it opened the menu and left the note up. `Ctrl-O` on the same name (or on
+  none) now puts the note away too.
+- **The status bar leads with what `Esc` does**, so an 80-column terminal no
+  longer cuts "Esc menu" off the end.
+
 ## 0.3.5
 
 - **`Esc` opens the menu**, from any pane — no more reaching for `F1`, which

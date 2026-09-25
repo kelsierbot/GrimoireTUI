@@ -1340,6 +1340,12 @@ impl App {
         } else {
             None
         };
+        // Ctrl-O again, on the same name or on none, puts the note away.
+        let showing = self.codex.as_ref().map(|c| c.entry.note.clone());
+        if showing.is_some() && entry.is_none_or(|i| Some(&self.codex_index[i].note) == showing.as_ref()) {
+            self.close_codex();
+            return;
+        }
         let Some(i) = entry else {
             self.msg = if self.codex_index.is_empty() {
                 "the notebook has no notes yet — add one under Characters, Regions…".into()
@@ -1381,10 +1387,7 @@ impl App {
                     self.open_scene(i);
                 }
             }
-            Key::Esc | Key::Char('q') => {
-                self.codex = None;
-                self.focus = if self.open.is_some() { Focus::Editor } else { Focus::Tree };
-            }
+            Key::Esc | Key::Char('q') => self.close_codex(),
             _ => {}
         }
     }
@@ -2532,13 +2535,23 @@ impl App {
     }
 
     /// Esc with nothing on top: the menu, from any pane. What's in the way
-    /// goes first — a selection in the editor, or the codex — so a second Esc
-    /// opens it. Closing the menu leaves you in the pane you were in.
+    /// goes first — a selection in the editor, or an open note, whichever pane
+    /// has focus — so a second Esc opens it. Closing the menu leaves you in
+    /// the pane you were in.
     pub fn escape(&mut self) {
-        match self.focus {
-            Focus::Editor if self.editor.has_selection() => self.editor.clear_selection(),
-            Focus::Codex => self.on_codex_key(Key::Esc),
-            _ => self.open_menu(),
+        if self.focus == Focus::Editor && self.editor.has_selection() {
+            self.editor.clear_selection();
+        } else if self.codex.is_some() {
+            self.close_codex();
+        } else {
+            self.open_menu();
+        }
+    }
+
+    fn close_codex(&mut self) {
+        self.codex = None;
+        if self.focus == Focus::Codex {
+            self.focus = if self.open.is_some() { Focus::Editor } else { Focus::Tree };
         }
     }
 
@@ -3386,6 +3399,8 @@ impl App {
     /// Status-bar hints for whichever pane has focus.
     pub fn hints(&self) -> String {
         let m = self.mod_label();
+        // What Esc does comes first, so a narrow status bar never cuts it.
+        let esc = if self.codex.is_some() { "Esc close note" } else { "Esc menu" };
         match self.focus {
             Focus::Tree => {
                 let sel = self.visible.get(self.sel).copied();
@@ -3394,14 +3409,14 @@ impl App {
                     .map(|(k, w)| format!("{k} {w}"))
                     .collect();
                 format!(
-                    "Tab pane  ↵ fold  {}  r rename  d delete  {m}Z undo  H history  Esc menu  {m}Q quit ",
+                    "{esc}  Tab pane  ↵ fold  {}  r rename  d delete  {m}Z undo  H history  {m}Q quit ",
                     keys.join("  ")
                 )
             }
-            Focus::Editor => format!("Tab pane  {m}K find anything  {m}Z undo  F8 spelling  Esc menu  {m}Q quit "),
-            Focus::Codex => "Tab pane  ↑↓ scenes  ↵ go there  o open the note  PgDn scroll  esc close ".into(),
-            Focus::Clearing => format!("Tab pane  ←→ view  ↵ start/pause  r reset  Esc menu  {m}Q quit "),
-            Focus::Music => format!("Tab pane  ↵ open player  space pause  ←→ track  Esc menu  {m}Q quit "),
+            Focus::Editor => format!("{esc}  Tab pane  {m}K find anything  {m}Z undo  F8 spelling  {m}Q quit "),
+            Focus::Codex => "Esc close  Tab pane  ↑↓ scenes  ↵ go there  o open the note  PgDn scroll ".into(),
+            Focus::Clearing => format!("{esc}  Tab pane  ←→ view  ↵ start/pause  r reset  {m}Q quit "),
+            Focus::Music => format!("{esc}  Tab pane  ↵ open player  space pause  ←→ track  {m}Q quit "),
         }
     }
 }
