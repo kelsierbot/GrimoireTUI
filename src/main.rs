@@ -7,6 +7,7 @@ mod library;
 mod music;
 mod palette;
 mod scene;
+mod scenery;
 mod shutdown;
 mod ui;
 mod visualizer;
@@ -450,7 +451,7 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
         app.tick_sprint();
 
         // The spectrum listens only while it's on screen.
-        let spectrum = app.pane_mode == scene::Mode::Spectrum && app.scene_visible;
+        let spectrum = app.pane_mode == scene::Mode::Visualizer && app.scene_visible;
         app.viz.set_active(spectrum);
         if spectrum {
             app.viz.update();

@@ -626,7 +626,7 @@ mod capture {
                 .collect();
             if tools.is_empty() {
                 return Err(
-                    "the spectrum needs pw-record (PipeWire) or parec (PulseAudio) to hear what's playing"
+                    "the visualizer needs pw-record (PipeWire) or parec (PulseAudio) to hear what's playing"
                         .into(),
                 );
             }
@@ -800,7 +800,7 @@ mod capture {
             Err(if cfg!(all(target_os = "macos", not(feature = "audio"))) {
                 "this build has no audio support"
             } else {
-                "the spectrum hears system audio on macOS and Linux, not here yet"
+                "the visualizer hears system audio on macOS and Linux, not here yet"
             }
             .into())
         }
