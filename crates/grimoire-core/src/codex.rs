@@ -8,14 +8,15 @@
 
 use std::path::PathBuf;
 
-use crate::project::{Kind, Project};
+use crate::project::{Area, Kind, Project};
 use crate::search;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Entry {
     pub note: PathBuf,
     pub title: String,
-    /// The notebook section it lives in: "Characters", "Regions".
+    /// The notebook section it lives in: "Characters", "Places", or a folder
+    /// of its own inside Notes.
     pub section: String,
     /// Every spelling that means this note, longest first.
     pub names: Vec<String>,
@@ -71,13 +72,17 @@ pub fn index(
         if n.kind != Kind::Scene || !n.area.is_notebook() || p.in_trash(i) {
             continue;
         }
-        let mut section = String::new();
-        let mut up = parents[i];
-        while let Some(pi) = up {
-            if p.nodes[pi].kind == Kind::Container {
-                section = p.nodes[pi].title.clone();
+        // Characters and Places are sections of their own. Inside Notes, the
+        // outermost folder names it (notes/01-Characters, from before sections).
+        let mut section = n.area.title().to_string();
+        if n.area == Area::Notes {
+            let mut up = parents[i];
+            while let Some(pi) = up {
+                if p.nodes[pi].kind == Kind::Container {
+                    section = p.nodes[pi].title.clone();
+                }
+                up = parents[pi];
             }
-            up = parents[pi];
         }
         let mut names: Vec<String> = vec![n.title.trim().to_string()];
         if let Some(f) = &n.front {
@@ -316,6 +321,7 @@ mod tests {
         );
         assert_eq!(kaelen.section, "Characters");
         let reach = idx.iter().find(|e| e.title == "Ashen Reach").unwrap();
+        assert_eq!(reach.section, "Regions", "a notebook folder of its own");
         assert_eq!(
             reach.names,
             ["Ashen Reach"],
@@ -325,6 +331,32 @@ mod tests {
         assert_eq!(seen.len(), 1);
         assert_eq!(seen[0].count, 3);
         assert_eq!(seen[0].place, "Act One › Chapter One › Gravel");
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    /// Characters and Places are sections of their own now; a note there is
+    /// in that section, however deep it sits.
+    #[test]
+    fn a_note_in_a_section_is_in_that_section() {
+        let d =
+            std::env::temp_dir().join(format!("grimoire-codex-sections-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&d);
+        fs::create_dir_all(d.join("manuscript/01-Part-One/01-Chapter-One")).unwrap();
+        fs::create_dir_all(d.join("characters/01-Crew")).unwrap();
+        fs::create_dir_all(d.join("places")).unwrap();
+        fs::write(d.join("characters/wren.md"), "---\ntitle: Wren\n---\n").unwrap();
+        fs::write(
+            d.join("characters/01-Crew/01-Bo.md"),
+            "---\ntitle: Bo\n---\n",
+        )
+        .unwrap();
+        fs::write(d.join("places/harbour.md"), "---\ntitle: Harbour\n---\n").unwrap();
+        let p = Project::load(&d).unwrap();
+        let idx = index(&p, &p.parents(), &|_| false);
+        let section = |t: &str| idx.iter().find(|e| e.title == t).unwrap().section.clone();
+        assert_eq!(section("Wren"), "Characters");
+        assert_eq!(section("Bo"), "Characters");
+        assert_eq!(section("Harbour"), "Places");
         fs::remove_dir_all(&d).unwrap();
     }
 }

@@ -28,7 +28,7 @@ pub struct ProjectMeta {
     pub draft: String,
     pub target_words: usize,
     pub daily_target: usize,
-    /// What this book calls its largest division: "Page", or "Act", or "Book".
+    /// What this book calls its largest division: "Part", or "Act", or "Book".
     /// Names new ones, and the app says it back to you everywhere.
     pub part_label: String,
     /// The order of the tree's sections, by [`Area::key`], when it's been
@@ -44,7 +44,7 @@ impl Default for ProjectMeta {
             draft: String::new(),
             target_words: 80_000,
             daily_target: 1_000,
-            part_label: "Page".into(),
+            part_label: "Part".into(),
             sections: Vec::new(),
         }
     }
@@ -54,7 +54,7 @@ impl ProjectMeta {
     /// "Act" — capitalised, for naming a new one.
     pub fn part_word(&self) -> &str {
         let w = self.part_label.trim();
-        if w.is_empty() { "Page" } else { w }
+        if w.is_empty() { "Part" } else { w }
     }
 
     /// "act" — for a sentence.
@@ -688,9 +688,9 @@ fn rejoin_numbers(words: &[String]) -> String {
     out.join(" ")
 }
 
-/// Three pages, nine chapters each, three scenes in every chapter.
-pub const PAGES: usize = 3;
-pub const CHAPTERS_PER_PAGE: usize = 9;
+/// Three parts, nine chapters each, three scenes in every chapter.
+pub const PARTS: usize = 3;
+pub const CHAPTERS_PER_PART: usize = 9;
 pub const SCENES_PER_CHAPTER: usize = 3;
 
 /// The front matter keeps one folder per edition, because a paperback, an
@@ -703,7 +703,7 @@ pub fn trash_dir(root: &Path) -> PathBuf {
     root.join(".grimoire/trash")
 }
 
-/// Create a new book: every section, the three-page shape with every chapter
+/// Create a new book: every section, the three-part shape with every chapter
 /// named and three empty scenes in each, starter front matter for each
 /// edition, and the template sheets.
 pub fn scaffold(root: &Path) -> Result<()> {
@@ -719,21 +719,21 @@ pub fn scaffold(root: &Path) -> Result<()> {
     write_new(
         &root.join("novel.toml"),
         &format!(
-            "title = \"{title}\"\nauthor = \"\"\ndraft = \"1\"\ntarget_words = 80000\ndaily_target = 1000\n\n# What this book calls its largest division: Page, Act, Part, Book…\npart_label = \"Page\"\n"
+            "title = \"{title}\"\nauthor = \"\"\ndraft = \"1\"\ntarget_words = 80000\ndaily_target = 1000\n\n# What this book calls its largest division: Part, Act, Book…\npart_label = \"Part\"\n"
         ),
     )?;
 
     let mut chapter = 0usize;
-    for page in 1..=PAGES {
-        let page_dir = root.join("manuscript").join(numbered_dir(
-            page,
-            &crate::manuscript::numbered("Page", page),
+    for part in 1..=PARTS {
+        let part_dir = root.join("manuscript").join(numbered_dir(
+            part,
+            &crate::manuscript::numbered("Part", part),
         ));
-        for c in 1..=CHAPTERS_PER_PAGE {
+        for c in 1..=CHAPTERS_PER_PART {
             chapter += 1;
             // Chapters are numbered straight through the book, the way the
-            // finished manuscript numbers them, not restarted on each page.
-            let ch_dir = page_dir.join(numbered_dir(
+            // finished manuscript numbers them, not restarted in each part.
+            let ch_dir = part_dir.join(numbered_dir(
                 c,
                 &crate::manuscript::numbered("Chapter", chapter),
             ));
@@ -823,8 +823,8 @@ fn has_folder(dir: &Path, name: &str) -> bool {
 /// Bring a book made before sections into their shape, once, when it opens.
 /// Nothing is deleted and nothing is overwritten: the notebook's Characters,
 /// Places and Research folders move up to be sections of their own, a Notes
-/// folder inside the notes empties into them, what this book called parts
-/// become pages, missing sections are made, and `[[links]]` follow every move.
+/// folder inside the notes empties into them, missing sections are made, and
+/// `[[links]]` follow every move. A book's parts keep their names.
 /// Returns what it did, for the status line; empty when the book was already
 /// in shape.
 pub fn upgrade(root: &Path) -> Result<Vec<String>> {
@@ -869,38 +869,12 @@ pub fn upgrade(root: &Path) -> Result<Vec<String>> {
         done.push(format!("{} is its own section", area.title()));
     }
 
-    // Parts are pages now — unless the book chose a word of its own.
-    let label = fs::read_to_string(root.join("novel.toml"))
-        .ok()
-        .and_then(|s| toml::from_str::<ProjectMeta>(&s).ok())
-        .map(|m| m.part_word().to_string())
-        .unwrap_or_else(|| "Page".into());
-    if label == "Page" {
-        let ms = Area::Manuscript.path(root);
-        let mut pages = 0;
-        for dir in tree_entries(&ms).into_iter().filter(|p| p.is_dir()) {
-            let name = dir
-                .file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .to_string();
-            let Some(renamed) = part_to_page(&name) else {
-                continue;
-            };
-            let to = dir.with_file_name(renamed);
-            if to.exists() {
-                continue;
-            }
-            fs::rename(&dir, &to).with_context(|| format!("renaming {}", dir.display()))?;
-            renames.push((dir, to));
-            pages += 1;
-        }
-        if pages > 0 {
-            done.push(format!(
-                "{pages} part{} renamed to page{0}",
-                if pages == 1 { "" } else { "s" }
-            ));
-        }
+    // 0.3.0–0.3.6 renamed a label-less book's parts to pages without writing
+    // the word down. Parts are the default again, so such a book says "Page"
+    // in novel.toml to go on naming new ones the way its folders already read.
+    // Nothing is renamed.
+    if let Some(noted) = keep_page_label(root)? {
+        done.push(noted);
     }
 
     let added = add_sections(root, false)?;
@@ -913,69 +887,87 @@ pub fn upgrade(root: &Path) -> Result<Vec<String>> {
     Ok(done)
 }
 
-/// `02-Part-Two` → `02-Page-Two`, `01-part-one` → `01-page-one`, keeping the
-/// case it was written in. `None` if it isn't a part.
-fn part_to_page(name: &str) -> Option<String> {
-    let digits = name
-        .chars()
-        .take_while(|c| c.is_ascii_digit() || matches!(c, '-' | '_' | ' '))
+/// For a book with no `part_label` whose manuscript is divided into pages
+/// (`01-Page-One`, as 0.3.0–0.3.6 renamed them), write `part_label = "Page"`
+/// so new ones match. `Some(what it did)`, for the status line.
+fn keep_page_label(root: &Path) -> Result<Option<String>> {
+    let toml_path = root.join("novel.toml");
+    let text = fs::read_to_string(&toml_path).unwrap_or_default();
+    // A novel.toml that doesn't parse is left alone rather than appended to on
+    // every launch.
+    let Ok(table) = toml::from_str::<toml::Table>(&text) else {
+        return Ok(None);
+    };
+    if table.contains_key("part_label") {
+        return Ok(None);
+    }
+    let pages = tree_entries(&Area::Manuscript.path(root))
+        .into_iter()
+        .filter(|p| p.is_dir() && is_page_folder(p))
         .count();
-    let (num, rest) = name.split_at(digits);
-    let word = rest.get(..4)?;
-    if !word.eq_ignore_ascii_case("part")
-        || rest[4..]
+    if pages == 0 {
+        return Ok(None);
+    }
+    let mut text = text;
+    if !text.is_empty() && !text.ends_with('\n') {
+        text.push('\n');
+    }
+    text.push_str(
+        "\n# What this book calls its largest division: Part, Act, Book…\npart_label = \"Page\"\n",
+    );
+    fs::write(&toml_path, text).with_context(|| format!("writing {}", toml_path.display()))?;
+    Ok(Some("this book counts in pages, as its folders do".into()))
+}
+
+/// `02-Page-Two`, `01-page-one`, `PAGE III` — a folder named as a page.
+fn is_page_folder(dir: &Path) -> bool {
+    let name = dir.file_name().unwrap_or_default().to_string_lossy();
+    let rest =
+        name.trim_start_matches(|c: char| c.is_ascii_digit() || matches!(c, '-' | '_' | ' '));
+    rest.get(..4)
+        .is_some_and(|w| w.eq_ignore_ascii_case("page"))
+        && !rest[4..]
             .chars()
             .next()
             .is_some_and(|c| c.is_alphanumeric())
-    {
-        return None;
-    }
-    let page: String = word
-        .chars()
-        .zip("page".chars())
-        .map(|(was, now)| {
-            if was.is_uppercase() {
-                now.to_ascii_uppercase()
-            } else {
-                now
-            }
-        })
-        .collect();
-    Some(format!("{num}{page}{}", &rest[4..]))
 }
 
 /// What a new book starts with in its documents.
 mod starter {
+    // Written to be read in Grimoire's editor, which shows Markdown as typed:
+    // plain prose, no emphasis marks or code quotes.
     pub const NOVEL_FORMAT: &str = "---\ntitle: \"Novel Format\"\n---\n\n\
-How this book is laid out. Every section folds; `Enter` or `Space` opens and closes one.\n\n\
-**Manuscript** is the book itself: pages hold chapters, chapters hold scenes. \
-`p` makes a page, `c` a chapter, `n` a scene. Only what's in here counts toward \
-your word count and goes into an export.\n\n\
-**Characters** and **Places** are your notebook. Their names teach the \
-spellchecker, and `Ctrl-O` in a scene opens the note for a name under the cursor.\n\n\
-**Front Matter** holds the pages before chapter one, one folder per edition: \
+How this book is laid out. Every section of the tree folds: Enter or Space \
+opens and closes one. Esc opens the menu, from anywhere.\n\n\
+MANUSCRIPT is the book itself: parts hold chapters, chapters hold scenes. In \
+the tree, p makes a part, c a chapter and n a scene. Only what's in here counts \
+toward your word count and goes into an export. If your book says Act or Book \
+rather than Part, change part_label in novel.toml.\n\n\
+CHARACTERS and PLACES are your notebook. Their names teach the spellchecker, \
+and Ctrl-O on a name in a scene opens its note beside the scene.\n\n\
+FRONT MATTER holds the pages before chapter one, one folder per edition: \
 Manuscript Format for a Word submission, Ebook for the EPUB, Paperback for print. \
-Starter pages are set to `compile: false`; change that to `true` when one is ready \
-to go into the book.\n\n\
-**Notes** and **Research** are for everything else you gather. **Sample Output** \
-is a place to keep exports you want to compare.\n\n\
-**Template Sheets** are blank forms. Copy one into Characters or Places to fill in.\n\n\
-**Trash** keeps whatever you delete until you delete it from there too.\n";
+The starter pages stay out of the book until you want them: each begins with \
+the line compile: false, and changing it to compile: true puts it in.\n\n\
+NOTES and RESEARCH are for everything else you gather. Sample Output, in \
+Research, is a place to keep exports you want to compare.\n\n\
+TEMPLATE SHEETS are blank forms. Copy one into Characters or Places to fill in.\n\n\
+TRASH keeps whatever you delete until you delete it from there too.\n";
 
     pub const CHARACTER_SKETCH: &str = "---\ntitle: \"Character Sketch\"\n---\n\n\
-**Name:**\n**Also called:**\n**Role in the story:**\n**Age:**\n**Appearance:**\n\n\
+Name:\nAlso called:\nRole in the story:\nAge:\nAppearance:\n\n\
 ## Wants\n\n## Needs\n\n## Fears\n\n## Voice\nHow they talk, and what they never say.\n\n\
 ## Arc\nWho they are on the first page, and on the last.\n\n## Relationships\n";
 
     pub const SETTING_SKETCH: &str = "---\ntitle: \"Setting Sketch\"\n---\n\n\
-**Name:**\n**Where it is:**\n**When:**\n\n## First impression\nWhat someone notices walking in.\n\n\
+Name:\nWhere it is:\nWhen:\n\n## First impression\nWhat someone notices walking in.\n\n\
 ## Senses\nSights, sounds, smells, weather, light.\n\n## History\n\n## Who lives or works here\n\n\
 ## What happens here\nScenes that use it, and why the story needs it.\n";
 
     pub const SUBMISSION_TITLE: &str = "---\ntitle: \"Title Page\"\ncompile: false\n---\n\n\
-Leave this out (`compile: false`) and the Word export makes a standard title page \
-from novel.toml: your name, the title and a rounded word count. Set `compile: true` \
-and write your own here to use it instead.\n";
+While this says compile: false, the Word export makes a standard title page \
+from novel.toml: your name, the title and a rounded word count. Change it to \
+compile: true and write your own here to use it instead.\n";
 
     pub const TITLE_PAGE: &str =
         "---\ntitle: \"Title Page\"\ncompile: false\n---\n\n# Title\n\nAuthor Name\n";
@@ -1653,14 +1645,14 @@ mod tests {
                 .filter(|n| n.kind == Kind::Container && n.in_manuscript && n.depth == depth)
                 .count()
         };
-        assert_eq!(containers(1), PAGES, "pages");
-        assert_eq!(containers(2), PAGES * CHAPTERS_PER_PAGE, "chapters");
+        assert_eq!(containers(1), PARTS, "parts");
+        assert_eq!(containers(2), PARTS * CHAPTERS_PER_PART, "chapters");
         let scenes: Vec<&Node> = p
             .nodes
             .iter()
             .filter(|n| n.kind == Kind::Scene && n.in_manuscript)
             .collect();
-        assert_eq!(scenes.len(), PAGES * CHAPTERS_PER_PAGE * SCENES_PER_CHAPTER);
+        assert_eq!(scenes.len(), PARTS * CHAPTERS_PER_PART * SCENES_PER_CHAPTER);
         assert_eq!(p.total_words(), 0, "the scenes start empty");
 
         // Named straight through the book, and spelled the way they'd be read.
@@ -1671,11 +1663,17 @@ mod tests {
                 .map(|n| n.title.clone())
                 .collect()
         };
-        assert_eq!(titles(1), ["Page One", "Page Two", "Page Three"]);
+        assert_eq!(titles(1), ["Part One", "Part Two", "Part Three"]);
         assert_eq!(titles(2)[0], "Chapter One");
         assert_eq!(titles(2)[9], "Chapter Ten");
         assert_eq!(titles(2)[26], "Chapter Twenty-Seven");
-        assert_eq!(p.meta.part_word(), "Page", "a new book counts in pages");
+        assert_eq!(p.meta.part_word(), "Part", "a new book counts in parts");
+        assert!(
+            fs::read_to_string(d.join("novel.toml"))
+                .unwrap()
+                .contains("part_label = \"Part\""),
+            "and says so, where it can be changed"
+        );
         fs::remove_dir_all(&d).unwrap();
     }
 
@@ -1818,11 +1816,12 @@ mod tests {
             "other notebook folders stay"
         );
         assert!(
-            d.join("manuscript/01-page-one/01-chapter-one/01-opening.md")
-                .exists()
+            d.join("manuscript/01-part-one/01-chapter-one/01-opening.md")
+                .exists(),
+            "parts keep their names"
         );
         assert!(
-            d.join("manuscript/02-Page-Two/01-Chapter-Two/01-later.md")
+            d.join("manuscript/02-Part-Two/01-Chapter-Two/01-later.md")
                 .exists()
         );
         assert!(
@@ -1838,19 +1837,26 @@ mod tests {
             "an existing book gets no starter pages in its exports"
         );
 
-        // Links follow both kinds of move.
+        // Links follow the notebook's move, and the ones into the
+        // manuscript still point where they did.
         let opening =
-            fs::read_to_string(d.join("manuscript/01-page-one/01-chapter-one/01-opening.md"))
+            fs::read_to_string(d.join("manuscript/01-part-one/01-chapter-one/01-opening.md"))
                 .unwrap();
         assert!(opening.contains("[[characters/01-Wren]]"), "{opening}");
         let wren = fs::read_to_string(d.join("characters/01-Wren.md")).unwrap();
         assert!(
-            wren.contains("[[manuscript/02-Page-Two/01-Chapter-Two/01-later]]"),
+            wren.contains("[[manuscript/02-Part-Two/01-Chapter-Two/01-later]]"),
             "{wren}"
         );
 
         let p = Project::load(&d).unwrap();
-        assert_eq!(p.meta.part_word(), "Page");
+        assert_eq!(p.meta.part_word(), "Part");
+        assert!(
+            !fs::read_to_string(d.join("novel.toml"))
+                .unwrap()
+                .contains("part_label"),
+            "a book of parts needs no label written"
+        );
         assert_eq!(p.total_words(), 5);
         assert!(upgrade(&d).unwrap().is_empty(), "it happens once");
         fs::remove_dir_all(&d).unwrap();
@@ -1872,13 +1878,45 @@ mod tests {
         fs::remove_dir_all(&d).unwrap();
     }
 
+    /// 0.3.0–0.3.6 renamed a label-less book's parts to pages. It keeps
+    /// them, and writes the word down so new ones are pages too.
     #[test]
-    fn parts_become_pages_in_the_case_they_were_written() {
-        assert_eq!(part_to_page("01-part-one").as_deref(), Some("01-page-one"));
-        assert_eq!(part_to_page("02-Part-Two").as_deref(), Some("02-Page-Two"));
-        assert_eq!(part_to_page("PART III").as_deref(), Some("PAGE III"));
-        assert_eq!(part_to_page("03-Partridge"), None);
-        assert_eq!(part_to_page("04-Chapter-One"), None);
+    fn a_book_whose_parts_became_pages_keeps_counting_in_pages() {
+        let d = temp_dir("upgrade-pages");
+        let put = |rel: &str, text: &str| {
+            let path = d.join(rel);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, text).unwrap();
+        };
+        fs::write(d.join("novel.toml"), "title = \"Paged\"").unwrap();
+        put("manuscript/01-Page-One/01-Chapter-One/01-a.md", "A.\n");
+        put("manuscript/02-Page-Two/01-Chapter-Two/01-b.md", "B.\n");
+        let done = upgrade(&d).unwrap();
+        assert!(done.iter().any(|l| l.contains("pages")), "{done:?}");
+        assert!(d.join("manuscript/01-Page-One").is_dir(), "nothing renamed");
+        let toml = fs::read_to_string(d.join("novel.toml")).unwrap();
+        assert!(toml.starts_with("title = \"Paged\"\n"), "{toml}");
+        let p = Project::load(&d).unwrap();
+        assert_eq!(p.meta.title, "Paged");
+        assert_eq!(p.meta.part_word(), "Page");
+        assert!(upgrade(&d).unwrap().is_empty(), "written once");
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    /// The editor shows Markdown as typed, so the guide a new book opens on
+    /// has no emphasis marks or code quotes in it.
+    #[test]
+    fn the_novel_format_guide_reads_as_plain_prose() {
+        let body = starter::NOVEL_FORMAT.split("---\n").nth(2).unwrap();
+        assert!(!body.contains("**") && !body.contains('`'), "{body}");
+        assert!(body.contains("parts hold chapters"), "{body}");
+    }
+
+    #[test]
+    fn a_page_folder_is_named_as_one() {
+        let is = |n: &str| is_page_folder(Path::new(n));
+        assert!(is("02-Page-Two") && is("01-page-one") && is("PAGE III"));
+        assert!(!is("03-Pageant") && !is("01-Part-One") && !is("04-Chapter-One"));
     }
 
     #[test]
@@ -2186,7 +2224,7 @@ mod tests {
         save_section_order(&d, &order).unwrap();
         let toml = fs::read_to_string(d.join("novel.toml")).unwrap();
         assert!(
-            toml.contains("part_label = \"Page\""),
+            toml.contains("part_label = \"Part\""),
             "the rest of novel.toml stays"
         );
         let p = Project::load(&d).unwrap();
