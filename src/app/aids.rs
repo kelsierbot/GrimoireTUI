@@ -6,7 +6,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use super::{App, Focus, Key, Overlay};
+use super::{App, Focus, Overlay};
 use crate::scene::Phase;
 use grimoire_core::notes::{self, MarkKind};
 use grimoire_core::project::Kind;
@@ -121,46 +121,12 @@ impl App {
         self.go_to_mark(&next);
     }
 
-    fn go_to_mark(&mut self, r: &MarkRow) {
+    pub(super) fn go_to_mark(&mut self, r: &MarkRow) {
         self.go_to_hit(&r.scene, r.line, r.col, r.end);
         self.msg = match r.kind {
             MarkKind::Tk => format!("TK · {}", r.place),
             MarkKind::Note => format!("note · {}", r.place),
         };
-    }
-
-    pub(super) fn on_marks_key(&mut self, key: Key) {
-        let Overlay::Marks { query, sel, rows } = &mut self.overlay else {
-            return;
-        };
-        match key {
-            Key::Char(c) if !c.is_control() => {
-                query.push(c);
-                *sel = 0;
-            }
-            Key::Backspace => {
-                query.pop();
-                *sel = 0;
-            }
-            Key::Down => *sel += 1,
-            Key::Up => *sel = sel.saturating_sub(1),
-            Key::PageDown => *sel += 10,
-            Key::PageUp => *sel = sel.saturating_sub(10),
-            Key::Enter => {
-                let hits = filter_marks(rows, query);
-                if let Some(r) = hits.get((*sel).min(hits.len().saturating_sub(1))) {
-                    let r = (*r).clone();
-                    self.overlay = Overlay::None;
-                    self.go_to_mark(&r);
-                }
-            }
-            Key::Esc => self.overlay = Overlay::None,
-            _ => {}
-        }
-        if let Overlay::Marks { query, sel, rows } = &mut self.overlay {
-            let n = filter_marks(rows, query).len();
-            *sel = (*sel).min(n.saturating_sub(1));
-        }
     }
 
     // ---- revision ------------------------------------------------------
@@ -225,54 +191,6 @@ impl App {
             on_minutes: false,
             fresh: true,
         };
-    }
-
-    pub(super) fn on_sprint_key(&mut self, key: Key) {
-        let Overlay::Sprint {
-            words,
-            minutes,
-            on_minutes,
-            fresh,
-        } = &mut self.overlay
-        else {
-            return;
-        };
-        let field: &mut String = if *on_minutes {
-            &mut *minutes
-        } else {
-            &mut *words
-        };
-        match key {
-            Key::Char(c) if c.is_ascii_digit() => {
-                if *fresh {
-                    field.clear();
-                    *fresh = false;
-                }
-                if field.len() < 5 {
-                    field.push(c);
-                }
-            }
-            Key::Backspace => {
-                *fresh = false;
-                field.pop();
-            }
-            Key::Tab | Key::BackTab | Key::Up | Key::Down => {
-                *on_minutes = !*on_minutes;
-                *fresh = true;
-            }
-            Key::Enter => {
-                let goal = words.parse::<usize>().unwrap_or(0);
-                let mins = minutes.parse::<u64>().unwrap_or(0);
-                if goal == 0 || mins == 0 {
-                    self.msg = "a sprint needs some words and some minutes".into();
-                    return;
-                }
-                self.overlay = Overlay::None;
-                self.start_sprint(goal, Duration::from_secs(mins * 60));
-            }
-            Key::Esc => self.overlay = Overlay::None,
-            _ => {}
-        }
     }
 
     pub fn start_sprint(&mut self, goal: usize, length: Duration) {

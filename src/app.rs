@@ -28,6 +28,7 @@ use grimoire_core::settings::Settings;
 use grimoire_core::spell;
 
 mod aids;
+pub(crate) mod overlays;
 pub use aids::{MarkRow, Sprint, filter_marks as aids_filter};
 
 /// Save a couple of seconds after typing stops…
@@ -58,31 +59,6 @@ pub enum Focus {
     Beside,
     Clearing,
     Music,
-}
-
-/// What a row of the menu (or of Settings, inside it) does.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MenuItem {
-    Find,
-    NewScene,
-    NewChapter,
-    NewPart,
-    NewFolder,
-    Rename,
-    Delete,
-    ProjectMap,
-    Compile,
-    Export,
-    Player,
-    Settings,
-    Close,
-    Themes,
-    MusicSource,
-    Music,
-    Spellcheck,
-    Icons,
-    Back,
-    Quit,
 }
 
 /// Something done to the book's files from the tree, kept so it can be taken
@@ -129,6 +105,28 @@ enum TreeStep {
         what: String,
         scenes: Vec<(PathBuf, String, String)>,
     },
+}
+
+/// What an App starts from that doesn't live in the book: the music, theme
+/// and settings files in ~/.config, and whether to start its background
+/// work (loading the dictionary, backing up writing sessions).
+pub struct Setup {
+    pub music: music::Config,
+    pub theme: Theme,
+    pub settings: Settings,
+    pub background: bool,
+}
+
+impl Setup {
+    /// What a real launch uses: this user's own config, background work on.
+    pub fn from_config() -> Setup {
+        Setup {
+            music: music::Config::load(),
+            theme: theme::load(),
+            settings: Settings::load(),
+            background: true,
+        }
+    }
 }
 
 pub struct App {
@@ -483,7 +481,13 @@ impl App {
         if self.super_keys { "⌘" } else { "^" }
     }
 
-    pub fn new(mut project: Project) -> Result<Self> {
+    pub fn new(project: Project) -> Result<Self> {
+        Self::with(project, Setup::from_config())
+    }
+
+    /// An App from what [`Setup`] hands it: nothing read from ~/.config, and
+    /// with `background` off no threads started — how the tests build one.
+    pub fn with(mut project: Project, setup: Setup) -> Result<Self> {
         let parents = project.parents();
         // A book no one has opened yet: no day's baseline, nowhere to resume,
         // no words. It opens on the Novel Format guide instead of an empty
@@ -545,7 +549,7 @@ impl App {
             edit_height: 20,
             pomo: Pomodoro::default(),
             pane_mode: Mode::Clearing,
-            music: Music::spawn(music::Config::load()),
+            music: Music::spawn(setup.music),
             viz: Visualizer::new(),
             growth_step: None,
             growth_changed: None,
@@ -560,7 +564,7 @@ impl App {
             rect_music: Rect::default(),
             create_hits: Vec::new(),
             view_hits: Vec::new(),
-            theme: theme::load(),
+            theme: setup.theme,
             overlay: Overlay::None,
             last_edit: None,
             unsaved_since: None,
@@ -573,8 +577,8 @@ impl App {
             find_opts: search::Opts::default(),
             replace_undoable: false,
             replace_redoable: false,
-            spell_on: Settings::load().spellcheck,
-            icons_on: Settings::load().icons,
+            spell_on: setup.settings.spellcheck,
+            icons_on: setup.settings.icons,
             speller: None,
             speller_rx: None,
             tree_drag: None,
@@ -585,8 +589,8 @@ impl App {
             beside: None,
             rect_beside: Rect::default(),
             focus_mode: false,
-            line_width: Settings::load().line_width,
-            typewriter: Settings::load().typewriter,
+            line_width: setup.settings.line_width,
+            typewriter: setup.settings.typewriter,
             rect_prose: Rect::default(),
             side_room: true,
             last_caret: None,
@@ -600,9 +604,13 @@ impl App {
             tree_stale: false,
         })
         .map(|mut app: App| {
-            app.load_speller();
+            if setup.background {
+                app.load_speller();
+            }
             app.rebuild_codex();
-            app.sessions_on = sessions::git_available() && sessions::is_enabled(&app.project.root);
+            app.sessions_on = setup.background
+                && sessions::git_available()
+                && sessions::is_enabled(&app.project.root);
             if app.sessions_on {
                 app.back_up();
             }
@@ -1163,8 +1171,8 @@ impl App {
                     self.redo()
                 }
             }
-            Action::ProjectMap => self.run_menu(MenuItem::ProjectMap),
-            Action::Compile => self.run_menu(MenuItem::Compile),
+            Action::ProjectMap => self.write_project_map(),
+            Action::Compile => self.compile_markdown(),
             Action::Themes => self.open_theme_picker(),
             Action::Theme(name) => {
                 if let Some(th) = theme::presets().into_iter().find(|t| t.name == name) {
@@ -1175,7 +1183,14 @@ impl App {
             }
             Action::MusicToggle => self.set_music(!self.music.enabled),
             Action::MusicPlayer => self.on_function_key(7),
-            Action::MusicSource => self.run_menu(MenuItem::MusicSource),
+            Action::MusicSource => {
+                let cur = self.music.source;
+                let sel = music::Source::ALL
+                    .iter()
+                    .position(|s| *s == cur)
+                    .unwrap_or(0);
+                self.overlay = Overlay::Sources { sel };
+            }
             Action::PlayPause => self.on_function_key(5),
             Action::NextTrack => self.on_function_key(6),
             Action::PrevTrack => self.on_function_key(4),
@@ -1183,6 +1198,18 @@ impl App {
             Action::TimerReset => self.on_function_key(3),
             Action::Menu => self.open_menu(),
             Action::Quit => self.quit = true,
+            Action::FindAnything => self.open_palette(),
+            Action::Settings => self.overlay = Overlay::Settings { sel: 0 },
+            Action::MenuBack => {
+                let sel = self
+                    .menu()
+                    .iter()
+                    .position(|(_, a)| *a == Action::Settings)
+                    .unwrap_or(0);
+                self.overlay = Overlay::Menu { sel };
+            }
+            // run_action has already put the menu away.
+            Action::CloseMenu => {}
             Action::Open(path) => {
                 if let Some(i) = self.project.nodes.iter().position(|n| n.path == path) {
                     self.reveal(i);
@@ -2584,106 +2611,6 @@ impl App {
         };
     }
 
-    fn cork_key(&mut self, key: Key) {
-        let cols = self.cork_cols();
-        let Overlay::Cork {
-            scope,
-            sel,
-            pov,
-            typing,
-        } = &mut self.overlay
-        else {
-            return;
-        };
-        let scope_idx = scope
-            .as_ref()
-            .and_then(|p| self.project.nodes.iter().position(|n| &n.path == p));
-        let groups = cork::board(&self.project, scope_idx);
-        let cards: Vec<cork::Card> = groups.iter().flat_map(|g| g.cards.clone()).collect();
-        if cards.is_empty() {
-            self.overlay = Overlay::None;
-            return;
-        }
-        *sel = (*sel).min(cards.len() - 1);
-        let card = cards[*sel].clone();
-
-        if let Some((field, buf)) = typing {
-            match key {
-                Key::Char(c) if !c.is_control() && buf.chars().count() < 200 => buf.push(c),
-                Key::Backspace => {
-                    buf.pop();
-                }
-                Key::Enter => {
-                    let (field, value) = (*field, buf.clone());
-                    *typing = None;
-                    let key = match field {
-                        CardField::Synopsis => "synopsis",
-                        CardField::Pov => "pov",
-                    };
-                    self.project.nodes[card.idx].set_meta(key, &value);
-                    self.mark_changed(card.idx);
-                    self.msg = format!("{} · {key} saved", card.title);
-                }
-                Key::Esc => *typing = None,
-                _ => {}
-            }
-            return;
-        }
-
-        match key {
-            Key::Left | Key::Char('h') => *sel = cork::step(&groups, cols, *sel, -1, 0),
-            Key::Right | Key::Char('l') => *sel = cork::step(&groups, cols, *sel, 1, 0),
-            Key::Up | Key::Char('k') => *sel = cork::step(&groups, cols, *sel, 0, -1),
-            Key::Down | Key::Char('j') => *sel = cork::step(&groups, cols, *sel, 0, 1),
-            Key::Char('[') | Key::Char(']') => {
-                let parts = cork::parts(&self.project);
-                if let Some(at) = scope_idx.and_then(|s| parts.iter().position(|&p| p == s)) {
-                    let next = if key == Key::Char('[') {
-                        at.checked_sub(1)
-                    } else {
-                        (at + 1 < parts.len()).then_some(at + 1)
-                    };
-                    if let Some(n) = next {
-                        *scope = Some(self.project.nodes[parts[n]].path.clone());
-                        *sel = 0;
-                    }
-                }
-            }
-            Key::Char('p') => {
-                let all = cork::povs(&groups);
-                *pov = match pov
-                    .as_ref()
-                    .and_then(|cur| all.iter().position(|x| x == cur))
-                {
-                    None if !all.is_empty() && pov.is_none() => Some(all[0].clone()),
-                    Some(i) if i + 1 < all.len() => Some(all[i + 1].clone()),
-                    _ => None,
-                };
-            }
-            Key::Char('s') => {
-                let next = cork::next_status(card.status.as_deref());
-                self.project.nodes[card.idx].set_meta("status", next);
-                self.mark_changed(card.idx);
-            }
-            Key::Char('e') => {
-                *typing = Some((
-                    CardField::Synopsis,
-                    card.synopsis.clone().unwrap_or_default(),
-                ))
-            }
-            Key::Char('v') => {
-                *typing = Some((CardField::Pov, card.pov.clone().unwrap_or_default()))
-            }
-            Key::Enter => {
-                self.overlay = Overlay::None;
-                self.reveal(card.idx);
-                self.open_scene(card.idx);
-            }
-            Key::Esc | Key::Char('b') => self.overlay = Overlay::None,
-            _ => {}
-        }
-    }
-
     // ---- undoing what the tree did ---------------------------------------
 
     fn record(&mut self, step: TreeStep) {
@@ -3442,52 +3369,91 @@ impl App {
 
     /// The menu, in the book's own words — it offers a new act if that is what
     /// this book calls its parts. Preferences live one level down, in Settings.
-    pub fn menu(&self) -> Vec<(String, MenuItem)> {
-        let row = |label: String, key: &str| format!("{label:<20}{key}");
+    pub fn menu(&self) -> Vec<(String, Action)> {
+        let row = |label: &str, key: &str| format!("{label:<26}{key}");
         let m = self.mod_label();
+        let on_off =
+            |on: bool, what: &str| format!("Turn {what} {}", if on { "off" } else { "on" });
+        let writing = self.open.is_some();
         let mut items = vec![
             (
-                row("Find anything…".into(), &format!("({m}K)")),
-                MenuItem::Find,
+                row("Find anything…", &format!("({m}K)")),
+                Action::FindAnything,
             ),
-            (row("New scene…".into(), "(n)"), MenuItem::NewScene),
-            (row("New chapter…".into(), "(c)"), MenuItem::NewChapter),
+            // Making and unmaking.
+            (row("New scene…", "(n)"), Action::NewScene),
+            (row("New chapter…", "(c)"), Action::NewChapter),
             (
-                row(format!("New {}…", self.project.meta.part_noun()), "(p)"),
-                MenuItem::NewPart,
+                row(&format!("New {}…", self.project.meta.part_noun()), "(p)"),
+                Action::NewPart,
             ),
-            (row("New folder…".into(), "(N)"), MenuItem::NewFolder),
-            (row("Rename…".into(), "(r)"), MenuItem::Rename),
-            (row("Delete…".into(), "(d)"), MenuItem::Delete),
+            (row("New folder…", "(N)"), Action::NewFolder),
+            (row("Rename…", "(r)"), Action::Rename),
+            (row("Delete…", "(d)"), Action::Delete),
+            // Writing and revising.
+            (
+                row(
+                    if self.focus_mode {
+                        "Leave focus mode"
+                    } else {
+                        "Focus mode"
+                    },
+                    &format!("({m}D)"),
+                ),
+                Action::FocusMode,
+            ),
+            (row("Open a scene beside…", "(v)"), Action::BesidePicker),
+            (row("Notes & TKs…", &format!("({m}T)")), Action::NotesList),
+            (row("Next scene still in draft", ""), Action::NextDraft),
+            (on_off(self.echo_on, "echo words"), Action::EchoWords),
+            if self.sprint.is_some() {
+                ("Stop the sprint".into(), Action::EndSprint)
+            } else {
+                ("Start a sprint…".into(), Action::StartSprint)
+            },
+            (row("Music player…", "(F7)"), Action::MusicPlayer),
             // Word, EPUB and Markdown. The project map and a bare Markdown
             // compile are still in the palette.
-            ("Export…".into(), MenuItem::Export),
-            (row("Music player…".into(), "(F7)"), MenuItem::Player),
-            ("Settings…".into(), MenuItem::Settings),
-            (row("Close".into(), "(Esc)"), MenuItem::Close),
-            (
-                row("Quit Grimoire".into(), &format!("({m}Q)")),
-                MenuItem::Quit,
-            ),
+            ("Export…".into(), Action::Export),
+            ("Settings…".into(), Action::Settings),
+            (row("Close", "(Esc)"), Action::CloseMenu),
+            (row("Quit Grimoire", &format!("({m}Q)")), Action::Quit),
         ];
-        // Nothing to play with music off; Settings is where it comes back on.
-        if !self.music.enabled {
-            items.retain(|(_, i)| *i != MenuItem::Player);
-        }
+        // Rows that couldn't do anything right now aren't offered: nothing to
+        // play with music off (Settings is where it comes back on), and the
+        // writing tools want a scene open.
+        items.retain(|(_, a)| match a {
+            Action::MusicPlayer => self.music.enabled,
+            Action::FocusMode => writing || self.focus_mode,
+            Action::BesidePicker => writing,
+            Action::EchoWords => writing || self.echo_on,
+            _ => true,
+        });
         items
     }
 
     /// How Grimoire looks and sounds: the menu's Settings, nested.
-    pub fn settings_menu(&self) -> Vec<(String, MenuItem)> {
+    pub fn settings_menu(&self) -> Vec<(String, Action)> {
         let on_off =
             |on: bool, what: &str| format!("Turn {what} {}", if on { "off" } else { "on" });
         vec![
-            ("Themes…".into(), MenuItem::Themes),
-            ("Music source…".into(), MenuItem::MusicSource),
-            (on_off(self.music.enabled, "music"), MenuItem::Music),
-            (on_off(self.spell_on, "spellcheck"), MenuItem::Spellcheck),
-            (on_off(self.icons_on, "tree icons"), MenuItem::Icons),
-            ("Back".into(), MenuItem::Back),
+            ("Themes…".into(), Action::Themes),
+            ("Music source…".into(), Action::MusicSource),
+            (on_off(self.music.enabled, "music"), Action::MusicToggle),
+            (on_off(self.spell_on, "spellcheck"), Action::Spellcheck),
+            (on_off(self.icons_on, "tree icons"), Action::Icons),
+            (
+                match self.line_width {
+                    0 => "Line width: the whole pane".to_string(),
+                    w => format!("Line width: {w} columns"),
+                },
+                Action::LineWidth,
+            ),
+            (
+                on_off(self.typewriter, "typewriter scrolling"),
+                Action::Typewriter,
+            ),
+            ("Back".into(), Action::MenuBack),
         ]
     }
 
@@ -3741,82 +3707,39 @@ impl App {
         }
     }
 
-    fn run_menu(&mut self, item: MenuItem) {
-        match item {
-            MenuItem::Find => self.open_palette(),
-            MenuItem::NewScene => self.start_create(New::Scene),
-            MenuItem::NewChapter => self.start_create(New::Chapter),
-            MenuItem::NewPart => self.start_create(New::Part),
-            MenuItem::NewFolder => self.start_create(New::Folder),
-            MenuItem::Rename => self.start_rename(),
-            MenuItem::Delete => self.start_delete(),
-            MenuItem::ProjectMap => {
-                self.flush_public();
-                match manuscript::write_project_file(&self.project) {
-                    Ok(p) => {
-                        self.msg = format!(
-                            "project map written to {}",
-                            p.file_name().unwrap_or_default().to_string_lossy()
-                        )
-                    }
-                    Err(e) => self.msg = format!("could not write project.md: {e}"),
-                }
-                self.overlay = Overlay::None;
+    /// project.md: the map of the book, regenerated.
+    fn write_project_map(&mut self) {
+        self.flush();
+        match manuscript::write_project_file(&self.project) {
+            Ok(p) => {
+                self.msg = format!(
+                    "project map written to {}",
+                    p.file_name().unwrap_or_default().to_string_lossy()
+                )
             }
-            MenuItem::Compile => {
-                self.flush_public();
-                match manuscript::compile(&self.project) {
-                    Ok(c) => {
-                        let skipped = if c.skipped > 0 {
-                            format!(", {} skipped", c.skipped)
-                        } else {
-                            String::new()
-                        };
-                        self.msg = format!(
-                            "compiled {} ch / {} scenes / {} words{skipped} -> {}",
-                            c.chapters,
-                            c.scenes,
-                            c.words,
-                            c.path.file_name().unwrap_or_default().to_string_lossy()
-                        );
-                    }
-                    Err(e) => self.msg = format!("compile failed: {e}"),
-                }
-                self.overlay = Overlay::None;
+            Err(e) => self.msg = format!("could not write project.md: {e}"),
+        }
+    }
+
+    /// The whole manuscript as one Markdown file, in manuscript format.
+    fn compile_markdown(&mut self) {
+        self.flush();
+        match manuscript::compile(&self.project) {
+            Ok(c) => {
+                let skipped = if c.skipped > 0 {
+                    format!(", {} skipped", c.skipped)
+                } else {
+                    String::new()
+                };
+                self.msg = format!(
+                    "compiled {} ch / {} scenes / {} words{skipped} -> {}",
+                    c.chapters,
+                    c.scenes,
+                    c.words,
+                    c.path.file_name().unwrap_or_default().to_string_lossy()
+                );
             }
-            MenuItem::Player if !self.music.enabled => {
-                self.overlay = Overlay::None;
-                self.msg = "music is off — turn it on first".into();
-            }
-            MenuItem::Player => self.open_player(),
-            MenuItem::Settings => self.overlay = Overlay::Settings { sel: 0 },
-            MenuItem::MusicSource => {
-                let cur = self.music.source;
-                let sel = music::Source::ALL
-                    .iter()
-                    .position(|s| *s == cur)
-                    .unwrap_or(0);
-                self.overlay = Overlay::Sources { sel };
-            }
-            // Toggles stay in Settings, so the change shows on its row.
-            MenuItem::Music => self.set_music(!self.music.enabled),
-            MenuItem::Spellcheck => self.toggle_spellcheck(),
-            MenuItem::Icons => self.toggle_icons(),
-            MenuItem::Themes => self.open_theme_picker(),
-            MenuItem::Back => {
-                let sel = self
-                    .menu()
-                    .iter()
-                    .position(|(_, i)| *i == MenuItem::Settings)
-                    .unwrap_or(0);
-                self.overlay = Overlay::Menu { sel };
-            }
-            MenuItem::Export => self.open_export(),
-            MenuItem::Close => self.overlay = Overlay::None,
-            MenuItem::Quit => {
-                self.overlay = Overlay::None;
-                self.quit = true;
-            }
+            Err(e) => self.msg = format!("compile failed: {e}"),
         }
     }
 
@@ -3844,11 +3767,6 @@ impl App {
         };
     }
 
-    /// Push unsaved editor text into the tree so generated files see it.
-    fn flush_public(&mut self) {
-        self.flush();
-    }
-
     pub fn open_theme_picker(&mut self) {
         let names = self.theme_names();
         let sel = names
@@ -3869,810 +3787,6 @@ impl App {
         } else if self.theme.name != "Custom" {
             // Entering the custom slot starts from whatever you were just on.
             self.theme.name = "Custom".into();
-        }
-    }
-
-    pub fn on_overlay_key(&mut self, key: Key) {
-        let menu_items: Vec<MenuItem> = self.menu().into_iter().map(|(_, i)| i).collect();
-        let settings_items: Vec<MenuItem> =
-            self.settings_menu().into_iter().map(|(_, i)| i).collect();
-        let nested = matches!(self.overlay, Overlay::Settings { .. });
-        match &mut self.overlay {
-            Overlay::None => {}
-
-            Overlay::Marks { .. } => self.on_marks_key(key),
-            Overlay::Sprint { .. } => self.on_sprint_key(key),
-
-            Overlay::Palette {
-                query,
-                sel,
-                entries,
-            } => match key {
-                Key::Char(c) if !c.is_control() => {
-                    query.push(c);
-                    *sel = 0;
-                }
-                Key::Backspace => {
-                    query.pop();
-                    *sel = 0;
-                }
-                Key::Down => *sel += 1,
-                Key::Up => *sel = sel.saturating_sub(1),
-                Key::PageDown => *sel += 10,
-                Key::PageUp => *sel = sel.saturating_sub(10),
-                Key::Enter => {
-                    let hits = palette::filter(entries, query);
-                    if let Some(e) = hits.get((*sel).min(hits.len().saturating_sub(1))) {
-                        let action = e.action.clone();
-                        self.run_action(action);
-                    }
-                }
-                Key::Esc => self.overlay = Overlay::None,
-                _ => {}
-            },
-
-            Overlay::Find {
-                query,
-                with,
-                on_with,
-                from,
-            } => {
-                let (q, from_pos) = (query.clone(), *from);
-                match key {
-                    Key::Char(c) if !c.is_control() => {
-                        if *on_with {
-                            with.get_or_insert_with(String::new).push(c);
-                        } else {
-                            query.push(c);
-                            let q = query.clone();
-                            self.find_step(&q, true, Some(from_pos));
-                        }
-                    }
-                    Key::Backspace => {
-                        if *on_with {
-                            if let Some(w) = with {
-                                w.pop();
-                            }
-                        } else {
-                            query.pop();
-                            let q = query.clone();
-                            self.find_step(&q, true, Some(from_pos));
-                        }
-                    }
-                    Key::Tab | Key::BackTab => {
-                        if with.is_none() {
-                            *with = Some(String::new());
-                        }
-                        *on_with = !*on_with;
-                    }
-                    Key::Enter if *on_with => {
-                        let w = with.clone().unwrap_or_default();
-                        self.replace_current(&q, &w);
-                    }
-                    Key::Enter | Key::Down => self.find_step(&q, true, None),
-                    Key::Up => self.find_step(&q, false, None),
-                    Key::Esc => {
-                        self.overlay = Overlay::None;
-                        self.focus = Focus::Editor;
-                    }
-                    _ => {}
-                }
-            }
-
-            Overlay::FindBook {
-                query,
-                with,
-                on_with,
-                hits,
-                sel,
-                confirm,
-            } => {
-                if *confirm {
-                    match key {
-                        Key::Char('y') | Key::Char('Y') => {
-                            let (q, w) = (query.clone(), with.clone().unwrap_or_default());
-                            self.overlay = Overlay::None;
-                            self.replace_in_book(&q, &w);
-                        }
-                        _ => *confirm = false,
-                    }
-                    return;
-                }
-                let mut changed = false;
-                match key {
-                    Key::Char(c) if !c.is_control() => {
-                        if *on_with {
-                            with.get_or_insert_with(String::new).push(c);
-                        } else {
-                            query.push(c);
-                            changed = true;
-                        }
-                    }
-                    Key::Backspace => {
-                        if *on_with {
-                            if let Some(w) = with {
-                                w.pop();
-                            }
-                        } else {
-                            query.pop();
-                            changed = true;
-                        }
-                    }
-                    Key::Tab | Key::BackTab => {
-                        if with.is_none() {
-                            *with = Some(String::new());
-                        }
-                        *on_with = !*on_with;
-                    }
-                    Key::Down => *sel = (*sel + 1).min(hits.len().saturating_sub(1)),
-                    Key::Up => *sel = sel.saturating_sub(1),
-                    Key::PageDown => *sel = (*sel + 10).min(hits.len().saturating_sub(1)),
-                    Key::PageUp => *sel = sel.saturating_sub(10),
-                    Key::Enter if *on_with => {
-                        if !hits.is_empty() && with.is_some() {
-                            *confirm = true;
-                        }
-                    }
-                    Key::Enter => {
-                        if let Some(h) = hits.get(*sel).cloned() {
-                            self.go_to_hit(&h.path, h.line, h.start, h.end);
-                        }
-                    }
-                    Key::Esc => self.overlay = Overlay::None,
-                    _ => {}
-                }
-                if changed
-                    && let Overlay::FindBook {
-                        query, hits, sel, ..
-                    } = &mut self.overlay
-                {
-                    *hits = search::book(&self.project, &self.parents, query, self.find_opts);
-                    *sel = 0;
-                }
-            }
-
-            Overlay::Cork { .. } => self.cork_key(key),
-
-            Overlay::SessionsOff => match key {
-                Key::Char('y') | Key::Char('Y') => {
-                    self.overlay = Overlay::None;
-                    self.commit_saves();
-                    self.save_resume(true);
-                    match sessions::enable(&self.project.root) {
-                        Ok(()) => {
-                            self.sessions_on = true;
-                            self.msg =
-                                "session history is on — each session is kept when you quit".into();
-                            self.open_sessions();
-                        }
-                        Err(e) => self.msg = format!("couldn't turn on session history: {e}"),
-                    }
-                }
-                _ => self.overlay = Overlay::None,
-            },
-
-            Overlay::Sessions {
-                list, sel, changes, ..
-            } => {
-                if let Some((which, items, csel)) = changes {
-                    match key {
-                        Key::Down | Key::Char('j') => {
-                            *csel = (*csel + 1).min(items.len().saturating_sub(1))
-                        }
-                        Key::Up | Key::Char('k') => *csel = csel.saturating_sub(1),
-                        Key::Enter => {
-                            if let (Some(s), Some(c)) =
-                                (list.get(*which).cloned(), items.get(*csel).cloned())
-                            {
-                                let root = self.project.root.clone();
-                                let parent = format!("{}^", s.hash);
-                                let old_path = match &c.kind {
-                                    sessions::ChangeKind::Renamed { from } => from.clone(),
-                                    _ => c.path.clone(),
-                                };
-                                let before = sessions::file_at(&root, &parent, &old_path)
-                                    .ok()
-                                    .flatten()
-                                    .unwrap_or_default();
-                                let after = sessions::file_at(&root, &s.hash, &c.path)
-                                    .ok()
-                                    .flatten()
-                                    .unwrap_or_default();
-                                let title = c
-                                    .path
-                                    .file_stem()
-                                    .map(|x| x.to_string_lossy().to_string())
-                                    .unwrap_or_default();
-                                self.overlay = Overlay::SessionDiff {
-                                    title,
-                                    label: s.label.clone(),
-                                    before: grimoire_core::project::split_frontmatter(&before).1,
-                                    after: grimoire_core::project::split_frontmatter(&after).1,
-                                    scroll: 0,
-                                };
-                            }
-                        }
-                        Key::Esc | Key::Left | Key::Char('h') => *changes = None,
-                        _ => {}
-                    }
-                    return;
-                }
-                match key {
-                    Key::Down | Key::Char('j') => {
-                        *sel = (*sel + 1).min(list.len().saturating_sub(1))
-                    }
-                    Key::Up | Key::Char('k') => *sel = sel.saturating_sub(1),
-                    Key::Enter | Key::Right | Key::Char('h') => {
-                        if let Some(s) = list.get(*sel) {
-                            match sessions::changes(&self.project.root, &s.hash) {
-                                Ok(items) => *changes = Some((*sel, items, 0)),
-                                Err(e) => self.msg = format!("couldn't read that session: {e}"),
-                            }
-                        }
-                    }
-                    Key::Char('s') => {
-                        self.overlay = Overlay::None;
-                        if let Some(label) = self.save_session() {
-                            self.msg = format!("session saved: {label}");
-                        }
-                        self.open_sessions();
-                    }
-                    Key::Esc => self.overlay = Overlay::None,
-                    _ => {}
-                }
-            }
-
-            Overlay::SessionDiff { scroll, .. } => match key {
-                Key::Down | Key::PageDown | Key::Char(' ') => *scroll += 5,
-                Key::Up | Key::PageUp => *scroll = scroll.saturating_sub(5),
-                _ => self.open_sessions_keeping_place(),
-            },
-
-            Overlay::Export {
-                formats,
-                parts,
-                sel,
-                done,
-            } => {
-                if done.is_some() {
-                    self.overlay = Overlay::None;
-                    return;
-                }
-                // Rows: three formats, each act, then the export button.
-                let rows = 3 + parts.len() + 1;
-                match key {
-                    Key::Down | Key::Char('j') => *sel = (*sel + 1).min(rows - 1),
-                    Key::Up | Key::Char('k') => *sel = sel.saturating_sub(1),
-                    Key::Char(' ') | Key::Enter if *sel < 3 => formats[*sel] = !formats[*sel],
-                    Key::Char(' ') | Key::Enter if *sel < 3 + parts.len() => {
-                        let p = &mut parts[*sel - 3];
-                        p.2 = !p.2;
-                    }
-                    Key::Enter | Key::Char('x') => {
-                        if !formats.iter().any(|&f| f) {
-                            self.msg = "choose at least one format".into();
-                        } else if !parts.is_empty() && !parts.iter().any(|p| p.2) {
-                            self.msg =
-                                format!("choose at least one {}", self.project.meta.part_noun());
-                        } else {
-                            let (f, p) = (*formats, parts.clone());
-                            let lines = self.run_export(f, &p);
-                            if let Overlay::Export { done, .. } = &mut self.overlay {
-                                *done = Some(lines);
-                            }
-                        }
-                    }
-                    Key::Esc => self.overlay = Overlay::None,
-                    _ => {}
-                }
-            }
-
-            Overlay::Spelling {
-                line,
-                start,
-                end,
-                word,
-                suggestions,
-                sel,
-            } => {
-                // Rows: each suggestion, then "add to this book", then "leave it".
-                let rows = suggestions.len() + 2;
-                match key {
-                    Key::Down | Key::Char('j') => *sel = (*sel + 1).min(rows - 1),
-                    Key::Up | Key::Char('k') => *sel = sel.saturating_sub(1),
-                    Key::Char(c @ '1'..='9') if (c as usize - '1' as usize) < suggestions.len() => {
-                        let (l, s, e, with) = (
-                            *line,
-                            *start,
-                            *end,
-                            suggestions[c as usize - '1' as usize].clone(),
-                        );
-                        self.overlay = Overlay::None;
-                        self.apply_spelling(l, s, e, &with);
-                    }
-                    Key::Char('a') => {
-                        let w = word.clone();
-                        self.overlay = Overlay::None;
-                        self.add_to_book(&w);
-                    }
-                    Key::Enter => {
-                        let (l, s, e, i) = (*line, *start, *end, *sel);
-                        let (word, pick) = (word.clone(), suggestions.get(i).cloned());
-                        let n = suggestions.len();
-                        self.overlay = Overlay::None;
-                        match pick {
-                            Some(with) => self.apply_spelling(l, s, e, &with),
-                            None if i == n => self.add_to_book(&word),
-                            None => {}
-                        }
-                    }
-                    Key::F(8) => {
-                        // Leave this one and go on to the next.
-                        let (l, e) = (*line, *end);
-                        self.overlay = Overlay::None;
-                        self.editor.place(l, e);
-                        self.spelling();
-                    }
-                    Key::Esc => self.overlay = Overlay::None,
-                    _ => {}
-                }
-            }
-
-            Overlay::Names { drifts, sel } => match key {
-                Key::Down | Key::Char('j') => *sel = (*sel + 1).min(drifts.len().saturating_sub(1)),
-                Key::Up | Key::Char('k') => *sel = sel.saturating_sub(1),
-                Key::Enter => {
-                    if let Some(h) = drifts.get(*sel).and_then(|d| d.hits.first()).cloned() {
-                        self.go_to_hit(&h.path, h.line, h.start, h.end);
-                    }
-                }
-                Key::Char('f') | Key::Char('F') => {
-                    if let Some(d) = drifts.get(*sel).cloned() {
-                        drifts.remove(*sel);
-                        if *sel >= drifts.len() {
-                            *sel = drifts.len().saturating_sub(1);
-                        }
-                        if drifts.is_empty() {
-                            self.overlay = Overlay::None;
-                        }
-                        self.fix_name(&d.variant, &d.name.name);
-                    }
-                }
-                Key::Esc => self.overlay = Overlay::None,
-                _ => {}
-            },
-
-            Overlay::Recover { sel, .. } if matches!(key, Key::Up | Key::Char('k')) => {
-                *sel = sel.saturating_sub(1);
-            }
-            Overlay::Recover { sel, .. } if matches!(key, Key::Down | Key::Char('j')) => {
-                *sel = (*sel + 1).min(RECOVER_CHOICES.len() - 1);
-            }
-            Overlay::Recover { items, sel } => match (key, *sel) {
-                (Key::Enter, 0) => {
-                    let items = std::mem::take(items);
-                    self.overlay = Overlay::None;
-                    let mut restored = 0;
-                    for it in &items {
-                        let Some(idx) = self.project.nodes.iter().position(|n| n.path == it.scene)
-                        else {
-                            continue;
-                        };
-                        let (front, body) = grimoire_core::project::split_frontmatter(&it.text);
-                        self.project.nodes[idx].front = front;
-                        if self.open == Some(idx) {
-                            self.editor.set_text(&body);
-                        }
-                        self.project.nodes[idx].body = body;
-                        self.mark_changed(idx);
-                        restored += 1;
-                    }
-                    if self.commit_saves() {
-                        self.msg = format!(
-                            "restored {restored} scene{} — the saved version is in its history",
-                            if restored == 1 { "" } else { "s" }
-                        );
-                    }
-                }
-                (Key::Enter, 1) => {
-                    // Set aside, not destroyed: the recovered copies go to the
-                    // trash, where they can still be opened and copied from.
-                    let root = self.project.root.clone();
-                    let mut failed = 0;
-                    for it in items.iter() {
-                        if project::trash(&root, &it.file).is_err() {
-                            failed += 1;
-                        }
-                    }
-                    self.overlay = Overlay::None;
-                    if let Err(e) = self.reload_tree() {
-                        self.msg = format!("couldn't re-read the tree: {e}");
-                    } else if failed > 0 {
-                        self.msg = format!(
-                            "kept the saved versions — {failed} recovered cop{} couldn't be moved and will be offered again",
-                            if failed == 1 { "y" } else { "ies" }
-                        );
-                    } else {
-                        self.msg =
-                            "kept the saved versions — the recovered words are in the trash".into();
-                    }
-                }
-                (Key::Enter, _) | (Key::Esc, _) => {
-                    self.overlay = Overlay::None;
-                    self.msg = "left for now — offered again next time".into();
-                }
-                _ => {}
-            },
-
-            Overlay::History {
-                scene,
-                versions,
-                sel,
-                scroll,
-                ..
-            } => match key {
-                Key::Down | Key::Char('j') => {
-                    *sel = (*sel + 1).min(versions.len().saturating_sub(1));
-                    *scroll = 0;
-                }
-                Key::Up | Key::Char('k') => {
-                    *sel = sel.saturating_sub(1);
-                    *scroll = 0;
-                }
-                Key::PageDown | Key::Char(' ') => *scroll += 10,
-                Key::PageUp => *scroll = scroll.saturating_sub(10),
-                Key::Enter => {
-                    let (scene, text) = (scene.clone(), versions[*sel].text.clone());
-                    self.overlay = Overlay::None;
-                    self.restore_version(&scene, &text);
-                }
-                Key::Esc => self.overlay = Overlay::None,
-                _ => {}
-            },
-
-            Overlay::Menu { sel } | Overlay::Settings { sel } => {
-                let items = if nested { &settings_items } else { &menu_items };
-                let n = items.len();
-                match key {
-                    Key::Down | Key::Char('j') => *sel = (*sel + 1) % n,
-                    Key::Up | Key::Char('k') => *sel = (*sel + n - 1) % n,
-                    Key::Enter | Key::Char(' ') | Key::Right | Key::Char('l') => {
-                        let item = items[*sel];
-                        self.run_menu(item);
-                    }
-                    Key::Esc | Key::Left | Key::Char('h') if nested => {
-                        self.run_menu(MenuItem::Back)
-                    }
-                    Key::Esc => self.overlay = Overlay::None,
-                    _ => {}
-                }
-            }
-
-            Overlay::Sources { sel } => {
-                let n = music::Source::ALL.len();
-                match key {
-                    Key::Down | Key::Char('j') => *sel = (*sel + 1) % n,
-                    Key::Up | Key::Char('k') => *sel = (*sel + n - 1) % n,
-                    Key::Enter | Key::Char(' ') => {
-                        let chosen = music::Source::ALL[*sel];
-                        let mut cfg = music::Config::load();
-                        cfg.source = chosen;
-                        // Choosing a source is asking for music.
-                        cfg.enabled = true;
-                        let _ = cfg.save();
-                        // Restart the poller against the new source.
-                        self.music = Music::spawn(cfg);
-                        self.msg = format!("music: {}", chosen.label());
-                        self.overlay = Overlay::None;
-                    }
-                    Key::Esc => self.overlay = Overlay::None,
-                    _ => {}
-                }
-            }
-
-            Overlay::Themes { sel, restore } => {
-                let n = theme::presets().len() + 1;
-                match key {
-                    Key::Down | Key::Char('j') => {
-                        let i = (*sel + 1) % n;
-                        *sel = i;
-                        self.preview(i);
-                    }
-                    Key::Up | Key::Char('k') => {
-                        let i = (*sel + n - 1) % n;
-                        *sel = i;
-                        self.preview(i);
-                    }
-                    Key::Enter => {
-                        let i = *sel;
-                        if i == n - 1 {
-                            self.theme.name = "Custom".into();
-                            self.overlay = Overlay::Custom {
-                                field: 0,
-                                buf: String::new(),
-                            };
-                        } else {
-                            let _ = theme::save(&self.theme);
-                            self.msg = format!("theme: {}", self.theme.name);
-                            self.overlay = Overlay::None;
-                        }
-                    }
-                    Key::Esc => {
-                        self.theme = restore.clone();
-                        self.overlay = Overlay::None;
-                    }
-                    _ => {}
-                }
-            }
-
-            Overlay::Custom { field, buf } => match key {
-                Key::Down | Key::Enter => {
-                    commit(&mut self.theme, *field, buf);
-                    *field = (*field + 1) % theme::ROLES.len();
-                    buf.clear();
-                }
-                Key::Up => {
-                    commit(&mut self.theme, *field, buf);
-                    *field = (*field + theme::ROLES.len() - 1) % theme::ROLES.len();
-                    buf.clear();
-                }
-                Key::Backspace => {
-                    buf.pop();
-                }
-                Key::Char(c) if c.is_ascii_hexdigit() && buf.len() < 6 => {
-                    buf.push(c.to_ascii_lowercase());
-                    // Six digits is a complete colour — apply it live.
-                    if buf.len() == 6 {
-                        commit(&mut self.theme, *field, buf);
-                    }
-                }
-                Key::Esc => {
-                    commit(&mut self.theme, *field, buf);
-                    self.theme.name = "Custom".into();
-                    let _ = theme::save(&self.theme);
-                    self.msg = "theme: Custom saved".into();
-                    self.overlay = Overlay::None;
-                }
-                _ => {}
-            },
-
-            Overlay::Player {
-                tab,
-                sel,
-                follow,
-                query,
-                find,
-                typing,
-            } => {
-                use music::Cmd;
-                let len = match tab {
-                    Tab::Queue => self.music.queue.len(),
-                    Tab::Playlists => self.music.playlists.len(),
-                    Tab::Search => self.music.results.len(),
-                };
-                if *typing {
-                    // The playlist tab types into its finder; the others, into search.
-                    let on_playlists = *tab == Tab::Playlists;
-                    let buf = if on_playlists { find } else { query };
-                    match key {
-                        Key::Char(c) if !c.is_control() && buf.chars().count() < 80 => buf.push(c),
-                        Key::Backspace => {
-                            buf.pop();
-                        }
-                        Key::Enter => {
-                            *typing = false;
-                            *sel = 0;
-                            let q = buf.trim().to_string();
-                            if on_playlists {
-                                self.music.playlists.clear();
-                                self.music.note = Some(if q.is_empty() {
-                                    "fetching your playlists…".into()
-                                } else {
-                                    format!("searching playlists for “{q}”…")
-                                });
-                                self.music
-                                    .send(Cmd::Playlists((!q.is_empty()).then_some(q)));
-                            } else if !q.is_empty() {
-                                self.music.results.clear();
-                                self.music.note = Some(format!("searching for “{q}”…"));
-                                self.music.send(Cmd::Search(q));
-                            }
-                        }
-                        Key::Esc => *typing = false,
-                        _ => {}
-                    }
-                    return;
-                }
-                match key {
-                    // From a playlist search, Esc goes back to your own first.
-                    Key::Esc if *tab == Tab::Playlists && !find.is_empty() => {
-                        find.clear();
-                        *sel = 0;
-                        self.music.note = Some("fetching your playlists…".into());
-                        self.music.send(Cmd::Playlists(None));
-                    }
-                    Key::Esc | Key::F(7) => self.overlay = Overlay::None,
-                    Key::Tab | Key::BackTab => {
-                        *tab = if key == Key::Tab {
-                            tab.next()
-                        } else {
-                            tab.prev()
-                        };
-                        *sel = 0;
-                        *follow = *tab == Tab::Queue;
-                        if *tab == Tab::Playlists && self.music.playlists.is_empty() {
-                            self.music.note = Some("fetching your playlists…".into());
-                            self.music.send(Cmd::Playlists(None));
-                        }
-                    }
-                    Key::Char('/') => {
-                        if *tab != Tab::Playlists {
-                            *tab = Tab::Search;
-                            *sel = 0;
-                        }
-                        *follow = false;
-                        *typing = true;
-                    }
-                    Key::Down | Key::Char('j') => {
-                        *sel = (*sel + 1).min(len.saturating_sub(1));
-                        *follow = false;
-                    }
-                    Key::Up | Key::Char('k') => {
-                        *sel = sel.saturating_sub(1);
-                        *follow = false;
-                    }
-                    Key::PageDown => {
-                        *sel = (*sel + 10).min(len.saturating_sub(1));
-                        *follow = false;
-                    }
-                    Key::PageUp => {
-                        *sel = sel.saturating_sub(10);
-                        *follow = false;
-                    }
-                    Key::Enter => match *tab {
-                        Tab::Queue => {
-                            if let Some(it) = self.music.queue.get(*sel) {
-                                *follow = true;
-                                self.music.send(Cmd::JumpTo(it.pos));
-                            }
-                        }
-                        Tab::Search => {
-                            if let Some(it) = self.music.results.get(*sel) {
-                                self.music.note = Some(format!("playing {}", it.title));
-                                self.music.send(Cmd::Enqueue {
-                                    id: it.id.clone(),
-                                    now: true,
-                                });
-                            }
-                        }
-                        Tab::Playlists => {
-                            if let Some(it) = self.music.playlists.get(*sel) {
-                                self.music.note = Some(format!("loading {}…", it.title));
-                                self.music.send(Cmd::Playlist {
-                                    id: it.id.clone(),
-                                    title: it.title.clone(),
-                                    now: true,
-                                });
-                                // Over to the queue, to watch it fill.
-                                *tab = Tab::Queue;
-                                *sel = 0;
-                                *follow = true;
-                            }
-                        }
-                    },
-                    Key::Char('a') if *tab == Tab::Search => {
-                        if let Some(it) = self.music.results.get(*sel) {
-                            self.music.note = Some(format!("up next: {}", it.title));
-                            self.music.send(Cmd::Enqueue {
-                                id: it.id.clone(),
-                                now: false,
-                            });
-                        }
-                    }
-                    Key::Char('a') if *tab == Tab::Playlists => {
-                        if let Some(it) = self.music.playlists.get(*sel) {
-                            self.music.note =
-                                Some(format!("queueing {} after this song…", it.title));
-                            self.music.send(Cmd::Playlist {
-                                id: it.id.clone(),
-                                title: it.title.clone(),
-                                now: false,
-                            });
-                        }
-                    }
-                    Key::Char(' ') => self.music.send(Cmd::PlayPause),
-                    Key::Right => self.music.send(Cmd::Seek(10)),
-                    Key::Left => self.music.send(Cmd::Seek(-10)),
-                    Key::Char(']') | Key::Char('n') => self.music.send(Cmd::Next),
-                    Key::Char('[') | Key::Char('p') => self.music.send(Cmd::Prev),
-                    Key::Char('s') => self.music.send(Cmd::Shuffle),
-                    Key::Char('r') => self.music.send(Cmd::Repeat),
-                    Key::Char('+') | Key::Char('=') => self.music.send(Cmd::Volume(10)),
-                    Key::Char('-') => self.music.send(Cmd::Volume(-10)),
-                    Key::Char('l') => {
-                        self.music.note = Some("liked".into());
-                        self.music.send(Cmd::Like);
-                    }
-                    Key::F(n) => self.on_function_key(n),
-                    _ => {}
-                }
-            }
-
-            Overlay::Create { plan, buf, fresh } => match key {
-                // The suggestion is selected: typing replaces it, Backspace
-                // clears it, → or End keeps it to add to.
-                Key::Char(c) if !c.is_control() => {
-                    if std::mem::take(fresh) {
-                        buf.clear();
-                    }
-                    if buf.chars().count() < 60 {
-                        buf.push(c);
-                    }
-                }
-                Key::Backspace => {
-                    if std::mem::take(fresh) {
-                        buf.clear();
-                    } else {
-                        buf.pop();
-                    }
-                }
-                Key::Right | Key::End => *fresh = false,
-                Key::Enter => {
-                    let (plan, name) = (plan.clone(), buf.clone());
-                    self.overlay = Overlay::None;
-                    self.finish_create(plan, name);
-                }
-                Key::Esc => self.overlay = Overlay::None,
-                _ => {}
-            },
-
-            Overlay::Rename {
-                path, buf, fresh, ..
-            } => match key {
-                Key::Char(c) if !c.is_control() => {
-                    if std::mem::take(fresh) {
-                        buf.clear();
-                    }
-                    if buf.chars().count() < 60 {
-                        buf.push(c);
-                    }
-                }
-                Key::Backspace => {
-                    if std::mem::take(fresh) {
-                        buf.clear();
-                    } else {
-                        buf.pop();
-                    }
-                }
-                Key::Right | Key::End => *fresh = false,
-                Key::Enter => {
-                    let (path, name) = (path.clone(), buf.clone());
-                    self.overlay = Overlay::None;
-                    self.finish_rename(path, name);
-                }
-                Key::Esc => self.overlay = Overlay::None,
-                _ => {}
-            },
-
-            // Only `y` deletes. Enter is the fold key two rows up and the
-            // fingers know it — it must not be able to destroy a chapter.
-            Overlay::Confirm {
-                path,
-                name,
-                permanent,
-                ..
-            } => match key {
-                Key::Char('y') | Key::Char('Y') => {
-                    let (path, name, permanent) = (path.clone(), name.clone(), *permanent);
-                    self.overlay = Overlay::None;
-                    self.finish_delete(path, name, permanent);
-                }
-                Key::Esc | Key::Enter | Key::Char('n') | Key::Char('N') | Key::Char('q') => {
-                    self.overlay = Overlay::None;
-                    self.msg = "kept it".into();
-                }
-                _ => {}
-            },
         }
     }
 
@@ -4875,14 +3989,6 @@ fn copy_to_clipboard(text: &str) -> bool {
         return child.wait().map(|s| s.success()).unwrap_or(false);
     }
     false
-}
-
-/// Apply a typed hex buffer to a role, ignoring anything unparseable.
-fn commit(t: &mut Theme, field: usize, buf: &str) {
-    if let Some(c) = theme::parse_hex(buf) {
-        t.set_role(field, c);
-        t.name = "Custom".into();
-    }
 }
 
 #[cfg(all(test, windows))]
