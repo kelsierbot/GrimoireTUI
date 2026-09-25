@@ -700,7 +700,7 @@ fn draw_editor(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
             }
             if let Some(q) = find {
                 let hits = line_matches.entry(r.line).or_insert_with(|| {
-                    grimoire_core::search::matches(&app.editor.lines[r.line], q)
+                    grimoire_core::search::matches_with(&app.editor.lines[r.line], q, app.find_opts)
                 });
                 for &(s, e) in hits.iter() {
                     paint(s, e, &|st| st.bg(match_bg));
@@ -1000,7 +1000,7 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             ..
         } => {
             let editor = app.rect_editor;
-            let h = if with.is_some() { 4 } else { 3 };
+            let h = if with.is_some() { 5 } else { 4 };
             let w = editor.width.saturating_add(4).min(area.width);
             let bar = Rect {
                 x: editor.x.saturating_sub(2),
@@ -1047,6 +1047,7 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
                 ));
                 lines.push(Line::from(second));
             }
+            lines.push(find_opts_line(app, t));
             f.render_widget(Paragraph::new(lines), inner);
         }
 
@@ -1106,6 +1107,7 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             if let Some(w) = with {
                 lines.push(field("replace", w, *on_with));
             }
+            lines.push(find_opts_line(app, t));
             lines.push(Line::from(Span::styled(
                 "─".repeat(iw),
                 Style::default().fg(t.border),
@@ -1177,7 +1179,7 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
                 Line::from(
                     [
                         vec![Span::styled(
-                            format!(" Replace {} match{} in {} scene{} with “{}”? ", hits.len(), if hits.len() == 1 { "" } else { "es" }, scenes, if scenes == 1 { "" } else { "s" }, with.clone().unwrap_or_default()),
+                            format!(" Replace {} match{} ({}) in {} scene{} with “{}”? ", hits.len(), if hits.len() == 1 { "" } else { "es" }, app.find_opts_label(), scenes, if scenes == 1 { "" } else { "s" }, with.clone().unwrap_or_default()),
                             Style::default().fg(t.warn),
                         )],
                         hint_spans("y replace   any other key cancels", t),
@@ -2759,6 +2761,30 @@ fn diff_lines(
     }
     let first = wrap.first_change.unwrap_or(0);
     (wrap.lines, first)
+}
+
+/// How the find bar is matching, and the two keys that change it. Loosened
+/// settings show in the warning colour: they're the ones that can surprise.
+fn find_opts_line(app: &App, t: &Theme) -> Line<'static> {
+    let o = app.find_opts;
+    let setting = |on: bool, yes: &str, no: &str| {
+        Span::styled(
+            if on { yes.to_string() } else { no.to_string() },
+            Style::default().fg(if on { t.dim } else { t.warn }),
+        )
+    };
+    Line::from(
+        [
+            vec![
+                Span::styled("  ", Style::default().fg(t.dim)),
+                setting(o.whole_words, "whole words", "inside words too"),
+                Span::styled(" · ", Style::default().fg(t.dim)),
+                setting(o.match_case, "exact case", "any case"),
+            ],
+            hint_spans("   ^W/^E change", t),
+        ]
+        .concat(),
+    )
 }
 
 /// As many whole hints as fit in `room`, from the left. Hints are separated

@@ -113,6 +113,12 @@ enum TreeStep {
         path: PathBuf,
         trashed: Option<PathBuf>,
     },
+    /// A replace across the book: each changed scene's text before and after,
+    /// so one Ctrl-Z takes the whole thing back.
+    Replaced {
+        what: String,
+        scenes: Vec<(PathBuf, String, String)>,
+    },
 }
 
 pub struct App {
@@ -179,6 +185,12 @@ pub struct App {
     /// Ctrl-Z outside the editor can take it back, and Ctrl-Y put it again.
     tree_undo: Vec<TreeStep>,
     tree_redo: Vec<TreeStep>,
+    /// How the find bar matches (whole words, exact case unless loosened).
+    pub find_opts: search::Opts,
+    /// A replace across the book is the last thing done (or undone), so Ctrl-Z
+    /// (or Ctrl-Y) in the editor means all of it, not just this scene.
+    replace_undoable: bool,
+    replace_redoable: bool,
     /// Spellcheck underlines are showing.
     pub spell_on: bool,
     /// The tree shows a symbol beside each row.
@@ -488,6 +500,9 @@ impl App {
             undo_stash: HashMap::new(),
             tree_undo: Vec::new(),
             tree_redo: Vec::new(),
+            find_opts: search::Opts::default(),
+            replace_undoable: false,
+            replace_redoable: false,
             spell_on: Settings::load().spellcheck,
             icons_on: Settings::load().icons,
             speller: None,
@@ -573,6 +588,9 @@ impl App {
             if text != self.project.nodes[i].body {
                 self.project.nodes[i].body = text;
                 self.mark_changed(i);
+                // Typed since: Ctrl-Z is about this scene again.
+                self.replace_undoable = false;
+                self.replace_redoable = false;
             }
         }
     }
@@ -767,7 +785,7 @@ impl App {
     // ---- undo, cut and paste -------------------------------------------
 
     pub fn undo(&mut self) {
-        if self.focus != Focus::Editor || self.open.is_none() {
+        if self.focus != Focus::Editor || self.open.is_none() || self.replace_undoable {
             self.tree_step(true);
             return;
         }
@@ -779,7 +797,7 @@ impl App {
     }
 
     pub fn redo(&mut self) {
-        if self.focus != Focus::Editor || self.open.is_none() {
+        if self.focus != Focus::Editor || self.open.is_none() || self.replace_redoable {
             self.tree_step(false);
             return;
         }
@@ -975,7 +993,7 @@ impl App {
             .iter()
             .enumerate()
             .flat_map(|(l, line)| {
-                search::matches(line, query)
+                search::matches_with(line, query, self.find_opts)
                     .into_iter()
                     .map(move |(s, e)| (l, s, e))
             })
@@ -1035,10 +1053,9 @@ impl App {
     }
 
     fn replace_current(&mut self, query: &str, with: &str) {
-        let is_match = self
-            .editor
-            .selected_text()
-            .is_some_and(|t| search::matches(&t, query) == vec![(0, t.chars().count())]);
+        let is_match = self.editor.selected_text().is_some_and(|t| {
+            search::matches_with(&t, query, self.find_opts) == vec![(0, t.chars().count())]
+        });
         if is_match {
             self.editor.delete_selection();
             self.editor.insert_str(with);
@@ -1057,7 +1074,8 @@ impl App {
                 ..
             } if !query.is_empty() => {
                 let (query, with) = (query.clone(), with.clone());
-                let (text, n) = search::replace_all(&self.editor.text(), &query, &with);
+                let (text, n) =
+                    search::replace_all(&self.editor.text(), &query, &with, self.find_opts);
                 if n > 0 {
                     self.editor.set_text(&text);
                     self.flush();
@@ -1084,9 +1102,49 @@ impl App {
         }
     }
 
+    /// ^W / Alt-W in the find bar: whole words only, or inside words too.
+    /// ^E / Alt-C: exact case, or any case. What's found is what's replaced.
+    pub fn toggle_find_opt(&mut self, whole_words: bool) {
+        if whole_words {
+            self.find_opts.whole_words = !self.find_opts.whole_words;
+        } else {
+            self.find_opts.match_case = !self.find_opts.match_case;
+        }
+        match &mut self.overlay {
+            Overlay::Find { query, from, .. } => {
+                let (q, from) = (query.clone(), *from);
+                self.find_step(&q, true, Some(from));
+            }
+            Overlay::FindBook {
+                query, hits, sel, ..
+            } => {
+                *hits = search::book(&self.project, &self.parents, query, self.find_opts);
+                *sel = 0;
+            }
+            _ => {}
+        }
+    }
+
+    /// The find bar's matching, as it reads on screen.
+    pub fn find_opts_label(&self) -> String {
+        format!(
+            "{} · {}",
+            if self.find_opts.whole_words {
+                "whole words"
+            } else {
+                "inside words too"
+            },
+            if self.find_opts.match_case {
+                "exact case"
+            } else {
+                "any case"
+            },
+        )
+    }
+
     pub fn open_find_book(&mut self, query: String) {
         self.flush();
-        let hits = search::book(&self.project, &self.parents, &query);
+        let hits = search::book(&self.project, &self.parents, &query, self.find_opts);
         self.overlay = Overlay::FindBook {
             query,
             with: None,
@@ -1112,14 +1170,16 @@ impl App {
     }
 
     fn replace_in_book(&mut self, query: &str, with: &str) {
+        self.flush();
         let root = self.project.root.clone();
-        let mut scenes = 0;
+        let mut changed = Vec::new();
         let mut total = 0;
         for i in 0..self.project.nodes.len() {
             if self.project.nodes[i].kind != Kind::Scene || self.project.in_trash(i) {
                 continue;
             }
-            let (text, n) = search::replace_all(&self.project.nodes[i].body, query, with);
+            let before = self.project.nodes[i].body.clone();
+            let (text, n) = search::replace_all(&before, query, with, self.find_opts);
             if n == 0 {
                 continue;
             }
@@ -1129,16 +1189,60 @@ impl App {
             if self.open == Some(i) {
                 self.editor.set_text(&text);
             }
-            self.project.nodes[i].body = text;
+            self.project.nodes[i].body = text.clone();
             self.mark_changed(i);
-            scenes += 1;
+            changed.push((path, before, text));
             total += n;
         }
+        let scenes = changed.len();
         self.commit_saves();
+        if scenes > 0 {
+            self.record(TreeStep::Replaced {
+                what: format!("replace “{query}” with “{with}”"),
+                scenes: changed,
+            });
+        }
+        let m = self.mod_label();
         self.msg = format!(
-            "replaced {total} in {scenes} scene{} — each one's previous version is in its history (H)",
+            "replaced {total} in {scenes} scene{} — {m}Z takes back all of it",
             if scenes == 1 { "" } else { "s" }
         );
+    }
+
+    /// Put each scene a book-wide replace changed back to `to` (from `from`).
+    /// A scene edited since is left alone. Returns how many were left.
+    fn swap_replaced(&mut self, scenes: &[(PathBuf, String, String)], back: bool) -> usize {
+        let mut skipped = 0;
+        for (path, before, after) in scenes {
+            let (from, to) = if back {
+                (after, before)
+            } else {
+                (before, after)
+            };
+            let Some(i) = self.project.nodes.iter().position(|n| &n.path == path) else {
+                skipped += 1;
+                continue;
+            };
+            if &self.project.nodes[i].body != from {
+                skipped += 1;
+                continue;
+            }
+            if self.open == Some(i) {
+                // The editor holds the replace as a step of its own: step
+                // through it, so its undo and redo stay in order.
+                let stepped = if back {
+                    self.editor.undo()
+                } else {
+                    self.editor.redo()
+                };
+                if !stepped || &self.editor.text() != to {
+                    self.editor.set_text(to);
+                }
+            }
+            self.project.nodes[i].body = to.clone();
+            self.mark_changed(i);
+        }
+        skipped
     }
 
     pub fn check_names(&mut self) {
@@ -2297,6 +2401,8 @@ impl App {
     // ---- undoing what the tree did ---------------------------------------
 
     fn record(&mut self, step: TreeStep) {
+        self.replace_undoable = matches!(step, TreeStep::Replaced { .. });
+        self.replace_redoable = false;
         self.tree_undo.push(step);
         if self.tree_undo.len() > 100 {
             self.tree_undo.remove(0);
@@ -2440,6 +2546,26 @@ impl App {
                     show,
                     label,
                 )
+            }
+            TreeStep::Replaced { what, scenes } => {
+                let skipped = self.swap_replaced(&scenes, back);
+                let result = if self.commit_saves() {
+                    Ok(())
+                } else {
+                    Err(anyhow::anyhow!("a scene couldn't be saved"))
+                };
+                let label = if skipped > 0 {
+                    format!(
+                        "{what} ({skipped} scene{} changed since, left as {})",
+                        if skipped == 1 { "" } else { "s" },
+                        if skipped == 1 { "it is" } else { "they are" }
+                    )
+                } else {
+                    what.clone()
+                };
+                self.replace_undoable = !back;
+                self.replace_redoable = back;
+                (result, TreeStep::Replaced { what, scenes }, None, label)
             }
         };
         match result {
@@ -3405,7 +3531,7 @@ impl App {
                         query, hits, sel, ..
                     } = &mut self.overlay
                 {
-                    *hits = search::book(&self.project, &self.parents, query);
+                    *hits = search::book(&self.project, &self.parents, query, self.find_opts);
                     *sel = 0;
                 }
             }

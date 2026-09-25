@@ -517,6 +517,30 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
         }
         let ctrl = k.modifiers.contains(KeyModifiers::CONTROL) || sup;
 
+        // The find bar's two switches: ^W / Alt-W whole words, ^E / Alt-C case.
+        if matches!(app.overlay, Overlay::Find { .. } | Overlay::FindBook { .. })
+            && k.modifiers
+                .intersects(KeyModifiers::ALT | KeyModifiers::CONTROL)
+            && let KeyCode::Char(c) = k.code
+        {
+            let alt = k.modifiers.contains(KeyModifiers::ALT);
+            match c.to_ascii_lowercase() {
+                'w' => {
+                    app.toggle_find_opt(true);
+                    continue;
+                }
+                'e' if !alt => {
+                    app.toggle_find_opt(false);
+                    continue;
+                }
+                'c' if alt => {
+                    app.toggle_find_opt(false);
+                    continue;
+                }
+                _ => {}
+            }
+        }
+
         if ctrl {
             let shift = k.modifiers.contains(KeyModifiers::SHIFT);
             match k.code {
