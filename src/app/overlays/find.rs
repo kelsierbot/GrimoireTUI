@@ -104,10 +104,7 @@ impl App {
                 }
                 *on_with = !*on_with;
             }
-            Key::Down => *sel = (*sel + 1).min(hits.len().saturating_sub(1)),
-            Key::Up => *sel = sel.saturating_sub(1),
-            Key::PageDown => *sel = (*sel + 10).min(hits.len().saturating_sub(1)),
-            Key::PageUp => *sel = sel.saturating_sub(10),
+            k if list_nav(k, sel, hits.len(), TYPED) => {}
             Key::Enter if *on_with => {
                 if !hits.is_empty() && with.is_some() {
                     *confirm = true;

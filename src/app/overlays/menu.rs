@@ -16,10 +16,10 @@ impl App {
         let (Overlay::Menu { sel } | Overlay::Settings { sel }) = &mut self.overlay else {
             return;
         };
-        let n = items.len();
+        if list_nav(key, sel, items.len(), RING) {
+            return;
+        }
         match key {
-            Key::Down | Key::Char('j') => *sel = (*sel + 1) % n,
-            Key::Up | Key::Char('k') => *sel = (*sel + n - 1) % n,
             Key::Enter | Key::Char(' ') | Key::Right | Key::Char('l') => {
                 let (at, action) = (*sel, items[*sel].clone());
                 // A setting switched on or off stays in Settings, so

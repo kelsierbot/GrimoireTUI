@@ -14,15 +14,12 @@ impl App {
         else {
             return;
         };
+        // PgUp/PgDn scroll the changes, so only ↑↓ and j/k move the list.
+        if list_nav(key, sel, versions.len(), LINES) {
+            *scroll = 0;
+            return;
+        }
         match key {
-            Key::Down | Key::Char('j') => {
-                *sel = (*sel + 1).min(versions.len().saturating_sub(1));
-                *scroll = 0;
-            }
-            Key::Up | Key::Char('k') => {
-                *sel = sel.saturating_sub(1);
-                *scroll = 0;
-            }
             Key::PageDown | Key::Char(' ') => *scroll += 10,
             Key::PageUp => *scroll = scroll.saturating_sub(10),
             Key::Enter => {

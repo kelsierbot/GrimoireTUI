@@ -58,6 +58,74 @@ impl App {
     }
 }
 
+/// How a list answers the keys that move through it.
+#[derive(Debug, Clone, Copy)]
+struct Nav {
+    /// j and k move too — not in a list you type a filter into.
+    letters: bool,
+    /// Past either end, go round to the other.
+    wrap: bool,
+    /// PgUp/PgDn move by ten and Home/End go to the ends — unless the
+    /// overlay pages through something else with them.
+    pages: bool,
+}
+
+/// An ordinary list.
+const LIST: Nav = Nav {
+    letters: true,
+    wrap: false,
+    pages: true,
+};
+/// A short menu that goes round.
+const RING: Nav = Nav {
+    letters: true,
+    wrap: true,
+    pages: false,
+};
+/// A list under a box you type into: letters are for typing.
+const TYPED: Nav = Nav {
+    letters: false,
+    wrap: false,
+    pages: true,
+};
+/// A list beside something PgUp/PgDn scroll.
+const LINES: Nav = Nav {
+    letters: true,
+    wrap: false,
+    pages: false,
+};
+
+/// Move `sel` through a list of `len` rows for ↑↓ — and j/k, PgUp/PgDn and
+/// Home/End as `nav` allows. True if `key` was one of them, so the overlay
+/// can stop there.
+fn list_nav(key: Key, sel: &mut usize, len: usize, nav: Nav) -> bool {
+    let step: isize = match key {
+        Key::Down => 1,
+        Key::Up => -1,
+        Key::Char('j') if nav.letters => 1,
+        Key::Char('k') if nav.letters => -1,
+        Key::PageDown if nav.pages => 10,
+        Key::PageUp if nav.pages => -10,
+        Key::Home if nav.pages => {
+            *sel = 0;
+            return true;
+        }
+        Key::End if nav.pages => {
+            *sel = len.saturating_sub(1);
+            return true;
+        }
+        _ => return false,
+    };
+    if len == 0 {
+        *sel = 0;
+    } else if nav.wrap {
+        *sel = (*sel as isize + step).rem_euclid(len as isize) as usize;
+    } else {
+        *sel = (*sel as isize + step).clamp(0, len as isize - 1) as usize;
+    }
+    true
+}
+
 /// Draw whichever overlay is up, over the desk.
 pub fn draw(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
     match &app.overlay {
@@ -213,4 +281,48 @@ fn diff_lines(
     }
     let first = wrap.first_change.unwrap_or(0);
     (wrap.lines, first)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn moved(key: Key, from: usize, len: usize, nav: Nav) -> Option<usize> {
+        let mut sel = from;
+        list_nav(key, &mut sel, len, nav).then_some(sel)
+    }
+
+    #[test]
+    fn a_list_stops_at_its_ends_and_a_ring_goes_round() {
+        assert_eq!(moved(Key::Down, 4, 5, LIST), Some(4));
+        assert_eq!(moved(Key::Up, 0, 5, LIST), Some(0));
+        assert_eq!(moved(Key::Down, 4, 5, RING), Some(0));
+        assert_eq!(moved(Key::Up, 0, 5, RING), Some(4));
+    }
+
+    #[test]
+    fn letters_move_only_where_nothing_is_typed() {
+        assert_eq!(moved(Key::Char('j'), 1, 5, LIST), Some(2));
+        assert_eq!(moved(Key::Char('k'), 1, 5, LIST), Some(0));
+        assert_eq!(moved(Key::Char('j'), 1, 5, TYPED), None);
+        assert_eq!(moved(Key::Down, 1, 5, TYPED), Some(2));
+    }
+
+    #[test]
+    fn pages_and_ends_unless_the_overlay_pages_something_else() {
+        assert_eq!(moved(Key::PageDown, 3, 40, LIST), Some(13));
+        assert_eq!(moved(Key::PageDown, 35, 40, LIST), Some(39));
+        assert_eq!(moved(Key::PageUp, 3, 40, LIST), Some(0));
+        assert_eq!(moved(Key::End, 3, 40, LIST), Some(39));
+        assert_eq!(moved(Key::Home, 30, 40, LIST), Some(0));
+        assert_eq!(moved(Key::PageDown, 3, 40, LINES), None);
+        assert_eq!(moved(Key::End, 3, 40, LINES), None);
+    }
+
+    #[test]
+    fn an_empty_list_or_a_selection_past_the_end_lands_in_range() {
+        assert_eq!(moved(Key::Down, 0, 0, LIST), Some(0));
+        assert_eq!(moved(Key::Down, 0, 0, RING), Some(0));
+        assert_eq!(moved(Key::Up, 9, 3, TYPED), Some(2));
+    }
 }

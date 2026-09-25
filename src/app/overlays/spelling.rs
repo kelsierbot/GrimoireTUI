@@ -16,10 +16,10 @@ impl App {
             return;
         };
         // Rows: each suggestion, then "add to this book", then "leave it".
-        let rows = suggestions.len() + 2;
+        if list_nav(key, sel, suggestions.len() + 2, LIST) {
+            return;
+        }
         match key {
-            Key::Down | Key::Char('j') => *sel = (*sel + 1).min(rows - 1),
-            Key::Up | Key::Char('k') => *sel = sel.saturating_sub(1),
             Key::Char(c @ '1'..='9') if (c as usize - '1' as usize) < suggestions.len() => {
                 let (l, s, e, with) = (
                     *line,
@@ -62,9 +62,10 @@ impl App {
         let Overlay::Names { drifts, sel } = &mut self.overlay else {
             return;
         };
+        if list_nav(key, sel, drifts.len(), LIST) {
+            return;
+        }
         match key {
-            Key::Down | Key::Char('j') => *sel = (*sel + 1).min(drifts.len().saturating_sub(1)),
-            Key::Up | Key::Char('k') => *sel = sel.saturating_sub(1),
             Key::Enter => {
                 if let Some(h) = drifts.get(*sel).and_then(|d| d.hits.first()).cloned() {
                     self.go_to_hit(&h.path, h.line, h.start, h.end);

@@ -443,3 +443,21 @@ fn deciding_later_keeps_the_recovered_words() {
     let project = Project::load(&root).unwrap();
     assert_eq!(recovery::pending(&project).len(), 1);
 }
+
+// ---- lists ------------------------------------------------------------------
+
+#[test]
+fn moving_through_themes_previews_each_and_esc_puts_yours_back() {
+    let mut d = Desk::open(book("themes", true), 120, 35);
+    let mine = d.app.theme.name.clone();
+    d.key(KeyCode::F(9));
+    assert!(matches!(d.app.overlay, Overlay::Themes { .. }));
+    d.key(KeyCode::Down);
+    assert_ne!(d.app.theme.name, mine, "the next theme shows at once");
+    d.key(KeyCode::Char('k'));
+    assert_eq!(d.app.theme.name, mine);
+    d.key(KeyCode::Up);
+    assert_ne!(d.app.theme.name, mine, "and it goes round the list");
+    d.key(KeyCode::Esc);
+    assert_eq!(d.app.theme.name, mine);
+}

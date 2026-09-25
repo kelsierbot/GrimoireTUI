@@ -18,10 +18,10 @@ impl App {
             return;
         }
         // Rows: three formats, each act, then the export button.
-        let rows = 3 + parts.len() + 1;
+        if list_nav(key, sel, 3 + parts.len() + 1, LIST) {
+            return;
+        }
         match key {
-            Key::Down | Key::Char('j') => *sel = (*sel + 1).min(rows - 1),
-            Key::Up | Key::Char('k') => *sel = sel.saturating_sub(1),
             Key::Char(' ') | Key::Enter if *sel < 3 => formats[*sel] = !formats[*sel],
             Key::Char(' ') | Key::Enter if *sel < 3 + parts.len() => {
                 let p = &mut parts[*sel - 3];

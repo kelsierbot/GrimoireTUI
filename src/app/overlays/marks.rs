@@ -8,6 +8,9 @@ impl App {
         let Overlay::Marks { query, sel, rows } = &mut self.overlay else {
             return;
         };
+        if list_nav(key, sel, filter_marks(rows, query).len(), TYPED) {
+            return;
+        }
         match key {
             Key::Char(c) if !c.is_control() => {
                 query.push(c);
@@ -17,10 +20,6 @@ impl App {
                 query.pop();
                 *sel = 0;
             }
-            Key::Down => *sel += 1,
-            Key::Up => *sel = sel.saturating_sub(1),
-            Key::PageDown => *sel += 10,
-            Key::PageUp => *sel = sel.saturating_sub(10),
             Key::Enter => {
                 let hits = filter_marks(rows, query);
                 if let Some(r) = hits.get((*sel).min(hits.len().saturating_sub(1))) {

@@ -9,17 +9,13 @@ impl App {
             return;
         };
         let n = theme::presets().len() + 1;
+        if list_nav(key, sel, n, RING) {
+            // Moving the cursor shows the theme it's on.
+            let i = *sel;
+            self.preview(i);
+            return;
+        }
         match key {
-            Key::Down | Key::Char('j') => {
-                let i = (*sel + 1) % n;
-                *sel = i;
-                self.preview(i);
-            }
-            Key::Up | Key::Char('k') => {
-                let i = (*sel + n - 1) % n;
-                *sel = i;
-                self.preview(i);
-            }
             Key::Enter => {
                 let i = *sel;
                 if i == n - 1 {
@@ -82,10 +78,10 @@ impl App {
         let Overlay::Sources { sel } = &mut self.overlay else {
             return;
         };
-        let n = music::Source::ALL.len();
+        if list_nav(key, sel, music::Source::ALL.len(), RING) {
+            return;
+        }
         match key {
-            Key::Down | Key::Char('j') => *sel = (*sel + 1) % n,
-            Key::Up | Key::Char('k') => *sel = (*sel + n - 1) % n,
             Key::Enter | Key::Char(' ') => {
                 let chosen = music::Source::ALL[*sel];
                 let mut cfg = music::Config::load();

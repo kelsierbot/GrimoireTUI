@@ -31,11 +31,10 @@ impl App {
             return;
         };
         if let Some((which, items, csel)) = changes {
+            if list_nav(key, csel, items.len(), LIST) {
+                return;
+            }
             match key {
-                Key::Down | Key::Char('j') => {
-                    *csel = (*csel + 1).min(items.len().saturating_sub(1))
-                }
-                Key::Up | Key::Char('k') => *csel = csel.saturating_sub(1),
                 Key::Enter => {
                     if let (Some(s), Some(c)) =
                         (list.get(*which).cloned(), items.get(*csel).cloned())
@@ -73,9 +72,10 @@ impl App {
             }
             return;
         }
+        if list_nav(key, sel, list.len(), LIST) {
+            return;
+        }
         match key {
-            Key::Down | Key::Char('j') => *sel = (*sel + 1).min(list.len().saturating_sub(1)),
-            Key::Up | Key::Char('k') => *sel = sel.saturating_sub(1),
             Key::Enter | Key::Right | Key::Char('h') => {
                 if let Some(s) = list.get(*sel) {
                     match sessions::changes(&self.project.root, &s.hash) {

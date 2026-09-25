@@ -12,6 +12,9 @@ impl App {
         else {
             return;
         };
+        if list_nav(key, sel, palette::filter(entries, query).len(), TYPED) {
+            return;
+        }
         match key {
             Key::Char(c) if !c.is_control() => {
                 query.push(c);
@@ -21,10 +24,6 @@ impl App {
                 query.pop();
                 *sel = 0;
             }
-            Key::Down => *sel += 1,
-            Key::Up => *sel = sel.saturating_sub(1),
-            Key::PageDown => *sel += 10,
-            Key::PageUp => *sel = sel.saturating_sub(10),
             Key::Enter => {
                 let hits = palette::filter(entries, query);
                 if let Some(e) = hits.get((*sel).min(hits.len().saturating_sub(1))) {

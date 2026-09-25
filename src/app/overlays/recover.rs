@@ -7,16 +7,8 @@ impl App {
         let Overlay::Recover { items, sel } = &mut self.overlay else {
             return;
         };
-        match key {
-            Key::Up | Key::Char('k') => {
-                *sel = sel.saturating_sub(1);
-                return;
-            }
-            Key::Down | Key::Char('j') => {
-                *sel = (*sel + 1).min(RECOVER_CHOICES.len() - 1);
-                return;
-            }
-            _ => {}
+        if list_nav(key, sel, RECOVER_CHOICES.len(), LIST) {
+            return;
         }
         match (key, *sel) {
             (Key::Enter, 0) => {

@@ -84,22 +84,8 @@ impl App {
                 *follow = false;
                 *typing = true;
             }
-            Key::Down | Key::Char('j') => {
-                *sel = (*sel + 1).min(len.saturating_sub(1));
-                *follow = false;
-            }
-            Key::Up | Key::Char('k') => {
-                *sel = sel.saturating_sub(1);
-                *follow = false;
-            }
-            Key::PageDown => {
-                *sel = (*sel + 10).min(len.saturating_sub(1));
-                *follow = false;
-            }
-            Key::PageUp => {
-                *sel = sel.saturating_sub(10);
-                *follow = false;
-            }
+            // Moving the selection yourself stops it following the song.
+            k if list_nav(k, sel, len, LIST) => *follow = false,
             Key::Enter => match *tab {
                 Tab::Queue => {
                     if let Some(it) = self.music.queue.get(*sel) {
