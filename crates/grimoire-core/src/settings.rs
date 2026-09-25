@@ -71,7 +71,7 @@ impl Settings {
         if let Some(d) = p.parent() {
             std::fs::create_dir_all(d)?;
         }
-        std::fs::write(p, self.to_text())
+        crate::atomic::write_io(&p, self.to_text().as_bytes())
     }
 
     fn to_text(&self) -> String {

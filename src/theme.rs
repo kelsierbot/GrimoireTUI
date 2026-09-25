@@ -453,7 +453,7 @@ pub fn save_to(path: &std::path::Path, t: &Theme) -> std::io::Result<()> {
             out.push_str(&format!("visualizer = \"{v}\"\n"));
         }
     }
-    std::fs::write(path, out)
+    grimoire_core::atomic::write_io(path, out.as_bytes())
 }
 
 #[cfg(test)]

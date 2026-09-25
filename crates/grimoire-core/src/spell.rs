@@ -12,8 +12,8 @@
 
 use anyhow::{Context, Result, bail};
 use std::collections::{HashMap, HashSet};
-use std::fs::{self, OpenOptions};
-use std::io::{ErrorKind, Write};
+use std::fs;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
 
@@ -353,21 +353,17 @@ fn add_word_to(path: &Path, header: &str, word: &str) -> Result<()> {
         return Ok(());
     }
 
-    let mut text = String::new();
-    if existing.trim().is_empty() {
-        text.push_str(header);
-    } else if !existing.ends_with('\n') {
+    // The whole list is rewritten at once rather than appended to: a sync
+    // client never uploads a list caught halfway through a line.
+    let mut text = existing;
+    if text.trim().is_empty() {
+        text = header.to_string();
+    } else if !text.ends_with('\n') {
         text.push('\n');
     }
     text.push_str(&word);
     text.push('\n');
-    let mut file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-        .with_context(|| format!("opening {}", path.display()))?;
-    file.write_all(text.as_bytes())
-        .with_context(|| format!("writing {}", path.display()))
+    crate::atomic::write_text(path, &text)
 }
 
 /// One checkable word: a char range, and whether a hyphen joins it to the

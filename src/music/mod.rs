@@ -190,7 +190,7 @@ impl Config {
             self.api_key,
             self.user_id,
         );
-        std::fs::write(&path, body).with_context(|| format!("writing {}", path.display()))?;
+        grimoire_core::atomic::write_text(&path, &body)?;
         Ok(())
     }
 
