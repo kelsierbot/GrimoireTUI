@@ -50,6 +50,12 @@ pub enum Action {
     EndSprint,
     Menu,
     Quit,
+    FocusMode,
+    /// Pick a scene to show beside the one being written.
+    BesidePicker,
+    Beside(std::path::PathBuf),
+    LineWidth,
+    Typewriter,
     Open(std::path::PathBuf),
 }
 
@@ -92,6 +98,33 @@ pub fn entries(app: &crate::app::App) -> Vec<Entry> {
         Entry::new("Move up", "Alt ↑", Action::MoveUp),
         Entry::new("Move down", "Alt ↓", Action::MoveDown),
         Entry::new("Scene history", "H", Action::History),
+        Entry::new(
+            if app.focus_mode {
+                "Leave focus mode"
+            } else {
+                "Focus mode"
+            },
+            &format!("{m}D"),
+            Action::FocusMode,
+        ),
+        Entry::new("Open a scene beside this one…", "v", Action::BesidePicker),
+        Entry::new(
+            match app.line_width {
+                0 => "Line width: the whole pane (change)".to_string(),
+                w => format!("Line width: {w} columns (change)"),
+            },
+            "",
+            Action::LineWidth,
+        ),
+        Entry::new(
+            if app.typewriter {
+                "Turn typewriter scrolling off"
+            } else {
+                "Turn typewriter scrolling on"
+            },
+            "",
+            Action::Typewriter,
+        ),
         Entry::new("Undo", &format!("{m}Z"), Action::Undo),
         Entry::new("Redo", &format!("{m}Y"), Action::Redo),
         Entry::new("Save now", &format!("{m}S"), Action::Save),

@@ -25,9 +25,52 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     // stays mutably borrowed for scroll and rect bookkeeping.
     let t = app.theme.clone();
     app.screen = (f.area().width, f.area().height);
+    app.check_focus_mode();
 
     let [main, status] =
         Layout::vertical([Constraint::Min(3), Constraint::Length(1)]).areas(f.area());
+    app.rect_scene = Rect::default();
+    app.view_hits.clear();
+    app.rect_music = Rect::default();
+
+    let edit_area = if app.focus_mode {
+        // Focus mode: the prose alone. No tree, clearing or music, and
+        // nothing left behind for a click to land on.
+        app.rect_tree = Rect::default();
+        app.create_hits.clear();
+        app.scene_visible = false;
+        app.music_visible = false;
+        main
+    } else {
+        draw_left(f, app, main, &t)
+    };
+
+    // A note, or another scene, opened from the prose sits beside it, when
+    // there's room. Only one at a time.
+    app.side_room = edit_area.width >= 70;
+    app.rect_codex = Rect::default();
+    app.rect_beside = Rect::default();
+    if app.side_room && (app.codex.is_some() || app.beside.is_some()) {
+        let [ed, side] =
+            Layout::horizontal([Constraint::Min(34), Constraint::Percentage(38)]).areas(edit_area);
+        draw_editor(f, app, ed, &t);
+        if app.codex.is_some() {
+            draw_codex(f, app, side, &t);
+        } else {
+            draw_beside(f, app, side, &t);
+        }
+    } else {
+        draw_editor(f, app, edit_area, &t);
+    }
+    draw_status(f, app, status, &t);
+
+    if !matches!(app.overlay, Overlay::None) {
+        draw_overlay(f, app, f.area(), &t);
+    }
+}
+
+/// The left column — tree, clearing, music — and what's left for writing.
+fn draw_left(f: &mut Frame, app: &mut App, main: Rect, t: &Theme) -> Rect {
     let [left, edit_area] =
         Layout::horizontal([Constraint::Length(LEFT_W), Constraint::Min(24)]).areas(main);
 
@@ -59,32 +102,15 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 
     app.scene_visible = scene_area.height > 0;
     app.music_visible = music_area.height > 0;
-    app.rect_scene = Rect::default();
-    app.view_hits.clear();
-    app.rect_music = Rect::default();
 
-    draw_tree(f, app, tree_area, &t);
+    draw_tree(f, app, tree_area, t);
     if app.scene_visible {
-        draw_scene(f, app, scene_area, &t);
+        draw_scene(f, app, scene_area, t);
     }
     if app.music_visible {
-        draw_music(f, app, music_area, &t);
+        draw_music(f, app, music_area, t);
     }
-    // A note opened from the prose sits beside it, when there's room.
-    if app.codex.is_some() && edit_area.width >= 70 {
-        let [ed, cx] =
-            Layout::horizontal([Constraint::Min(34), Constraint::Percentage(38)]).areas(edit_area);
-        draw_editor(f, app, ed, &t);
-        draw_codex(f, app, cx, &t);
-    } else {
-        app.rect_codex = Rect::default();
-        draw_editor(f, app, edit_area, &t);
-    }
-    draw_status(f, app, status, &t);
-
-    if !matches!(app.overlay, Overlay::None) {
-        draw_overlay(f, app, f.area(), &t);
-    }
+    edit_area
 }
 
 /// How a key looks in a popup's footer: lit, so it stands out from what it does.
@@ -658,13 +684,21 @@ fn draw_editor(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
     if let Some((words, target)) = app.scene_target() {
         title = format!("{title} · {} / {}", thousands(words), thousands(target));
     }
-    let block = pane_block(&title, focused, t).padding(Padding::new(2, 2, 0, 0));
+    let block = if app.focus_mode {
+        // Focus mode draws the page, not a pane: no frame, no title.
+        Block::default().padding(Padding::new(2, 2, 1, 0))
+    } else {
+        pane_block(&title, focused, t).padding(Padding::new(2, 2, 0, 0))
+    };
     let inner = block.inner(area);
-    app.rect_editor = inner;
+    app.rect_prose = area;
     f.render_widget(block, area);
 
-    app.edit_width = inner.width as usize;
-    app.edit_height = inner.height as usize;
+    // Prose is set in a column no wider than the line width, centred.
+    let col = prose_column(inner, app.line_width);
+    app.rect_editor = col;
+    app.edit_width = col.width as usize;
+    app.edit_height = col.height as usize;
 
     if app.open.is_none() {
         let hint = vec![
@@ -679,7 +713,7 @@ fn draw_editor(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
     }
 
     let rows = app.editor.layout(app.edit_width);
-    app.editor.clamp_scroll(&rows, app.edit_height);
+    app.follow_caret(&rows);
 
     // Each row is painted in layers, char by char, then merged into runs:
     // find matches, then the selection on top.
@@ -785,16 +819,90 @@ fn draw_editor(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
         })
         .collect();
 
-    f.render_widget(Paragraph::new(visible), inner);
+    // An empty scene shows where the words go. It is only drawn, never
+    // part of the text, and the first keystroke replaces it.
+    let empty = app.editor.lines.len() == 1 && app.editor.lines[0].is_empty();
+    if empty {
+        let cue = if focused {
+            "Start writing · Esc for the menu"
+        } else {
+            "Tab or click to write · Esc for the menu"
+        };
+        f.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                truncate(cue, col.width as usize),
+                Style::default().fg(t.dim).add_modifier(Modifier::ITALIC),
+            ))),
+            col,
+        );
+    } else {
+        f.render_widget(Paragraph::new(visible), col);
+    }
 
     if focused && matches!(app.overlay, Overlay::None) {
-        let (r, col) = app.editor.cursor_vis(&rows);
+        let (r, c) = app.editor.cursor_vis(&rows);
         if r >= app.editor.scroll && r < app.editor.scroll + app.edit_height {
-            let x = inner.x + col.min(app.edit_width.saturating_sub(1)) as u16;
-            let y = inner.y + (r - app.editor.scroll) as u16;
+            let x = col.x + c.min(app.edit_width.saturating_sub(1)) as u16;
+            let y = col.y + (r - app.editor.scroll) as u16;
             f.set_cursor_position((x, y));
         }
     }
+}
+
+/// The column prose is set in: `width` wide at most (0: all of it),
+/// centred in `inner`.
+fn prose_column(inner: Rect, width: usize) -> Rect {
+    let w = match width {
+        0 => inner.width,
+        w => inner.width.min(w.min(u16::MAX as usize) as u16),
+    };
+    Rect {
+        x: inner.x + (inner.width - w) / 2,
+        width: w,
+        ..inner
+    }
+}
+
+/// Another scene, read-only, beside the one being written.
+fn draw_beside(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
+    let Some(i) = app.beside_node() else {
+        // Moved or deleted since it was opened.
+        app.close_beside();
+        return;
+    };
+    let focused = app.focus == Focus::Beside;
+    let n = &app.project.nodes[i];
+    let title = format!("{} · read-only", n.title);
+    let block = pane_block(&title, focused, t).padding(Padding::new(1, 1, 0, 0));
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+    app.rect_beside = area;
+
+    let w = inner.width as usize;
+    let mut lines: Vec<Line> = Vec::new();
+    for para in n.body.split('\n') {
+        if para.trim().is_empty() {
+            lines.push(Line::from(""));
+            continue;
+        }
+        for l in wrap_words(para, w) {
+            lines.push(Line::from(Span::styled(l, Style::default().fg(t.text))));
+        }
+    }
+    if n.body.trim().is_empty() {
+        lines = vec![Line::from(Span::styled(
+            "Nothing written here yet.",
+            Style::default().fg(t.dim),
+        ))];
+    }
+    let max = lines.len().saturating_sub(inner.height as usize);
+    let Some(pane) = &mut app.beside else { return };
+    pane.scroll = pane.scroll.min(max);
+    let scroll = pane.scroll;
+    f.render_widget(
+        Paragraph::new(lines.into_iter().skip(scroll).collect::<Vec<_>>()),
+        inner,
+    );
 }
 
 fn draw_codex(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
@@ -893,23 +1001,41 @@ fn draw_status(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
         thousands(today as usize)
     };
 
-    let mut spans = vec![
-        Span::raw(" "),
-        Span::styled(thousands(total), Style::default().fg(t.text)),
-        Span::styled(
-            format!(" / {} ", thousands(target)),
-            Style::default().fg(t.dim),
-        ),
-        Span::styled(bar, Style::default().fg(t.accent)),
-        Span::styled(
-            format!("  today {today_text}"),
-            Style::default().fg(if today >= app.project.meta.daily_target as i64 {
-                t.accent
-            } else {
-                t.dim
-            }),
-        ),
-    ];
+    let today_style = Style::default().fg(if today >= app.project.meta.daily_target as i64 {
+        t.accent
+    } else {
+        t.dim
+    });
+
+    let mut spans = if app.focus_mode {
+        // Focus mode keeps to the scene: its name, its words, and today.
+        let (title, words) = app.open.map_or((String::new(), 0), |i| {
+            (
+                app.project.nodes[i].title.clone(),
+                app.project.nodes[i].words(),
+            )
+        });
+        vec![
+            Span::raw(" "),
+            Span::styled(title, Style::default().fg(t.accent)),
+            Span::styled(
+                format!("  {} words", thousands(words)),
+                Style::default().fg(t.dim),
+            ),
+            Span::styled(format!("  today {today_text}"), today_style),
+        ]
+    } else {
+        vec![
+            Span::raw(" "),
+            Span::styled(thousands(total), Style::default().fg(t.text)),
+            Span::styled(
+                format!(" / {} ", thousands(target)),
+                Style::default().fg(t.dim),
+            ),
+            Span::styled(bar, Style::default().fg(t.accent)),
+            Span::styled(format!("  today {today_text}"), today_style),
+        ]
+    };
 
     if let Some((label, reached)) = app.sprint_label() {
         spans.push(Span::styled(

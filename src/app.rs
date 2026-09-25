@@ -54,6 +54,8 @@ pub enum Focus {
     Editor,
     /// The note open beside the scene.
     Codex,
+    /// Another scene, read-only, beside the one being written.
+    Beside,
     Clearing,
     Music,
 }
@@ -215,6 +217,24 @@ pub struct App {
     /// A note open beside the scene.
     pub codex: Option<CodexPane>,
     pub rect_codex: Rect,
+    /// A scene open read-only beside the one being written. It takes the same
+    /// place as a note, so only one of them shows at a time.
+    pub beside: Option<BesidePane>,
+    pub rect_beside: Rect,
+    /// Focus mode: only the prose, centred, and a quiet status line.
+    pub focus_mode: bool,
+    /// The widest a line of prose runs (0: the whole pane), and whether focus
+    /// mode keeps the line being written mid-screen. From settings.toml.
+    pub line_width: usize,
+    pub typewriter: bool,
+    /// The editor's whole pane, for clicks: `rect_editor` is only the column
+    /// the prose is set in.
+    pub rect_prose: Rect,
+    /// Set during draw: the writing area is wide enough for a pane beside it.
+    pub side_room: bool,
+    /// Where the cursor was at the last draw, so the view only follows it
+    /// when it moves (and a wheel scroll isn't undone).
+    last_caret: Option<(usize, usize, usize, usize, usize, bool)>,
     /// The last place written to resume.md, so it's only rewritten on a move.
     last_resume: Option<(PathBuf, usize)>,
     /// Session history is on for this book (checked once at launch).
@@ -238,6 +258,14 @@ pub struct CodexPane {
     pub entry: codex::Entry,
     pub appears: Vec<codex::Appearance>,
     pub sel: usize,
+    pub scroll: usize,
+}
+
+/// A second scene shown read-only beside the one being written, for
+/// continuity. Held by path so it survives the tree being re-read.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BesidePane {
+    pub path: PathBuf,
     pub scroll: usize,
 }
 
@@ -554,6 +582,14 @@ impl App {
             codex_index: Vec::new(),
             codex: None,
             rect_codex: Rect::default(),
+            beside: None,
+            rect_beside: Rect::default(),
+            focus_mode: false,
+            line_width: Settings::load().line_width,
+            typewriter: Settings::load().typewriter,
+            rect_prose: Rect::default(),
+            side_room: true,
+            last_caret: None,
             last_resume: None,
             sessions_on: false,
             backup_rx: None,
@@ -1153,6 +1189,15 @@ impl App {
                     self.open_scene(i);
                 }
             }
+            Action::FocusMode => self.toggle_focus_mode(),
+            Action::BesidePicker => self.open_beside_picker(),
+            Action::Beside(path) => {
+                if let Some(i) = self.project.nodes.iter().position(|n| n.path == path) {
+                    self.show_beside(i);
+                }
+            }
+            Action::LineWidth => self.cycle_line_width(),
+            Action::Typewriter => self.toggle_typewriter(),
             other => self.run_feature(other),
         }
     }
@@ -1881,6 +1926,7 @@ impl App {
             appears.len(),
             if appears.len() == 1 { "" } else { "s" }
         );
+        self.close_beside();
         self.codex = Some(CodexPane {
             entry: e,
             appears,
@@ -1923,13 +1969,17 @@ impl App {
         }
     }
 
+    /// Change one setting and save, keeping every other one as it is on disk.
+    fn save_setting(change: impl FnOnce(&mut Settings)) {
+        let mut s = Settings::load();
+        change(&mut s);
+        let _ = s.save();
+    }
+
     pub fn toggle_icons(&mut self) {
         self.icons_on = !self.icons_on;
-        let _ = Settings {
-            spellcheck: self.spell_on,
-            icons: self.icons_on,
-        }
-        .save();
+        let on = self.icons_on;
+        Self::save_setting(|s| s.icons = on);
         self.msg = if self.icons_on {
             "tree icons on".into()
         } else {
@@ -1939,11 +1989,8 @@ impl App {
 
     pub fn toggle_spellcheck(&mut self) {
         self.spell_on = !self.spell_on;
-        let _ = Settings {
-            spellcheck: self.spell_on,
-            icons: self.icons_on,
-        }
-        .save();
+        let on = self.spell_on;
+        Self::save_setting(|s| s.spellcheck = on);
         self.msg = if self.spell_on {
             "spellcheck on".into()
         } else {
@@ -3077,6 +3124,7 @@ impl App {
             Key::Char('K') => self.move_selected(true),
             Key::Char('J') => self.move_selected(false),
             Key::Char('/') => self.open_find_book(String::new()),
+            Key::Char('v') => self.open_beside(),
             Key::Up => self.sel = self.sel.saturating_sub(1),
             Key::Down => {
                 if self.sel + 1 < self.visible.len() {
@@ -3168,9 +3216,11 @@ impl App {
 
     fn focusable(&self, f: Focus) -> bool {
         match f {
-            Focus::Tree => true,
+            // Focus mode hides the tree; Tab mustn't land somewhere unseen.
+            Focus::Tree => !self.focus_mode,
             Focus::Editor => self.open.is_some(),
             Focus::Codex => self.codex.is_some(),
+            Focus::Beside => self.beside.is_some() && self.side_room,
             Focus::Clearing => self.scene_visible,
             Focus::Music => self.music_visible,
         }
@@ -3178,10 +3228,11 @@ impl App {
 
     /// Tab through every pane that is actually on screen.
     pub fn cycle_focus(&mut self, forward: bool) {
-        const ORDER: [Focus; 5] = [
+        const ORDER: [Focus; 6] = [
             Focus::Tree,
             Focus::Editor,
             Focus::Codex,
+            Focus::Beside,
             Focus::Clearing,
             Focus::Music,
         ];
@@ -3283,12 +3334,19 @@ impl App {
                 pane.sel = (y - list_top) as usize;
                 self.on_codex_key(Key::Enter);
             }
-        } else if hit(self.rect_editor, x, y) && self.open.is_some() {
+        } else if hit(self.rect_beside, x, y) && self.beside.is_some() {
+            self.flush();
+            self.focus = Focus::Beside;
+        } else if hit(self.rect_prose, x, y) && self.open.is_some() {
+            // Anywhere in the pane counts; the margins either side of the
+            // column land at the nearest end of the line.
             self.focus = Focus::Editor;
+            let r = self.rect_editor;
+            let cx = x.clamp(r.x, r.x + r.width.saturating_sub(1));
+            let cy = y.clamp(r.y, r.y + r.height.saturating_sub(1));
             let rows = self.editor.layout(self.edit_width);
-            let vis = self.editor.scroll + (y - self.rect_editor.y) as usize;
-            self.editor
-                .click(&rows, vis, (x - self.rect_editor.x) as usize);
+            let vis = self.editor.scroll + (cy - r.y) as usize;
+            self.editor.click(&rows, vis, (cx - r.x) as usize);
         } else if hit(self.rect_scene, x, y) {
             if self.focus == Focus::Editor {
                 self.flush();
@@ -3355,13 +3413,21 @@ impl App {
             } else {
                 self.tree_scroll = self.tree_scroll.saturating_sub(STEP);
             }
-        } else if hit(self.rect_editor, x, y) {
+        } else if hit(self.rect_prose, x, y) {
             let rows = self.editor.layout(self.edit_width);
             if down {
                 self.editor.scroll = (self.editor.scroll + STEP).min(rows.len().saturating_sub(1));
             } else {
                 self.editor.scroll = self.editor.scroll.saturating_sub(STEP);
             }
+        } else if hit(self.rect_beside, x, y)
+            && let Some(b) = &mut self.beside
+        {
+            b.scroll = if down {
+                b.scroll + STEP
+            } else {
+                b.scroll.saturating_sub(STEP)
+            };
         }
     }
 
@@ -3438,8 +3504,191 @@ impl App {
             self.editor.clear_selection();
         } else if self.codex.is_some() {
             self.close_codex();
+        } else if self.beside.is_some() {
+            self.close_beside();
         } else {
             self.open_menu();
+        }
+    }
+
+    // ---- focus mode, and a scene beside --------------------------------
+
+    /// Ctrl-D: just the prose, centred, and a quiet status line — or back.
+    pub fn toggle_focus_mode(&mut self) {
+        if self.focus_mode {
+            self.focus_mode = false;
+            self.msg = "focus mode off".into();
+            return;
+        }
+        if self.open.is_none() {
+            self.msg = "open a scene first — focus mode is for writing one".into();
+            return;
+        }
+        self.focus_mode = true;
+        if !matches!(self.focus, Focus::Editor | Focus::Codex | Focus::Beside) {
+            self.focus = Focus::Editor;
+        }
+        // Short, so the hint beside it (which names the way out) fits.
+        self.msg = "focus mode".into();
+    }
+
+    /// Nothing left to write in (the scene was closed or deleted): focus
+    /// mode steps aside rather than leave a blank screen with no tree.
+    pub fn check_focus_mode(&mut self) {
+        if self.focus_mode && self.open.is_none() {
+            self.focus_mode = false;
+            self.focus = Focus::Tree;
+        }
+    }
+
+    /// Show the scene selected in the tree beside the one being written,
+    /// read-only. `v` again on the same scene puts it away.
+    pub fn open_beside(&mut self) {
+        if let Some(&i) = self.visible.get(self.sel) {
+            self.show_beside(i);
+        }
+    }
+
+    /// The palette, narrowed to scenes: the chosen one opens beside.
+    pub fn open_beside_picker(&mut self) {
+        self.flush();
+        let here = self.open.map(|i| self.project.nodes[i].path.clone());
+        let entries: Vec<palette::Entry> = palette::entries(self)
+            .into_iter()
+            .filter_map(|mut e| match e.action {
+                Action::Open(p) if Some(&p) != here.as_ref() => {
+                    e.action = Action::Beside(p);
+                    Some(e)
+                }
+                _ => None,
+            })
+            .collect();
+        self.overlay = Overlay::Palette {
+            query: String::new(),
+            sel: 0,
+            entries,
+        };
+    }
+
+    fn show_beside(&mut self, i: usize) {
+        let node = &self.project.nodes[i];
+        if node.kind != Kind::Scene {
+            self.msg = "pick a scene to show beside this one".into();
+            return;
+        }
+        if self.open == Some(i) {
+            self.msg = "that's the scene you're writing — pick another to show beside it".into();
+            return;
+        }
+        if self.beside.as_ref().is_some_and(|b| b.path == node.path) {
+            self.close_beside();
+            return;
+        }
+        if !self.side_room {
+            self.msg = "widen the window to show a scene beside this one".into();
+            return;
+        }
+        let path = node.path.clone();
+        self.msg = format!("{} beside", node.title);
+        self.close_codex();
+        self.beside = Some(BesidePane { path, scroll: 0 });
+    }
+
+    pub fn close_beside(&mut self) {
+        self.beside = None;
+        if self.focus == Focus::Beside {
+            self.focus = if self.open.is_some() {
+                Focus::Editor
+            } else {
+                Focus::Tree
+            };
+        }
+    }
+
+    /// The scene shown beside, if it's still in the book.
+    pub fn beside_node(&self) -> Option<usize> {
+        let b = self.beside.as_ref()?;
+        self.project.nodes.iter().position(|n| n.path == b.path)
+    }
+
+    pub fn on_beside_key(&mut self, key: Key) {
+        let Some(pane) = &mut self.beside else {
+            self.focus = Focus::Editor;
+            return;
+        };
+        let page = (self.rect_beside.height as usize).saturating_sub(2).max(1);
+        match key {
+            Key::Down | Key::Char('j') => pane.scroll += 1,
+            Key::Up | Key::Char('k') => pane.scroll = pane.scroll.saturating_sub(1),
+            Key::PageDown | Key::Char(' ') => pane.scroll += page,
+            Key::PageUp => pane.scroll = pane.scroll.saturating_sub(page),
+            Key::Home => pane.scroll = 0,
+            Key::End => pane.scroll = usize::MAX / 2,
+            // Swap: write in the one beside.
+            Key::Enter | Key::Char('o') => {
+                if let Some(i) = self.beside_node() {
+                    self.close_beside();
+                    self.reveal(i);
+                    self.open_scene(i);
+                    self.focus = Focus::Editor;
+                }
+            }
+            Key::Char('q') => self.close_beside(),
+            _ => {}
+        }
+    }
+
+    /// Cycle the prose measure through a few common widths, and remember it.
+    pub fn cycle_line_width(&mut self) {
+        const WIDTHS: [usize; 5] = [60, 72, 80, 100, 0];
+        let next = WIDTHS
+            .iter()
+            .position(|&w| w == self.line_width)
+            .map_or(grimoire_core::settings::LINE_WIDTH, |i| {
+                WIDTHS[(i + 1) % WIDTHS.len()]
+            });
+        self.line_width = next;
+        Self::save_setting(|s| s.line_width = next);
+        self.msg = if next == 0 {
+            "lines fill the pane".into()
+        } else {
+            format!("lines up to {next} columns")
+        };
+    }
+
+    pub fn toggle_typewriter(&mut self) {
+        self.typewriter = !self.typewriter;
+        let on = self.typewriter;
+        Self::save_setting(|s| s.typewriter = on);
+        self.msg = if on {
+            "typewriter scrolling on (in focus mode)".into()
+        } else {
+            "typewriter scrolling off".into()
+        };
+    }
+
+    /// Scroll the editor to follow the cursor — but only when it has moved,
+    /// so the wheel can still look elsewhere. Focus mode with typewriter
+    /// scrolling keeps the line mid-screen; otherwise a few rows stay free
+    /// below it.
+    pub fn follow_caret(&mut self, rows: &[grimoire_core::editor::VisRow]) {
+        let h = self.edit_height;
+        let key = (
+            self.editor.cy,
+            self.editor.cx,
+            self.editor.lines.len(),
+            self.edit_width,
+            h,
+            self.focus_mode,
+        );
+        let moved = self.last_caret != Some(key);
+        self.last_caret = Some(key);
+        if !moved {
+            self.editor.clamp_scroll(rows, h);
+        } else if self.focus_mode && self.typewriter {
+            self.editor.centre_on_cursor(rows, h);
+        } else {
+            self.editor.keep_room_below(rows, h, 3.min(h / 4));
         }
     }
 
@@ -4433,6 +4682,8 @@ impl App {
         // What Esc does comes first, so a narrow status bar never cuts it.
         let esc = if self.codex.is_some() {
             "Esc close note"
+        } else if self.beside.is_some() {
+            "Esc close beside"
         } else {
             "Esc menu"
         };
@@ -4448,9 +4699,13 @@ impl App {
                     keys.join("  ")
                 )
             }
+            Focus::Editor if self.focus_mode => {
+                format!("{esc}  {m}D leave focus  {m}K find anything  {m}Z undo  {m}Q quit ")
+            }
             Focus::Editor => {
                 format!("{esc}  Tab pane  {m}K find anything  {m}Z undo  F8 spelling  {m}Q quit ")
             }
+            Focus::Beside => "Esc close  Tab pane  ↑↓ PgDn scroll  ↵ write in this one ".into(),
             Focus::Codex => {
                 "Esc close  Tab pane  ↑↓ scenes  ↵ go there  o open the note  PgDn scroll ".into()
             }
