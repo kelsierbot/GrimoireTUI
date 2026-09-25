@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.4.7
+
+- **Custom themes mix and match**: under the swatches, choose any theme's
+  Pomodoro world and any theme's Visualizer (`←` `→`), previewed live in the
+  pane — Kanagawa's great wave with Synthwave '84's neon grid, say.
+- **Rainbow's Pomodoro is redrawn**: five fine ribbons curving in braille,
+  standing in two soft clouds, a light running slowly along the outer band by
+  day — instead of chunky blocks.
+- **Tokyo Night's Visualizer is a neon city**: night-blue towers with warm and
+  cool windows set into them, a neon roofline on each, a mast with a slow red
+  light on the tallest, neon smeared on the wet street.
+- The spelling popup is wide enough for its own hint.
+- **The README has screenshots**, drawn by Grimoire itself.
+
 ## 0.4.6
 
 - **The garden is gone.** The pane under the tree has two views, the

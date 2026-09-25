@@ -512,10 +512,11 @@ fn draw_scene(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
             Line::from(
                 row.iter()
                     .map(|&(ch, ink)| {
-                        Span::styled(
-                            ch.to_string(),
-                            Style::default().fg(scene_colour(ink, t, night)),
-                        )
+                        let mut style = Style::default().fg(scene_colour(ink, t, night));
+                        if let Ink::Lit(_, on) = ink {
+                            style = style.bg(on);
+                        }
+                        Span::styled(ch.to_string(), style)
                     })
                     .collect::<Vec<_>>(),
             )
@@ -572,7 +573,7 @@ pub(crate) fn scene_colour(ink: Ink, t: &Theme, night: bool) -> ratatui::style::
         Ink::Trail => t.accent,
         Ink::Dim => t.dim,
         // The Visualizer picks its colours itself (crate::viz_view).
-        Ink::Paint(c) => c,
+        Ink::Paint(c) | Ink::Lit(c, _) => c,
     }
 }
 

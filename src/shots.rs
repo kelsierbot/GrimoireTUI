@@ -209,6 +209,24 @@ impl Shot {
         panic!("{needle:?} not on screen");
     }
 
+    fn text_rows(&self) -> Vec<String> {
+        let buf = self.term.backend().buffer();
+        (0..buf.area.height)
+            .map(|y| (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect())
+            .collect()
+    }
+
+    fn shows(&self, s: &str) -> bool {
+        self.text_rows().iter().any(|r| r.contains(s))
+    }
+
+    fn row_with(&self, s: &str) -> String {
+        self.text_rows()
+            .into_iter()
+            .find(|r| r.contains(s))
+            .unwrap_or_default()
+    }
+
     /// The frame as JSON: `crop` is the part to cut out for a grid, if any.
     fn json(&self, name: &str, crop: Option<Rect>) -> String {
         let buf = self.term.backend().buffer();
@@ -275,11 +293,41 @@ fn shots() {
     s.key(KeyCode::Tab, none);
     frames.push(s.json("desk", None));
 
-    // Rainbow, the Visualizer playing.
+    // Rainbow, mid-session.
     let mut s = Shot::new("rainbow", "Rainbow", w, h, false);
     s.key(KeyCode::Tab, none);
-    s.visualizer();
     frames.push(s.json("rainbow", None));
+
+    // Custom: Kanagawa's world with Synthwave '84's visualizer.
+    let mut s = Shot::new("custom", "Lost Forest", w, h, false);
+    s.key(KeyCode::F(9), none);
+    for _ in 0..24 {
+        if s.shows("● Custom…") {
+            break;
+        }
+        s.key(KeyCode::Up, none);
+    }
+    s.key(KeyCode::Enter, none);
+    assert!(
+        matches!(s.app.overlay, crate::app::Overlay::Custom { .. }),
+        "the custom editor is open"
+    );
+    for (row, want) in [("pomodoro", "Kanagawa"), ("visualizer", "Synthwave '84")] {
+        for _ in 0..16 {
+            if s.shows(&format!("▸ {row}")) {
+                break;
+            }
+            s.key(KeyCode::Down, none);
+        }
+        for _ in 0..24 {
+            if s.row_with(&format!("▸ {row}")).contains(want) {
+                break;
+            }
+            s.key(KeyCode::Right, none);
+        }
+    }
+    s.visualizer();
+    frames.push(s.json("custom", None));
 
     // Focus mode.
     let mut s = Shot::new("focus", "Kanagawa", w, h, false);

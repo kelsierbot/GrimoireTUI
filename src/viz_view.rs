@@ -69,7 +69,7 @@ impl Fill {
             Fill::Heavy => '┃',
             Fill::Led => '▄',
             Fill::Squares => '■',
-            Fill::Skyline => '▓',
+            Fill::Skyline => '█',
         }
     }
 
@@ -604,6 +604,26 @@ pub(crate) fn render(
                 &mut g, look, t, a, i, n, rows, levels[i], beat, &columns, &sample,
             );
         }
+        if look.paint == Paint::Skyline {
+            // The tallest tower carries a mast with a slow red light.
+            if let Some((i, &l)) = levels.iter().enumerate().max_by(|a, b| a.1.total_cmp(b.1)) {
+                let height = (l * rows as f32).round() as usize;
+                let x = columns(i).start + look.bar / 2;
+                if height > 0 && rows >= height + 2 && x < W {
+                    let roof = rows - height;
+                    g[roof - 1][x] = ('╻', Ink::Paint(t.dim));
+                    let on = ((a.clock * 1.2) as u32).is_multiple_of(2);
+                    g[roof - 2][x] = (
+                        '•',
+                        Ink::Paint(if on {
+                            t.warn
+                        } else {
+                            blend(t.warn, t.border, 0.6)
+                        }),
+                    );
+                }
+            }
+        }
         draw_sparks(&mut g, look, t, a, rows);
     }
     if !tall {
@@ -713,18 +733,31 @@ fn draw_bar(
             let h = (k as f32 + 0.5) / reach as f32;
             let tip = k == top;
             let mut colour = paint(look, t, i, n, h);
-            let mut ch = ch;
             if tip && let Paint::Duo(_, tip_role) = look.paint {
                 colour = tip_role.of(t);
             }
             if look.paint == Paint::Skyline {
-                // A lit window here and there, fixed to its building and floor.
-                if hash(i, k).is_multiple_of(3) {
-                    ch = '▪';
-                    colour = t.sun;
-                } else if tip {
-                    ch = '▀';
+                // Night-blue towers with windows set into them, and a neon
+                // roofline, each building keeping its own colour. Which
+                // windows are lit is fixed to building and floor, so the
+                // city holds still while the buildings rise and fall.
+                let wall = blend(t.border, t.accent, 0.22);
+                let neon = [t.accent, t.bloom, t.moon][hash(i, 7) % 3];
+                for (c, x) in columns(i).enumerate() {
+                    g[y][x] = if tip {
+                        ('▔', Ink::Lit(blend(neon, t.text, beat * 0.3), wall))
+                    } else if hash(i * 4 + c, k) % 5 < 2 {
+                        let glass = if hash(i + c, k * 3).is_multiple_of(3) {
+                            t.moon
+                        } else {
+                            t.sun
+                        };
+                        ('▪', Ink::Lit(blend(glass, t.text, beat * 0.35), wall))
+                    } else {
+                        ('█', Ink::Paint(wall))
+                    };
                 }
+                continue;
             }
             // The beat lifts every bar a little, the tips a little more.
             let glow = beat * 0.3 + if tip { 0.15 } else { 0.0 };
@@ -893,12 +926,12 @@ fn draw_floor(
         }
         Floor::Street => {
             for x in 0..W {
-                // The lights of the windows above, smeared on the wet road.
+                // Neon and windows smeared on the wet road.
                 let lit = level_at(x) > 0.3 && hash(x, 11).is_multiple_of(2);
                 let colour = if lit {
-                    blend(t.sun, t.border, 0.5)
+                    blend([t.moon, t.bloom, t.sun][hash(x, 3) % 3], t.border, 0.45)
                 } else {
-                    blend(t.border, t.moon, 0.3)
+                    blend(t.border, t.moon, 0.2)
                 };
                 g[rows][x] = ('▔', Ink::Paint(colour));
             }

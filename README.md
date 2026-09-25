@@ -6,6 +6,8 @@ A writing desk for novels that lives in your terminal. It knows what a
 manuscript is — parts, chapters, scenes, word targets — and it keeps every word
 of it as plain files you could read with `cat`.
 
+<p align="center"><img src="assets/screenshots/desk.png" alt="Grimoire in the Lost Forest theme: the book's outline under a spellbook, a scene being written, the Pomodoro forest and the music pane" width="100%"></p>
+
 ---
 
 ## Why it exists
@@ -165,6 +167,10 @@ heard of.
 
 ## Keys
 
+Everything is one `Esc` away:
+
+<p align="center"><img src="assets/screenshots/menu.png" alt="The Esc menu, in Tokyo Night" width="100%"></p>
+
 | Key | |
 |---|---|
 | `Esc` | **the menu**, from anywhere — new, rename, delete, export, the writing tools, settings, and *Quit Grimoire* at the bottom (`F1` works too). `Esc` again closes it; with a note or a scene open beside, the first `Esc` closes that |
@@ -222,6 +228,8 @@ heard of.
 - **A scene beside** (`v` in the tree): another scene, read-only, next to the
   one you're writing, for continuity.
 
+<p align="center"><img src="assets/screenshots/focus.png" alt="Focus mode in Kanagawa: just the prose, centred" width="100%"></p>
+
 ## Nothing is lost
 
 - **Changes made elsewhere are never overwritten.** Grimoire looks at the book
@@ -272,6 +280,8 @@ heard of.
   target. `p` filters to one POV; `s`, `e` and `v` edit the card, changing only
   that line of the scene's frontmatter.
 
+<p align="center"><img src="assets/screenshots/spelling.png" alt="Clicking a misspelt word in Rosé Pine: fixes under the word, and three ways to ignore it" width="100%"></p>
+
 ## The notebook and the prose
 
 Names from your notebook — note titles, their `aliases:`, the distinctive
@@ -312,6 +322,8 @@ each one live** as you move, so you pick by looking rather than by name.
 `Enter` keeps it, `Esc` puts back what you had. All of them are dark themes:
 Grimoire draws on your terminal's own background.
 
+<p align="center"><img src="assets/screenshots/rainbow.png" alt="The Rainbow theme: every accent a drifting spectrum, and a rainbow over the Pomodoro" width="100%"></p>
+
 **Rainbow** isn't a flat palette. Everything the others draw in their accent —
 the focused border, titles, the progress bar, the word count — is painted as a
 diagonal sweep of the spectrum that drifts round the wheel about once a
@@ -336,6 +348,8 @@ each borrow any preset's — Kanagawa's great wave with Synthwave '84's neon
 grid, say — cycled with `←` `→` and previewed in the pane under the tree as
 you go. Entering Custom from a preset starts from that preset's world and look.
 
+<p align="center"><img src="assets/screenshots/custom.png" alt="The custom theme editor: twelve swatches, then Kanagawa's Pomodoro and Synthwave '84's Visualizer" width="100%"></p>
+
 Saved to `~/.config/grimoire/theme.toml`. Presets store only their name, so
 they follow any future refinements; Custom stores every swatch.
 
@@ -359,19 +373,7 @@ the terminal's version anywhere else.
 
 Below the manuscript tree is a small world, and the world is the timer.
 
-```
-┌ writing · 18:04 ───────────┐
-│  ·                         │
-│         ☀        ·         │
-│    ▲      ▲       ▲        │
-│   ▲▲▲    ▲▲▲     ▲▲▲    ▲  │
-│  ▲▲▲▲▲  ▲▲▲▲▲   ▲▲▲▲▲  ▲▲▲ │
-│    ┃      ┃       ┃     ┃  │
-│   (\_/)            (\_/)   │
-│   (•ᴥ•)    ❀  ✿    (•ᴥ•)   │
-│▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔│
-└──◂ pomodoro visualizer ▸───┘
-```
+<p align="center"><img src="assets/screenshots/pomodoros.png" alt="Every theme's Pomodoro world, mid-session" width="100%"></p>
 
 The sun's **position is the clock**. `F2` starts it; it crosses the sky over a
 twenty-five minute writing session, so you read the time remaining off the
@@ -389,7 +391,7 @@ stone lantern for Rosé Pine; a ringed planet for One Dark; the desert for
 Monokai; the great wave for Kanagawa; hot-air balloons for Ayu Mirage; an owl,
 asleep until dark, for Night Owl; a reef for Palenight; a neon horizon for
 Synthwave '84, where the striped sun itself is the clock; a campsite for GitHub
-Dark; and a rainbow over the hills for Rainbow. All of them move slowly, if at
+Dark; and a rainbow of fine ribbons standing in two clouds for Rainbow. All of them move slowly, if at
 all — this sits beside someone writing.
 
 `←`/`→` switches the pane to the **Visualizer**, which listens to whatever the
@@ -399,9 +401,11 @@ Recording Only*), and on Linux through PipeWire's `pw-record` or PulseAudio's
 `parec` (set `GRIMOIRE_MONITOR=<sink>` to hear an output other than the
 default). It too is drawn in each theme's own style — meter segments for
 Gruvbox, pastel beads for Catppuccin, dotted frost over snowdrifts for Nord, a
-lit skyline for Tokyo Night, a rolling wave for Kanagawa, a synthwave grid, a
+neon skyline for Tokyo Night, a rolling wave for Kanagawa, a synthwave grid, a
 mirrored prism for Rainbow — and it always names the song that's playing, in
 its title or written along the bottom, cut to fit.
+
+<p align="center"><img src="assets/screenshots/visualizers.png" alt="Every theme's Visualizer, playing" width="100%"></p>
 
 ## Music
 
@@ -482,20 +486,30 @@ Limits: spellcheck is English only, and Spotify isn't supported on Windows.
 
 ```sh
 cargo build --release
-cargo test            # scene geometry and timer behaviour
+cargo test --workspace   # the book on disk, the desk frame by frame, every theme's world
 cargo install --path .
 ```
 
 ```
-src/main.rs      entry, event loop, key and mouse routing
-src/app.rs       state, focus, per-pane input
-src/project.rs   manuscript tree, frontmatter, scaffolding
-src/editor.rs    word-wrapping buffer with visual cursor movement
-src/scene.rs     the forest and the pomodoro
-src/theme.rs     presets, custom palette, load/save
-src/ui.rs        rendering
-src/music.rs     youtube-music API Server client
-site/            the landing page
+crates/grimoire-core/  the book on disk: project, editor, history, export, search, sync
+crates/grimoire-app/   services for the phone app over the same core
+apps/mobile/           the Android app (Tauri)
+src/main.rs            entry, event loop, key and mouse routing
+src/app.rs             state, focus, per-pane input; src/app/overlays/ one file per dialog
+src/ui.rs              rendering
+src/scene.rs           the Pomodoro timer; src/scenery.rs every theme's world
+src/visualizer.rs      audio capture and the analyser; src/viz_view.rs every theme's look
+src/theme.rs           presets, custom palette, load/save
+src/music/             one file per music source, plus setup
+site/                  the landing page
+```
+
+The screenshots in this README are drawn by Grimoire itself, from a sample
+book, then painted to PNG:
+
+```sh
+GRIMOIRE_SHOTS=/tmp/frames.json cargo test --locked shots -- --ignored
+python3 tools/screenshots.py /tmp/frames.json assets/screenshots   # Pillow + fontTools
 ```
 
 ### Releasing

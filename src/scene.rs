@@ -187,6 +187,8 @@ pub enum Ink {
     /// A colour chosen outright — the Visualizer paints its own
     /// (`crate::viz_view`), a look per theme.
     Paint(ratatui::style::Color),
+    /// A colour on a colour: a lit window set into a wall.
+    Lit(ratatui::style::Color, ratatui::style::Color),
 }
 
 pub type Cell = (char, Ink);
