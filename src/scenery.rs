@@ -1163,43 +1163,172 @@ fn campsite(g: &mut [Vec<Cell>], m: &Moment) {
     ground(g, '▔', Ink::Ground);
 }
 
-// ── Rainbow: the arc over the hills ──────────────────────────────────
+// ── Rainbow: a fine arc of five ribbons, standing in two clouds ──────
+
+/// The rainbow is drawn in braille, two dots across and four down per cell,
+/// so its bands curve smoothly instead of stepping. Dots are about square,
+/// so these are plain circles in dot space, centred on the ground's top edge.
+const DOTS_X: usize = W * 2;
+const ARC_CX: f64 = DOTS_X as f64 / 2.0;
+const ARC_CY: f64 = ((H - 1) * 4) as f64;
+/// Outer edge radius, the distance from one band to the next, and each
+/// band's thickness, all in dots: two-dot ribbons a cell apart.
+const ARC_R: f64 = 24.0;
+const ARC_PITCH: f64 = 4.0;
+const ARC_THICK: f64 = 2.0;
+const BANDS: u8 = 5;
+
+/// Braille dot `(col, row)` in a cell, as the bit Unicode gives it.
+fn dot_bit(col: usize, row: usize) -> u32 {
+    match (col, row) {
+        (0, 3) => 0x40,
+        (1, 3) => 0x80,
+        (0, r) => 1 << r,
+        (_, r) => 1 << (r + 3),
+    }
+}
+
+/// Which band a dot at (`x`, `y`) in dot space belongs to, if any.
+fn band_at(x: usize, y: usize) -> Option<u8> {
+    let r = (x as f64 + 0.5 - ARC_CX).hypot(y as f64 + 0.5 - ARC_CY);
+    let depth = ARC_R - r;
+    if depth < 0.0 {
+        return None;
+    }
+    let k = (depth / ARC_PITCH) as u8;
+    (k < BANDS && depth - f64::from(k) * ARC_PITCH < ARC_THICK).then_some(k)
+}
+
+/// A soft cloud: a few overlapping puffs, in dot space.
+fn in_cloud(x: f64, y: f64, at: f64) -> bool {
+    [(3.5, 29.0, 3.2), (7.5, 27.0, 4.2), (11.5, 29.5, 3.0)]
+        .iter()
+        .any(|&(px, py, r)| (x - px - at).hypot(y - py) <= r)
+}
 
 fn rainbow(g: &mut [Vec<Cell>], m: &Moment) {
-    // Bands by distance from a centre below the ground, allowing for cells
-    // being about twice as tall as they are wide: red outside to violet in.
-    let (cx, cy) = (13.5f64, 8.6f64);
-    for y in 2..8 {
-        for x in 0..W {
-            let dx = x as f64 + 0.5 - cx;
-            let dy = (y as f64 + 0.5 - cy) * 2.1;
-            let r = (dx * dx + dy * dy).sqrt();
-            let band = 13.4 - r;
-            if (0.0..5.0).contains(&band) {
-                g[y][x] = (
-                    '█',
-                    Ink::Band {
-                        n: band as u8,
-                        faint: m.night,
-                    },
-                );
+    // By day a light runs slowly along the outer band, left to right, then
+    // rests; its angle from the left foot, 0 to 180 degrees.
+    let run = (m.frame % 160) as f64 * 1.5;
+    for cy in 2..H - 1 {
+        for cx in 0..W {
+            let (mut bits, mut votes) = (0u32, [0u8; BANDS as usize]);
+            for col in 0..2 {
+                for row in 0..4 {
+                    if let Some(k) = band_at(cx * 2 + col, cy * 4 + row) {
+                        bits |= dot_bit(col, row);
+                        votes[k as usize] += 1;
+                    }
+                }
+            }
+            if bits == 0 {
+                continue;
+            }
+            // A cell shows one colour: the band with most dots in it.
+            let n = (0..BANDS)
+                .max_by_key(|&k| (votes[k as usize], BANDS - k))
+                .unwrap_or(0);
+            let angle = (ARC_CY - cy as f64 * 4.0 - 2.0)
+                .atan2(ARC_CX - cx as f64 * 2.0 - 1.0)
+                .to_degrees();
+            let glint = n == 0 && !m.night && !m.paused && (angle - run).abs() < 7.0;
+            let ch = char::from_u32(0x2800 + bits).unwrap_or(' ');
+            g[cy][cx] = (
+                ch,
+                Ink::Band {
+                    n,
+                    faint: m.night,
+                    glint,
+                },
+            );
+        }
+    }
+    // The feet stand in two clouds, which drift a dot or two.
+    for (left, seed) in [(0.0, 0u64), (DOTS_X as f64 - 15.0, 7)] {
+        let at = left + drift(m.frame, 20, seed, 0, 3) as f64;
+        for cy in H - 3..H - 1 {
+            for cx in 0..W {
+                let mut bits = 0u32;
+                for col in 0..2 {
+                    for row in 0..4 {
+                        let (x, y) = ((cx * 2 + col) as f64 + 0.5, (cy * 4 + row) as f64 + 0.5);
+                        if in_cloud(x, y, at) {
+                            bits |= dot_bit(col, row);
+                        }
+                    }
+                }
+                if bits != 0 {
+                    g[cy][cx] = (char::from_u32(0x2800 + bits).unwrap_or(' '), Ink::Cloud);
+                }
             }
         }
     }
-    // Hills over the rainbow's feet, and a cloud at each end.
-    art(
-        g,
-        0,
-        6,
-        &[
-            "▁▂▃▄▅▆▆▅▄▃▂▁      ▁▂▃▄▅▆▆▅▄▃▂",
-            "████████████▆▅▄▄▅▆███████████",
-        ],
-        |c| (c != ' ').then_some(Ink::Tree),
-    );
-    for x in [1i32, 22] {
-        let bob = (m.frame / 12 % 2) as i32;
-        draw(g, x + bob, 5, "▗▆▆▖", Ink::Cloud);
-    }
     ground(g, '▔', Ink::Ground);
+}
+
+#[cfg(test)]
+mod rainbow_tests {
+    use super::*;
+
+    fn moment(night: bool) -> Moment {
+        Moment {
+            night,
+            idle: false,
+            paused: false,
+            frame: 0,
+            progress: 0.5,
+        }
+    }
+
+    fn painted(night: bool) -> Vec<Vec<Cell>> {
+        let mut g = vec![vec![(' ', Ink::Sky); W]; H];
+        rainbow(&mut g, &moment(night));
+        g
+    }
+
+    #[test]
+    fn the_rainbow_is_fine_ribbons_not_blocks() {
+        let g = painted(false);
+        let bands: Vec<(char, u8)> = g
+            .iter()
+            .flatten()
+            .filter_map(|&(c, i)| match i {
+                Ink::Band { n, .. } => Some((c, n)),
+                _ => None,
+            })
+            .collect();
+        assert!(bands.len() > 40, "an arc, not a smudge");
+        assert!(
+            bands
+                .iter()
+                .all(|&(c, _)| ('\u{2801}'..='\u{28ff}').contains(&c)),
+            "drawn in braille dots, never solid blocks"
+        );
+        for k in 0..BANDS {
+            assert!(bands.iter().any(|&(_, n)| n == k), "band {k} is missing");
+        }
+    }
+
+    #[test]
+    fn red_is_outside_and_the_bands_nest_down_the_middle() {
+        let g = painted(false);
+        let mid = W / 2;
+        let down: Vec<u8> = (0..H)
+            .filter_map(|y| match g[y][mid].1 {
+                Ink::Band { n, .. } => Some(n),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(down.first(), Some(&0), "red on top");
+        assert!(down.windows(2).all(|w| w[0] < w[1]), "outside in: {down:?}");
+    }
+
+    #[test]
+    fn night_dims_it_and_puts_the_light_out() {
+        let g = painted(true);
+        assert!(g.iter().flatten().all(|&(_, i)| match i {
+            Ink::Band { faint, glint, .. } => faint && !glint,
+            _ => true,
+        }));
+    }
 }

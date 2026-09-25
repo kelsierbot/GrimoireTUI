@@ -159,10 +159,12 @@ pub enum Ink {
     /// Something that glows through the theme's greens to its pinks — the
     /// aurora, a jellyfish. 0 is foliage, 255 is bloom.
     Glow(u8),
-    /// One band of a rainbow, 0 (outside, red) to 4 (inside); faint at night.
+    /// One band of a rainbow, 0 (outside, red) to 4 (inside, blue-violet);
+    /// faint at night. `glint` is the light running along it.
     Band {
         n: u8,
         faint: bool,
+        glint: bool,
     },
     /// The theme's lead colour, where a world wants it.
     Accent,
