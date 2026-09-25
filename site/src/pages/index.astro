@@ -21,6 +21,7 @@ const nav = [
   ]},
   { group: 'get it', items: [
     { id: 'install', label: 'install',      title: 'install' },
+    { id: 'learn',   label: 'teach & learn', title: 'teach & learn' },
     { id: 'donate',  label: 'donate',       title: 'donate' },
     { id: 'license', label: 'license',      title: 'license' },
     { id: 'status',  label: 'status',       title: 'status' },
@@ -89,6 +90,7 @@ const DEFAULT_THEME = 'Rainbow';
           <button class="theme-btn" id="theme-btn" type="button" aria-haspopup="dialog" title="Change the theme (t)">
             <span class="swatch" aria-hidden="true"></span> theme · <span class="rb" id="theme-name">{DEFAULT_THEME}</span>
           </button>
+          <a href="/learn/" class="learn-link">learn</a>
           <a href={REPO}>github</a>
         </span>
       </header>
@@ -399,6 +401,23 @@ const DEFAULT_THEME = 'Rainbow';
               Linux needs glibc 2.35+ and ALSA's audio library, which every desktop distro already has.
               PDFs need LibreOffice.
             </p>
+          </section>
+
+          <section id="learn" role="tabpanel" aria-labelledby="tab-learn">
+            <h2>teach &amp; learn</h2>
+            <p>
+              <strong>A Week with Grimoire</strong> is a free, five-day curriculum that takes a class
+              from "what's a terminal?" to a finished short story in a real manuscript.
+            </p>
+            <ul>
+              <li><a href="/learn/teacher/">the teacher guide</a>: setup, a minute-by-minute plan for each day, what to say, what tends to go wrong, exit tickets and a rubric</li>
+              <li><a href="/learn/student/">the student workbook</a>: a handout for every day, a key card, a story planner, scene cards and a certificate</li>
+            </ul>
+            <p>
+              Every page prints neatly as a handout. It's free to use, copy and adapt, and you never
+              have to pay for it; if it helps your class, a donation is appreciated.
+            </p>
+            <p><a href="/learn/">Open the curriculum →</a></p>
           </section>
 
           <section id="donate" role="tabpanel" aria-labelledby="tab-donate">

@@ -1,0 +1,560 @@
+---
+import Learn from '../../layouts/Learn.astro';
+import KeyCard from '../../components/KeyCard.astro';
+
+const toc = [
+  ['glance', 'The week at a glance'],
+  ['before', 'Before the week'],
+  ['day-1', 'Day 1 · Open the book'],
+  ['day-2', 'Day 2 · Build the bones'],
+  ['day-3', 'Day 3 · Draft'],
+  ['day-4', 'Day 4 · Revise'],
+  ['day-5', 'Day 5 · Publish'],
+  ['rubric', 'Rubric'],
+  ['help', 'When things go wrong'],
+  ['adapt', 'Adapting the week'],
+  ['standards', 'Standards'],
+];
+---
+
+<Learn
+  title="Teacher guide · A Week with Grimoire"
+  description="A free five-day teacher guide for Grimoire, the terminal writing desk: setup, daily plans, scripts, troubleshooting, exit tickets and a rubric. Ready to print."
+  path="/learn/teacher/"
+  kind="teacher"
+>
+  <main>
+    <section class="hero">
+      <p class="eyebrow">A Week with Grimoire · teacher guide</p>
+      <h1>Teach a week of <span class="rb">writing</span></h1>
+      <p class="lede">
+        Everything you need to run five lessons: setup, a plan for each day, what to say, what to
+        show, and what to do when a laptop has other ideas.
+      </p>
+      <div class="btn-row no-print">
+        <button class="btn primary" data-print="all"><span class="ico" aria-hidden="true">⎙</span> Print the whole guide</button>
+        <a class="btn" href="/learn/student/"><span class="ico" aria-hidden="true">✎</span> Student workbook</a>
+      </div>
+    </section>
+
+    <div class="doc-wrap">
+      <aside class="toc no-print" aria-label="On this page">
+        <p>On this page</p>
+        <ol>{toc.map(([id, label]) => <li><a href={`#${id}`}>{label}</a></li>)}</ol>
+        <button class="btn small" data-print="all">⎙ Print everything</button>
+      </aside>
+
+      <div class="doc">
+        <section id="glance" class="block" data-printable>
+          <h2>The week at a glance</h2>
+          <p class="intro">
+            Over five days, each student writes a short story (about 1,500 to 2,500 words, though
+            you can pick any length), builds its outline, drafts it in timed sprints, revises it with
+            a partner, and compiles it into a manuscript in the standard format that agents and
+            editors ask for. Along the way they learn a tool that keeps their writing in plain files
+            they own.
+          </p>
+          <div class="table-wrap">
+            <table class="table">
+              <thead><tr><th>Day</th><th>Students learn to</th><th>By the end they have</th></tr></thead>
+              <tbody>
+                <tr><td><strong>1</strong> Open the book</td><td>open a terminal, make a book, move around the desk, write and quit</td><td>a book of their own and a first freewrite</td></tr>
+                <tr><td><strong>2</strong> Build the bones</td><td>plan in three movements, shape the outline, use the corkboard</td><td>a story plan and a scene card for every scene</td></tr>
+                <tr><td><strong>3</strong> Draft</td><td>run sprints, write in focus mode, leave notes and TKs</td><td>a messy, brave first draft of most of the story</td></tr>
+                <tr><td><strong>4</strong> Revise</td><td>clear notes, fix spelling and names, trade feedback, read history</td><td>a revised draft and a partner's notes</td></tr>
+                <tr><td><strong>5</strong> Publish</td><td>add author details, export, read as a reader, reflect</td><td>a finished manuscript and a certificate</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="note tip">
+            <span class="label">Why a terminal?</span>
+            <p>
+              It's calm. There are no tabs, notifications or fonts to fiddle with, only the words and
+              the shape of the book. Students also meet a real tool that professionals use every day,
+              and they learn that their work is a folder of files they can open with anything.
+            </p>
+          </div>
+        </section>
+
+        <section id="before" class="block page" data-printable>
+          <h2>Before the week</h2>
+          <p>Give yourself about half an hour, a few days ahead. Most of it is a practice run.</p>
+
+          <h3>1. Install Grimoire <span class="tag">every computer</span></h3>
+          <p>Open a terminal and paste one line. It installs for the current user, so most machines won't ask for an administrator password.</p>
+          <p><strong>macOS and Linux</strong> (Terminal on a Mac, any terminal on Linux):</p>
+          <pre class="cmd"><code>curl --proto '=https' --tlsv1.2 -LsSf https://github.com/kelsierbot/GrimoireTUI/releases/latest/download/grimoire-tui-installer.sh | sh</code></pre>
+          <p><strong>Windows</strong> (Windows Terminal or PowerShell):</p>
+          <pre class="cmd"><code>powershell -ExecutionPolicy Bypass -c "irm https://github.com/kelsierbot/GrimoireTUI/releases/latest/download/grimoire-tui-installer.ps1 | iex"</code></pre>
+          <p>Then <strong>open a new terminal window</strong> and check it worked:</p>
+          <pre class="cmd"><code>grimoire --version</code></pre>
+          <p>It should answer with a version number and "made by Catfinity Studios".</p>
+
+          <h3>2. Do a practice run <span class="tag">15 minutes</span></h3>
+          <ul class="check">
+            <li>Make a test book: <code>grimoire new ~/Documents/practice</code>, then open it with <code>grimoire ~/Documents/practice</code>.</li>
+            <li>Walk through the Day 1 student handout yourself. You'll spot anything your machines do differently.</li>
+            <li>Try <kbd>F1</kbd>, <kbd>F2</kbd> and <kbd>F9</kbd>. On some laptops the F-keys need <kbd>Fn</kbd> held down; note which ones do.</li>
+            <li>Export once (<kbd>Esc</kbd> › <em>Export…</em> › <kbd>x</kbd>) and open the Word file, so Day 5 holds no surprises.</li>
+          </ul>
+
+          <h3>3. Decide a few things</h3>
+          <ul>
+            <li><strong>Story length.</strong> 1,500 to 2,500 words suits most high school classes. Younger writers might aim for 800 to 1,200.</li>
+            <li><strong>Where books live.</strong> Each student's Documents folder is simplest. On shared computers, put the student's name in the folder: <code>~/Documents/story-avery</code>. School cloud folders (Google Drive, OneDrive, Dropbox) are fine too: Grimoire never writes over a copy made by another device.</li>
+            <li><strong>PDFs or not.</strong> Word files always work, and Google Docs opens them. For PDFs, install LibreOffice (free) on the machines.</li>
+            <li><strong>Music.</strong> Grimoire can play music, but it's off until someone turns it on. Leave it off in class.</li>
+          </ul>
+
+          <h3>4. Print</h3>
+          <p>
+            Print each day's student handout, plus the key card and the story planner for Day 1 and 2.
+            The workbook's <em>Print this day</em> buttons make single handouts.
+          </p>
+
+          <div class="note tip">
+            <span class="label">Good to know</span>
+            <p>
+              Grimoire needs no account, collects nothing, and works without the internet once it's
+              installed. Everything a student writes stays in their book's folder as plain text.
+            </p>
+          </div>
+          <div class="note tip">
+            <span class="label">Accessibility</span>
+            <p>
+              Everything works from the keyboard, and the mouse works too. Make text bigger with the
+              terminal's own zoom (<kbd>Ctrl</kbd> <kbd>+</kbd>, or <kbd>Cmd</kbd> <kbd>+</kbd> on a
+              Mac). Nineteen themes offer different contrasts, focus mode hides everything but the
+              words, and <em>Line width</em> in Settings narrows or widens the text.
+            </p>
+          </div>
+        </section>
+
+        <!-- DAY 1 -->
+        <section id="day-1" class="day" data-printable>
+          <div class="day-head">
+            <span class="day-num" aria-hidden="true">1</span>
+            <span class="day-kicker">Day 1 · setup, the desk, first words</span>
+            <h2>Open the book</h2>
+          </div>
+          <div class="day-tools no-print">
+            <button class="btn small" data-print="day-1">⎙ Print this day</button>
+            <a class="btn small" href="/learn/student/#day-1">Student handout →</a>
+          </div>
+
+          <div class="glance">
+            <div><span class="k">Goal</span><p>Every student makes a book of their own, finds their way around, writes a first scene, and sees that it saves itself.</p></div>
+            <div><span class="k">You'll need</span><ul><li>Grimoire installed</li><li>Day 1 handout + key card</li><li>a projector</li></ul></div>
+            <div><span class="k">Words to know</span><p>terminal, command, outline, scene, pane, autosave</p></div>
+          </div>
+
+          <h3>The plan <span class="tag">50 minutes</span></h3>
+          <table class="timeline">
+            <thead><tr><th>Min</th><th>What</th><th>How</th></tr></thead>
+            <tbody>
+              <tr><td>0–5</td><td>Warm-up</td><td>Ask: where does your writing live? In an app, a website, a notebook? Most apps keep your work somewhere you can't see. This week, you can.</td></tr>
+              <tr><td>5–12</td><td>Meet the terminal</td><td>Open a terminal on the projector. It's a window where you type commands instead of clicking. Everyone types <code>grimoire --version</code> and presses <kbd>Enter</kbd>.</td></tr>
+              <tr><td>12–20</td><td>Make a book</td><td>Together: <code>grimoire new ~/Documents/my-story</code>, then <code>grimoire ~/Documents/my-story</code>. The book opens on <em>Novel Format</em>, a short guide to how it's laid out. Read it aloud.</td></tr>
+              <tr><td>20–28</td><td>Tour the desk</td><td>Point out the outline (left), the page (right), the Pomodoro (under the outline) and the status bar. Show <kbd>Tab</kbd>, <kbd>Esc</kbd> for the menu, <kbd>F1</kbd> for help, and <kbd>↑</kbd> <kbd>↓</kbd> <kbd>Enter</kbd> in the outline.</td></tr>
+              <tr><td>28–40</td><td>First words</td><td>Everyone opens <em>Chapter One › Scene One</em>, presses <kbd>Tab</kbd> and freewrites for ten minutes: <em>someone finds a door that shouldn't be open.</em></td></tr>
+              <tr><td>40–45</td><td>Scavenger hunt</td><td>The checklist on the handout: find Quit in the menu, read a help topic, try <kbd>Ctrl-K</kbd>, find the Trash, pick a theme.</td></tr>
+              <tr><td>45–48</td><td>Quit and come back</td><td><kbd>Ctrl-Q</kbd>, then open the book again. It opens right where they left off. If there's time, open the book's folder and show the scene as a plain <code>.md</code> file.</td></tr>
+              <tr><td>48–50</td><td>Exit ticket</td><td>Four quick questions on the handout.</td></tr>
+            </tbody>
+          </table>
+
+          <h3>What to say</h3>
+          <div class="note say">
+            <span class="label">Say</span>
+            <p>"You never have to save. Watch the bottom of the screen after you stop typing: it says saved. Your scene is a real file now, in a folder with your name on it."</p>
+          </div>
+          <div class="note say">
+            <span class="label">Say</span>
+            <p>"Lost? Press Escape. The menu has everything, all the way down to Quit. Press Escape again and you're back where you were."</p>
+          </div>
+
+          <h3>Demo, step by step</h3>
+          <ol class="steps">
+            <li>Open a terminal. On Windows the command is <code>grimoire new $HOME\Documents\my-story</code>; the <code>~</code> form works on macOS and Linux.</li>
+            <li>After <code>grimoire new</code>, Grimoire prints the command to open the book. Type it.</li>
+            <li>In the outline, move down to <em>Manuscript</em> and open <em>Part One › Chapter One › Scene One</em> with <kbd>Enter</kbd>.</li>
+            <li>Press <kbd>Tab</kbd> to move to the page. The empty page says <em>Start writing</em>. Type a sentence and wait for <em>saved</em>.</li>
+            <li>Press <kbd>Esc</kbd> to show the menu, then <kbd>Esc</kbd> to close it. Press <kbd>F1</kbd> for help, and <kbd>F1</kbd> to close it.</li>
+          </ol>
+
+          <h3>Watch for</h3>
+          <div class="note watch">
+            <span class="label">Common hiccups</span>
+            <ul>
+              <li><strong>"command not found"</strong>: the terminal was open before installing. Open a new window.</li>
+              <li><strong>Typing does nothing on the page</strong>: the outline has the focus. Press <kbd>Tab</kbd> or click the page.</li>
+              <li><strong>F-keys open the laptop's own controls</strong>: hold <kbd>Fn</kbd>, or use <kbd>Esc</kbd> › <em>Help…</em> instead of <kbd>F1</kbd>.</li>
+              <li><strong><kbd>?</kbd> types a question mark</strong>: on the page it's meant to. Use <kbd>F1</kbd> there.</li>
+              <li><strong>A small, crowded window</strong>: make the terminal bigger or full screen; Grimoire tidies itself up to fit.</li>
+            </ul>
+          </div>
+
+          <h3>Support and stretch</h3>
+          <div class="glance">
+            <div><span class="k">Support</span><ul><li>Pair a confident student with a nervous one.</li><li>Make the book ahead of time for anyone who struggles with commands.</li><li>Hand out the key card on day one.</li></ul></div>
+            <div><span class="k">Stretch</span><ul><li>Try all nineteen themes with <kbd>F9</kbd>.</li><li>Use <kbd>Ctrl-K</kbd> to find something without the menu.</li><li>Read the <em>On disk</em> help topic.</li></ul></div>
+          </div>
+
+          <h3>Exit ticket, with answers</h3>
+          <ol>
+            <li>How do you open the menu? <em>Esc, from anywhere.</em></li>
+            <li>Name two parts of the desk. <em>The outline, the page, the Pomodoro, the status bar.</em></li>
+            <li>When is your writing saved? <em>Automatically, a couple of seconds after you stop typing.</em></li>
+            <li>How do you quit? <em>Ctrl-Q, or Quit Grimoire at the bottom of the menu.</em></li>
+          </ol>
+        </section>
+
+        <!-- DAY 2 -->
+        <section id="day-2" class="day" data-printable>
+          <div class="day-head">
+            <span class="day-num" aria-hidden="true">2</span>
+            <span class="day-kicker">Day 2 · outline, structure, scene cards</span>
+            <h2>Build the bones</h2>
+          </div>
+          <div class="day-tools no-print">
+            <button class="btn small" data-print="day-2">⎙ Print this day</button>
+            <a class="btn small" href="/learn/student/#day-2">Student handout →</a>
+          </div>
+
+          <div class="glance">
+            <div><span class="k">Goal</span><p>Students plan a story in three movements, shape the outline to match, and write a card for every scene.</p></div>
+            <div><span class="k">You'll need</span><ul><li>Day 2 handout</li><li>the story planner and scene cards</li></ul></div>
+            <div><span class="k">Words to know</span><p>part, chapter, scene, synopsis, point of view (POV), status, corkboard</p></div>
+          </div>
+
+          <h3>The plan <span class="tag">50 minutes</span></h3>
+          <table class="timeline">
+            <thead><tr><th>Min</th><th>What</th><th>How</th></tr></thead>
+            <tbody>
+              <tr><td>0–5</td><td>Warm-up</td><td>Pick any story everyone knows and tell it in three sentences: a beginning, a middle and an end.</td></tr>
+              <tr><td>5–13</td><td>Three movements</td><td><strong>Beginning</strong>: who wants what, and where. <strong>Middle</strong>: what gets in the way, and how it gets worse. <strong>End</strong>: what changes. Students fill in the story planner.</td></tr>
+              <tr><td>13–25</td><td>Shape the outline</td><td>A new book has three parts; a short story needs one. Select <em>Part Two</em>, press <kbd>d</kbd>, then <kbd>y</kbd>: it goes to the Trash. Same for <em>Part Three</em>. Show <kbd>Ctrl-Z</kbd> bringing one back, then delete it again. Chapters One, Two and Three become the three movements; rename them with <kbd>r</kbd> if students like.</td></tr>
+              <tr><td>25–33</td><td>Under the hood</td><td><kbd>Ctrl-Q</kbd> to quit. Open the book's folder and open <code>novel.toml</code> in a plain text editor. Change <code>title</code>, <code>target_words</code> (say 2000) and <code>daily_target</code> (say 500). Save, reopen Grimoire, and the status bar shows the new target.</td></tr>
+              <tr><td>33–45</td><td>Scene cards</td><td>In the outline press <kbd>b</kbd> for the corkboard. On each card: <kbd>e</kbd> for a one-sentence synopsis, <kbd>v</kbd> for whose eyes we're behind, <kbd>s</kbd> to set the status to <em>outline</em>. Aim for two or three scenes per chapter; <kbd>n</kbd> in the outline adds one.</td></tr>
+              <tr><td>45–48</td><td>Pitch</td><td>Partners walk each other through their corkboard in one minute.</td></tr>
+              <tr><td>48–50</td><td>Exit ticket</td><td>On the handout.</td></tr>
+            </tbody>
+          </table>
+
+          <h3>What to say</h3>
+          <div class="note say">
+            <span class="label">Say</span>
+            <p>"Your outline is your folders. A chapter is a folder, a scene is a file. When you rename a scene here, you rename the file. There's no secret database anywhere."</p>
+          </div>
+          <div class="note say">
+            <span class="label">Say</span>
+            <p>"Deleting is safe. It goes to the Trash at the bottom of the outline, and Ctrl-Z brings it back to exactly where it was."</p>
+          </div>
+
+          <h3>Watch for</h3>
+          <div class="note watch">
+            <span class="label">Common hiccups</span>
+            <ul>
+              <li><strong>Leftover empty chapters</strong> (Four to Nine): they can stay. Empty chapters and scenes are left out when the story is exported.</li>
+              <li><strong>A word processor opens <code>novel.toml</code></strong> and tries to format it: use a plain editor (TextEdit is fine on a Mac, Notepad on Windows, Text Editor on Linux).</li>
+              <li><strong>Each scene says 1,500 words</strong>: that's the scene's suggested target, set in its file. For a short story it's only a suggestion, so tell students to aim for a few hundred words per scene.</li>
+              <li><strong>Typing lands in the prose instead of a card</strong>: press <kbd>e</kbd> or <kbd>v</kbd> first, type, then <kbd>Enter</kbd> to keep it.</li>
+            </ul>
+          </div>
+
+          <h3>Support and stretch</h3>
+          <div class="glance">
+            <div><span class="k">Support</span><ul><li>Do the <code>novel.toml</code> step for them beforehand, or skip it.</li><li>Fill scene cards on paper first, then type them in.</li></ul></div>
+            <div><span class="k">Stretch</span><ul><li>Move scenes with <kbd>K</kbd> and <kbd>J</kbd> to try a different order.</li><li>Press <kbd>p</kbd> on the corkboard to see one character's scenes lit up.</li></ul></div>
+          </div>
+
+          <h3>Exit ticket, with answers</h3>
+          <ol>
+            <li>What is a chapter, on disk? <em>A folder. A scene is a file inside it.</em></li>
+            <li>You deleted the wrong thing. What now? <em>Ctrl-Z in the outline, or find it in the Trash.</em></li>
+            <li>What goes on a scene card? <em>A synopsis, the point of view, a status, and words against a target.</em></li>
+          </ol>
+        </section>
+
+        <!-- DAY 3 -->
+        <section id="day-3" class="day" data-printable>
+          <div class="day-head">
+            <span class="day-num" aria-hidden="true">3</span>
+            <span class="day-kicker">Day 3 · sprints, focus mode, notes</span>
+            <h2>Draft</h2>
+          </div>
+          <div class="day-tools no-print">
+            <button class="btn small" data-print="day-3">⎙ Print this day</button>
+            <a class="btn small" href="/learn/student/#day-3">Student handout →</a>
+          </div>
+
+          <div class="glance">
+            <div><span class="k">Goal</span><p>Students draft most of the story without stopping to fix it, using a sprint, focus mode, and notes and TKs.</p></div>
+            <div><span class="k">You'll need</span><ul><li>Day 3 handout with the sprint log</li><li>a quiet room for twenty minutes</li></ul></div>
+            <div><span class="k">Words to know</span><p>draft, sprint, Pomodoro, focus mode, note, TK ("to come")</p></div>
+          </div>
+
+          <h3>The plan <span class="tag">50 minutes</span></h3>
+          <table class="timeline">
+            <thead><tr><th>Min</th><th>What</th><th>How</th></tr></thead>
+            <tbody>
+              <tr><td>0–5</td><td>Permission slip</td><td>A first draft is allowed to be bad. Today's rule: don't fix, don't delete. Mark it and keep going.</td></tr>
+              <tr><td>5–12</td><td>Show the tools</td><td>Demo <kbd>Esc</kbd> › <em>Start a sprint…</em>, then <kbd>Ctrl-D</kbd> for focus mode. Type a note between <code>%%</code> marks and a <code>TK</code>, and show they're dimmed or bold, and don't count as words.</td></tr>
+              <tr><td>12–32</td><td>Sprint one</td><td>Everyone starts a sprint: about 300 words in 20 minutes (<kbd>Tab</kbd> switches between the two numbers, <kbd>Enter</kbd> starts). The status bar counts the sprint. The Pomodoro's sun crosses the sky as the time goes.</td></tr>
+              <tr><td>32–37</td><td>Stretch and share</td><td>Stand up. Read one sentence you like to your partner, no explaining.</td></tr>
+              <tr><td>37–47</td><td>Sprint two</td><td>Ten more minutes, into Chapter Two. Log both sprints on the handout.</td></tr>
+              <tr><td>47–50</td><td>Note hunt</td><td><kbd>Ctrl-T</kbd> lists every note and TK. Count them; they're tomorrow's to-do list. Exit ticket.</td></tr>
+            </tbody>
+          </table>
+
+          <h3>What to say</h3>
+          <div class="note say">
+            <span class="label">Say</span>
+            <p>"Don't know the name of the town? Type TK and keep going. Want to remember to fix something? Put it between two pairs of percent signs. Your notes stay in your file but never reach the story."</p>
+          </div>
+
+          <h3>Watch for</h3>
+          <div class="note watch">
+            <span class="label">Common hiccups</span>
+            <ul>
+              <li><strong>Students editing instead of drafting</strong>: point at the sprint count and remind them of the rule.</li>
+              <li><strong>Lost in focus mode</strong>: <kbd>Ctrl-D</kbd> again brings the outline back. <kbd>Esc</kbd> still opens the menu.</li>
+              <li><strong>Stopping a sprint early</strong>: <kbd>F3</kbd>, or <em>Stop the sprint</em> in the menu.</li>
+              <li><strong>A scene is full</strong>: move to the next scene in the outline, or press <kbd>n</kbd> for a new one.</li>
+            </ul>
+          </div>
+
+          <h3>Support and stretch</h3>
+          <div class="glance">
+            <div><span class="k">Support</span><ul><li>Lower the sprint goal to 150 words.</li><li>Offer the sentence starters on the handout.</li></ul></div>
+            <div><span class="k">Stretch</span><ul><li>Raise the goal, or run a third sprint at home.</li><li>Try typewriter scrolling (on by default in focus mode) and a different <em>Line width</em> in Settings.</li></ul></div>
+          </div>
+
+          <h3>Exit ticket, with answers</h3>
+          <ol>
+            <li>What does TK mean? <em>"To come": something to fill in later.</em></li>
+            <li>Do notes count toward your word count? <em>No, and they never reach the finished story.</em></li>
+            <li>How do you see every note and TK at once? <em>Ctrl-T.</em></li>
+          </ol>
+        </section>
+
+        <!-- DAY 4 -->
+        <section id="day-4" class="day" data-printable>
+          <div class="day-head">
+            <span class="day-num" aria-hidden="true">4</span>
+            <span class="day-kicker">Day 4 · notes, spelling, names, feedback, history</span>
+            <h2>Revise</h2>
+          </div>
+          <div class="day-tools no-print">
+            <button class="btn small" data-print="day-4">⎙ Print this day</button>
+            <a class="btn small" href="/learn/student/#day-4">Student handout →</a>
+          </div>
+
+          <div class="glance">
+            <div><span class="k">Goal</span><p>Students finish the draft, then revise with purpose: clear their notes, fix spelling and names, catch repeated words, and act on a partner's feedback.</p></div>
+            <div><span class="k">You'll need</span><ul><li>Day 4 handout with the revision checklist and peer form</li></ul></div>
+            <div><span class="k">Words to know</span><p>revision, editing, notebook, echo words, history</p></div>
+          </div>
+
+          <h3>The plan <span class="tag">50 minutes</span></h3>
+          <table class="timeline">
+            <thead><tr><th>Min</th><th>What</th><th>How</th></tr></thead>
+            <tbody>
+              <tr><td>0–10</td><td>Finish the draft</td><td>A short sprint to reach the end. An ending with TKs in it still counts.</td></tr>
+              <tr><td>10–15</td><td>Revise vs edit</td><td>Revision is big: does the story work? Editing is small: is each sentence right? Today does both.</td></tr>
+              <tr><td>15–22</td><td>Characters</td><td>In the outline's <em>Characters</em> section, <kbd>n</kbd> makes a note; name it after the main character. Their name now lights up in the story, and <kbd>Ctrl-O</kbd> on it opens the note beside the scene, with every scene they appear in.</td></tr>
+              <tr><td>22–32</td><td>The clean-up pass</td><td><kbd>Ctrl-T</kbd> to work through notes and TKs. Click underlined words (or <kbd>F8</kbd>) for spelling. <kbd>Ctrl-K</kbd>, type <em>names</em>, and run <em>Check names for near-miss spellings</em>. <kbd>Ctrl-K</kbd>, type <em>echo</em>, and turn on echo words.</td></tr>
+              <tr><td>32–44</td><td>Partner notes</td><td>Partners swap seats and read one scene. They leave feedback as notes in the scene: <code>%% Sam: love this line %%</code>. Notes never reach the story, so nothing they type can spoil it. Back in their seats, <kbd>Ctrl-T</kbd> finds every note.</td></tr>
+              <tr><td>44–48</td><td>History</td><td>In the outline, <kbd>H</kbd> on a scene shows its earlier versions and what changed. Set finished scenes to <em>revised</em> on the corkboard with <kbd>s</kbd>.</td></tr>
+              <tr><td>48–50</td><td>Exit ticket</td><td>On the handout.</td></tr>
+            </tbody>
+          </table>
+
+          <h3>What to say</h3>
+          <div class="note say">
+            <span class="label">Say</span>
+            <p>"Your partner's notes live right inside your scene, but they'll never show up in your story. Read them, decide, then delete the note or keep it until you've fixed the line."</p>
+          </div>
+
+          <h3>Watch for</h3>
+          <div class="note watch">
+            <span class="label">Common hiccups</span>
+            <ul>
+              <li><strong>A made-up name is underlined</strong>: add a note for the character, or choose <em>Always ignore: this book</em> under the suggestions.</li>
+              <li><strong>A partner typed outside the <code>%%</code> marks</strong>: <kbd>Ctrl-Z</kbd> undoes it, a word at a time.</li>
+              <li><strong>Restored an old version by mistake</strong>: restoring is undoable, and today's words go into history first.</li>
+            </ul>
+          </div>
+
+          <h3>Support and stretch</h3>
+          <div class="glance">
+            <div><span class="k">Support</span><ul><li>Focus on one pass only: TKs and spelling.</li><li>Use the peer form on paper instead of notes on screen.</li></ul></div>
+            <div><span class="k">Stretch</span><ul><li>Show a scene beside the one you're revising with <kbd>v</kbd> in the outline.</li><li>Use <em>Next scene still in draft</em> from the menu to work through the story in order.</li></ul></div>
+          </div>
+
+          <h3>Exit ticket, with answers</h3>
+          <ol>
+            <li>What's the difference between revising and editing? <em>Revising asks if the story works; editing fixes sentences and words.</em></li>
+            <li>How can a partner leave feedback that never reaches your story? <em>As a note between %% marks.</em></li>
+            <li>Where can you see how a scene has changed? <em>Its history: H in the outline.</em></li>
+          </ol>
+        </section>
+
+        <!-- DAY 5 -->
+        <section id="day-5" class="day" data-printable>
+          <div class="day-head">
+            <span class="day-num" aria-hidden="true">5</span>
+            <span class="day-kicker">Day 5 · manuscript, reading, reflection</span>
+            <h2>Publish</h2>
+          </div>
+          <div class="day-tools no-print">
+            <button class="btn small" data-print="day-5">⎙ Print this day</button>
+            <a class="btn small" href="/learn/student/#day-5">Student handout →</a>
+          </div>
+
+          <div class="glance">
+            <div><span class="k">Goal</span><p>Students compile a finished manuscript, read a classmate's as a reader would, and reflect on the week.</p></div>
+            <div><span class="k">You'll need</span><ul><li>Day 5 handout and certificates</li><li>LibreOffice, if you want PDFs</li></ul></div>
+            <div><span class="k">Words to know</span><p>manuscript, byline, export, standard manuscript format</p></div>
+          </div>
+
+          <h3>The plan <span class="tag">50 minutes</span></h3>
+          <table class="timeline">
+            <thead><tr><th>Min</th><th>What</th><th>How</th></tr></thead>
+            <tbody>
+              <tr><td>0–8</td><td>Last look</td><td><kbd>Ctrl-T</kbd> should be nearly empty. Check the word count in the status bar. Read the ending one more time.</td></tr>
+              <tr><td>8–13</td><td>Author details</td><td><kbd>Esc</kbd> › <em>Settings…</em> › <em>Author details…</em>. The byline is the name on the story. <kbd>↑</kbd> <kbd>↓</kbd> move between fields, <kbd>Esc</kbd> saves.</td></tr>
+              <tr><td>13–23</td><td>Export</td><td><kbd>Esc</kbd> › <em>Export…</em>. Make sure <em>Word manuscript</em> is ticked (and <em>PDF</em>, if LibreOffice is installed); <kbd>Space</kbd> ticks and unticks. Then press <kbd>x</kbd>. The files land in the book's <code>exports</code> folder. Open one together: the title page with the word count, the name and title at the top of each page, a <code>#</code> between scenes, and END.</td></tr>
+              <tr><td>23–33</td><td>Reader's eyes</td><td>Swap and read a partner's manuscript. One compliment, one question, on the handout.</td></tr>
+              <tr><td>33–38</td><td>Make it yours</td><td><kbd>F9</kbd> and pick a theme to celebrate. The brave can try <em>Custom…</em>.</td></tr>
+              <tr><td>38–45</td><td>Showcase</td><td>Two or three volunteers read their first paragraph aloud.</td></tr>
+              <tr><td>45–50</td><td>Look back</td><td>The reflection on the handout, and certificates.</td></tr>
+            </tbody>
+          </table>
+
+          <div class="note watch">
+            <span class="label">Keep students safe</span>
+            <p>
+              Author details can hold an address and phone number for real submissions. In class, a
+              name (or pen name) and the class name are plenty. Tell students to leave the rest blank.
+            </p>
+          </div>
+
+          <h3>Watch for</h3>
+          <div class="note watch">
+            <span class="label">Common hiccups</span>
+            <ul>
+              <li><strong>Export stops and lists TKs</strong>: that's on purpose, so nothing half-finished slips out. Fill them, or press export again to go ahead anyway.</li>
+              <li><strong>No PDF</strong>: LibreOffice isn't installed. The Word file is there; Word or Google Docs can save it as a PDF.</li>
+              <li><strong>Missing chapters in the manuscript</strong>: empty scenes are left out on purpose. Check they have words in them.</li>
+              <li><strong>Can't find the file</strong>: it's in the book's folder, inside <code>exports</code>, named like <code>Surname_Title_Manuscript.docx</code>.</li>
+            </ul>
+          </div>
+
+          <h3>Support and stretch</h3>
+          <div class="glance">
+            <div><span class="k">Support</span><ul><li>Export together, step by step, on the projector.</li><li>Print manuscripts for reading if screens are tight.</li></ul></div>
+            <div><span class="k">Stretch</span><ul><li>Export an <em>EPUB</em> and open it in an e-reader app.</li><li>Try <em>Look…</em> in the export box: Courier, A4, a different chapter style.</li></ul></div>
+          </div>
+
+          <h3>Exit ticket, with answers</h3>
+          <ol>
+            <li>Where do exported files go? <em>The exports folder inside the book.</em></li>
+            <li>What's on a manuscript's title page? <em>Contact details, a rounded word count, the title and the byline.</em></li>
+            <li>Why did the export stop to list TKs? <em>So nothing unfinished goes out by accident.</em></li>
+          </ol>
+        </section>
+
+        <!-- RUBRIC -->
+        <section id="rubric" class="block page" data-printable>
+          <h2>Rubric</h2>
+          <p>Score each row from 1 to 4. The process rows reward the habits the week teaches, not only the finished story.</p>
+          <div class="note tip">
+            <span class="label">Evidence is built in</span>
+            <p>
+              A scene's history (<kbd>H</kbd>) shows how it changed, the corkboard shows the plan,
+              and <kbd>Ctrl-T</kbd> shows what's still unfinished. A quick look at each gives you the
+              process scores without collecting anything extra.
+            </p>
+          </div>
+          <div class="table-wrap">
+            <table class="table">
+              <thead><tr><th></th><th>4 · Shines</th><th>3 · Solid</th><th>2 · Getting there</th><th>1 · Beginning</th></tr></thead>
+              <tbody>
+                <tr><th>Story</th><td>A clear want, rising trouble and a real change; vivid, specific detail</td><td>A beginning, middle and end that connect; some strong detail</td><td>The shape is there but thin, or the ending doesn't follow</td><td>Mostly a sketch or a single scene</td></tr>
+                <tr><th>Planning</th><td>A card for every scene, with synopsis, POV and status kept up to date</td><td>A card for most scenes</td><td>A few cards, or the plan was left behind</td><td>No plan</td></tr>
+                <tr><th>Drafting</th><td>Sprints logged; notes and TKs used to keep moving</td><td>Sprints logged; some notes used</td><td>Drafted, but stopped often to fix</td><td>Draft unfinished</td></tr>
+                <tr><th>Revision</th><td>Notes and TKs cleared, names and spelling clean, a partner's feedback acted on</td><td>Most notes cleared; some feedback used</td><td>Light edits only</td><td>No visible revision</td></tr>
+                <tr><th>Manuscript</th><td>Exported with author details, nothing unfinished, read by a partner</td><td>Exported with author details</td><td>Exported, missing details</td><td>Not exported</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="print-only">Student ____________________________ &nbsp; Total ______ / 20</p>
+        </section>
+
+        <!-- TROUBLESHOOTING -->
+        <section id="help" class="block page" data-printable>
+          <h2>When things go wrong</h2>
+          <div class="table-wrap">
+            <table class="table">
+              <thead><tr><th>What happened</th><th>What to do</th></tr></thead>
+              <tbody>
+                <tr><td>"command not found" after installing</td><td>Close the terminal and open a new one.</td></tr>
+                <tr><td>Keys do nothing</td><td>Click inside the terminal window so it has the focus.</td></tr>
+                <tr><td>Typing goes nowhere</td><td>The outline has the focus. <kbd>Tab</kbd> or click the page.</td></tr>
+                <tr><td>F-keys change volume or brightness</td><td>Hold <kbd>Fn</kbd>, or use the menu (<kbd>Esc</kbd>) or <kbd>Ctrl-K</kbd>.</td></tr>
+                <tr><td>Something got deleted</td><td><kbd>Ctrl-Z</kbd> in the outline, or open the Trash at the bottom of the outline.</td></tr>
+                <tr><td>A scene looks wrong after an edit</td><td><kbd>Ctrl-Z</kbd> on the page, or <kbd>H</kbd> in the outline for an earlier version.</td></tr>
+                <tr><td>The laptop died mid-sentence</td><td>Open the book again. Autosave means only the last few seconds can be missing, and anything Grimoire couldn't save is offered back from recovery.</td></tr>
+                <tr><td>Grimoire opens a different book</td><td>Open the right one by name: <code>grimoire ~/Documents/my-story</code>.</td></tr>
+                <tr><td>Everything is tiny, or crowded</td><td>Zoom the terminal (<kbd>Ctrl</kbd> <kbd>+</kbd> or <kbd>Cmd</kbd> <kbd>+</kbd>) and make the window bigger.</td></tr>
+                <tr><td>Anything else</td><td><kbd>F1</kbd> opens the help on the topic for wherever you are, and typing searches every topic.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <h3>The student key card</h3>
+          <p>The same card is in the student workbook, ready to print.</p>
+          <KeyCard />
+        </section>
+
+        <!-- ADAPTING -->
+        <section id="adapt" class="block" data-printable>
+          <h2>Adapting the week</h2>
+          <ul>
+            <li><strong>Younger writers (ages 11 to 13)</strong>: make the books ahead of time, skip the <code>novel.toml</code> step, and aim for 800 to 1,200 words.</li>
+            <li><strong>College and adult workshops</strong>: aim for 3,000 to 5,000 words, add the EPUB and paperback exports on Day 5, and turn on <em>Writing sessions</em> (it needs Git) to see what changed in each sitting.</li>
+            <li><strong>Short on time</strong>: fold Day 4 into Day 3's second half and Day 5.</li>
+            <li><strong>One computer per pair</strong>: one student types while the other plans and watches the clock, swapping each sprint.</li>
+            <li><strong>Longer projects</strong>: the same book grows into a novel. A new book starts with room for 81 scenes in three parts.</li>
+          </ul>
+        </section>
+
+        <!-- STANDARDS -->
+        <section id="standards" class="block" data-printable>
+          <h2>Standards</h2>
+          <p>For US classrooms, the week lines up with these Common Core writing standards (grades 9 to 12 shown; the same numbers apply at grades 6 to 8):</p>
+          <ul>
+            <li><strong>W.9-10.3 / W.11-12.3</strong>: write narratives with well-chosen detail and well-structured events (the whole week).</li>
+            <li><strong>W.9-10.5 / W.11-12.5</strong>: develop and strengthen writing by planning, revising and editing (Days 2 and 4).</li>
+            <li><strong>W.9-10.6 / W.11-12.6</strong>: use technology to produce and publish writing (Days 1 and 5).</li>
+            <li><strong>W.9-10.10 / W.11-12.10</strong>: write routinely, over short and extended time frames (Day 3's sprints).</li>
+          </ul>
+        </section>
+      </div>
+    </div>
+    <script is:inline>
+      // Light up the table of contents entry for the section on screen.
+      (() => {
+        const links = new Map([...document.querySelectorAll('.toc a')].map((a) => [a.getAttribute('href').slice(1), a]));
+        const io = new IntersectionObserver((es) => {
+          es.forEach((e) => {
+            if (!e.isIntersecting) return;
+            links.forEach((a) => a.classList.remove('on'));
+            links.get(e.target.id)?.classList.add('on');
+          });
+        }, { rootMargin: '-30% 0px -60% 0px' });
+        links.forEach((_, id) => { const el = document.getElementById(id); if (el) io.observe(el); });
+      })();
+    </script>
+  </main>
+</Learn>

@@ -1,6 +1,6 @@
 <img src="assets/readme/banner.svg" alt="grimoire — a terminal writing desk for novels" width="100%">
 
-**[grimoiretui.com](https://grimoiretui.com)** · Rust + [Ratatui](https://ratatui.rs) · MIT · macOS, Linux and Windows · made by [Catfinity Studios](https://catfinity.com)
+**[grimoiretui.com](https://grimoiretui.com)** · [free classroom curriculum](https://grimoiretui.com/learn/) · Rust + [Ratatui](https://ratatui.rs) · MIT · macOS, Linux and Windows · made by [Catfinity Studios](https://catfinity.com)
 
 <a href="https://ko-fi.com/F2F21E0DK0"><img height="36" style="border:0px;height:36px;" src="https://storage.ko-fi.com/cdn/kofi6.png?v=6" alt="Buy Me a Coffee at ko-fi.com"></a>
 
@@ -735,6 +735,24 @@ Linux and runs it. Nothing is published unless every build succeeds.
 Issues and pull requests welcome.
 
 <img src="assets/readme/rule.svg" width="100%" alt="">
+
+## Teaching with Grimoire
+
+**[A Week with Grimoire](https://grimoiretui.com/learn/)** is a free, five-day
+curriculum that takes a class from "what's a terminal?" to a finished short
+story in a real manuscript. It comes in two parts:
+
+- **[The teacher guide](https://grimoiretui.com/learn/teacher/)**: setup before
+  the week, then a minute-by-minute plan for each day, what to say and demo,
+  what tends to go wrong, ways to support and stretch, exit tickets with
+  answers, and a rubric.
+- **[The student workbook](https://grimoiretui.com/learn/student/)**: a handout
+  for every day, a key card, a story planner, scene cards and an author's
+  certificate.
+
+Every page prints neatly as a handout. It's free to use, print, copy and adapt
+for your classes, commercial use included, as long as the credit stays. You
+never have to pay for it; if it helps your students, a donation is appreciated.
 
 ## Support Grimoire
 

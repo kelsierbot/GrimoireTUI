@@ -1,0 +1,9 @@
+---
+// Ruled lines to write on: dashed on screen, fine grey rules on paper.
+interface Props { n?: number; prompt?: string }
+const { n = 4, prompt } = Astro.props;
+---
+<div class="write">
+  {prompt && <p class="prompt">{prompt}</p>}
+  <div class="lines" aria-hidden="true">{Array.from({ length: n }, () => <span></span>)}</div>
+</div>

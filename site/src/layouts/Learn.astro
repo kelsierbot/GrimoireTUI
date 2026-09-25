@@ -1,0 +1,119 @@
+---
+// The curriculum pages: a long-form reading layout in the site's colours, with
+// a print stylesheet that turns every page into clean black-on-white handouts.
+import '../styles/learn.css';
+import THEMES from '../themes.json';
+
+interface Props {
+  title: string;
+  description: string;
+  path: string;
+  kind?: 'landing' | 'teacher' | 'student';
+}
+const { title, description, path, kind = 'landing' } = Astro.props;
+const url = `https://grimoiretui.com${path}`;
+const KOFI = 'https://ko-fi.com/F2F21E0DK0';
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={url} />
+    <meta name="theme-color" content="#15121f" />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content={url} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:image" content="https://grimoiretui.com/og.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap"
+      rel="stylesheet"
+    />
+    <script is:inline define:vars={{ THEMES }}>
+      // The theme a reader chose on the main page follows them here.
+      try {
+        const t = THEMES.find((x) => x.name === localStorage.getItem('grimoire-theme'));
+        if (t && t.name !== 'Rainbow') {
+          const s = document.documentElement.style;
+          s.setProperty('--bg', t.bg); s.setProperty('--line', t.border); s.setProperty('--sel', t.sel);
+          s.setProperty('--text', t.text); s.setProperty('--mute', t.dim); s.setProperty('--focus', t.accent);
+          s.setProperty('--spectrum', `linear-gradient(${t.accent}, ${t.accent})`);
+          s.setProperty('--hl', t.accent);
+        }
+      } catch (e) {}
+    </script>
+  </head>
+  <body data-kind={kind}>
+    <header class="topbar no-print">
+      <a class="brand" href="/">grimoire</a>
+      <nav aria-label="Curriculum">
+        <a href="/learn/" aria-current={kind === 'landing' ? 'page' : undefined}>a week with grimoire</a>
+        <a href="/learn/teacher/" aria-current={kind === 'teacher' ? 'page' : undefined}>teacher guide</a>
+        <a href="/learn/student/" aria-current={kind === 'student' ? 'page' : undefined}>student workbook</a>
+      </nav>
+      <a class="home" href="/">grimoiretui.com</a>
+    </header>
+
+    <slot />
+
+    <footer class="site-foot">
+      <div class="rule" aria-hidden="true"></div>
+      <div class="foot-grid">
+        <div>
+          <p class="foot-title">Free, always</p>
+          <p>
+            This curriculum is free to use, print, copy and adapt for your classes, commercial use
+            included. Please keep the credit: <em>A Week with Grimoire, by Catfinity Studios,
+            grimoiretui.com/learn</em>.
+          </p>
+        </div>
+        <div class="no-print">
+          <p class="foot-title">Donations welcome, never needed</p>
+          <p>
+            You never have to pay for any of this. If it helps your class, a donation is appreciated
+            and goes toward Grimoire's development.
+          </p>
+          <p class="kofi">
+            <a href={KOFI} target="_blank" rel="noopener noreferrer"><img
+              height="36" style="border:0px;height:36px;" src="https://storage.ko-fi.com/cdn/kofi6.png?v=6"
+              alt="Buy Me a Coffee at ko-fi.com" /></a>
+          </p>
+        </div>
+      </div>
+      <p class="foot-small">
+        Grimoire is made by <a href="https://catfinity.com">Catfinity Studios</a> · MIT License ·
+        <a href="https://github.com/kelsierbot/GrimoireTUI">source on GitHub</a>
+      </p>
+    </footer>
+
+    <script is:inline>
+      // Print one section, or everything. Each "print" button names what it
+      // prints; the rest is hidden only while the print dialog is up.
+      document.querySelectorAll('[data-print]').forEach((b) => {
+        b.addEventListener('click', () => {
+          const target = b.dataset.print;
+          const all = document.querySelectorAll('[data-printable]');
+          if (target !== 'all') all.forEach((s) => s.classList.toggle('print-skip', s.id !== target));
+          document.body.classList.toggle('printing-one', target !== 'all');
+          window.print();
+        });
+      });
+      // Fonts arriving can shift the page after the browser jumps to #day-3;
+      // jump again once they're in.
+      if (location.hash && document.fonts) {
+        document.fonts.ready.then(() => document.getElementById(location.hash.slice(1))?.scrollIntoView());
+      }
+      addEventListener('afterprint', () => {
+        document.querySelectorAll('.print-skip').forEach((s) => s.classList.remove('print-skip'));
+        document.body.classList.remove('printing-one');
+      });
+    </script>
+  </body>
+</html>

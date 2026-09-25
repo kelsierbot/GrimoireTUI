@@ -1,0 +1,116 @@
+---
+import Learn from '../../layouts/Learn.astro';
+
+const days = [
+  { n: 1, title: 'Open the book', what: 'Install, make a book, find your way around the desk, and write a first scene that saves itself.', leave: 'a book of their own and a first freewrite' },
+  { n: 2, title: 'Build the bones', what: 'Plan a story in three movements, shape the outline to match, and fill in scene cards on the corkboard.', leave: 'a story plan and a card for every scene' },
+  { n: 3, title: 'Draft', what: 'Write fast with sprints and focus mode, and leave notes and TKs instead of stopping to fix.', leave: 'a brave first draft of most of the story' },
+  { n: 4, title: 'Revise', what: 'Clear the notes, fix spelling, keep names straight, catch echo words, and trade feedback.', leave: 'a revised draft and a partner\'s notes' },
+  { n: 5, title: 'Publish', what: 'Compile a real manuscript, read it like a reader, celebrate, and look back on the week.', leave: 'a finished manuscript and a certificate' },
+];
+---
+
+<Learn
+  title="A Week with Grimoire: a free writing curriculum"
+  description="A free five-day curriculum for teaching and learning Grimoire, the terminal writing desk for novels. A teacher guide and a student workbook, both ready to print."
+  path="/learn/"
+>
+  <main>
+    <section class="hero">
+      <p class="eyebrow">Free curriculum · for classrooms, clubs &amp; workshops</p>
+      <h1>A week with <span class="rb">Grimoire</span></h1>
+      <p class="lede">
+        Five lessons that take a class from "what's a terminal?" to a finished short story in a real
+        manuscript. There's a guide for teachers and a workbook for students, and every page prints
+        neatly as a handout.
+      </p>
+      <ul class="chips">
+        <li>5 days</li>
+        <li>about 50 minutes a day</li>
+        <li>ages 12 and up</li>
+        <li>macOS · Linux · Windows</li>
+        <li>free, always</li>
+      </ul>
+      <div class="flow-rule" aria-hidden="true"></div>
+    </section>
+
+    <div class="doors">
+      <a class="door" href="/learn/teacher/">
+        <span class="who">For teachers</span>
+        <h2>The <span class="rb">teacher</span> guide</h2>
+        <p>
+          Setup before the week, then each day: goals, a minute-by-minute plan, what to say, what to
+          demo, what tends to go wrong, ways to support and stretch, and an exit ticket with answers.
+          A rubric and a troubleshooting page at the end.
+        </p>
+        <span class="go">Open the teacher guide →</span>
+      </a>
+      <a class="door" href="/learn/student/">
+        <span class="who">For students</span>
+        <h2>The <span class="rb">student</span> workbook</h2>
+        <p>
+          A handout for every day with steps to follow, things to try, room to write and questions
+          to look back on. Plus a key card, a story planner, scene cards and an author's certificate
+          for the end of the week.
+        </p>
+        <span class="go">Open the student workbook →</span>
+      </a>
+    </div>
+
+    <div class="doc-wrap" style="margin-top: 3rem;">
+      <div></div>
+      <div class="doc">
+        <h2>The week at a glance</h2>
+        <p class="intro">
+          By Friday every student has written a short story of about 1,500 to 2,500 words (you can
+          change that), shaped it in an outline, drafted it in timed sprints, revised it with a
+          partner, and compiled it into a manuscript in the standard format editors expect.
+        </p>
+        <div class="table-wrap">
+          <table class="table">
+            <thead><tr><th>Day</th><th>Focus</th><th>Students leave with</th></tr></thead>
+            <tbody>
+              {days.map((d) => (
+                <tr><td><strong>Day {d.n}</strong><br />{d.title}</td><td>{d.what}</td><td>{d.leave}</td></tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <h2>What you need</h2>
+        <ul class="check">
+          <li>A computer for each student, or one for each pair (macOS, Linux or Windows).</li>
+          <li>Grimoire installed on each one. It takes one line in a terminal, and the teacher guide walks through it.</li>
+          <li>A projector or a shared screen for your demos.</li>
+          <li>The student workbook, printed a day at a time or all at once.</li>
+          <li>Optional: LibreOffice (free) if you'd like PDFs on Day 5. Word files work without it.</li>
+        </ul>
+        <p>
+          Grimoire needs no accounts and no internet once it's installed, and it keeps every word in
+          plain files on the student's own computer.
+        </p>
+
+        <h2>Printing</h2>
+        <p>
+          Every page has print buttons. <strong>Print everything</strong> gives you the whole guide or
+          workbook with each day on its own page, and each day has its own <strong>Print this day</strong>
+          button for a single handout. Printed pages come out black on white, with ruled lines to
+          write on and boxes to tick.
+        </p>
+
+        <h2>Free, and yours to share</h2>
+        <p>
+          You never have to pay for this curriculum. Print it, copy it and adapt it for your classes,
+          commercial use included. Please keep the credit: <em>A Week with Grimoire, by Catfinity
+          Studios, grimoiretui.com/learn</em>. If it helps your students and you'd like to give
+          something back, a donation is appreciated and goes toward Grimoire's development. It's
+          never expected.
+        </p>
+        <div class="btn-row" style="justify-content: flex-start; margin-top: 1.5rem;">
+          <a class="btn primary" href="/learn/teacher/"><span class="ico" aria-hidden="true">✦</span> Teacher guide</a>
+          <a class="btn" href="/learn/student/"><span class="ico" aria-hidden="true">✎</span> Student workbook</a>
+        </div>
+      </div>
+    </div>
+  </main>
+</Learn>
