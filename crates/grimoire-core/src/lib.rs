@@ -12,6 +12,7 @@ pub mod editor;
 pub mod export;
 pub mod history;
 pub mod manuscript;
+pub mod notes;
 pub mod paths;
 pub mod project;
 pub mod recovery;

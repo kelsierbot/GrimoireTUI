@@ -283,7 +283,7 @@ pub fn save_scene(path: &Path, text: &str, front: Option<&str>, seen: &Stamp) ->
     match sync::save_guarded(path, &whole, seen.fingerprint())? {
         SaveOutcome::Written => Ok(Saved::Ok {
             seen: Stamp::of(Fingerprint::read(path)),
-            words: text.split_whitespace().count(),
+            words: grimoire_core::notes::count_words(text),
         }),
         SaveOutcome::Conflict { on_disk } => {
             let kept = sync::write_conflict_copy(path, &whole)?;

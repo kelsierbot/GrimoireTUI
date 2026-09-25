@@ -16,11 +16,13 @@
 //! still opens on its own chapter number.
 
 use anyhow::{Context, Result, bail};
+use std::borrow::Cow;
 use std::fmt::Write as _;
 use std::io::Write as _;
 use std::path::PathBuf;
 
 use crate::manuscript::{Section, commas, numbered, rounded_words, section_of, spell};
+use crate::notes;
 use crate::project::{Kind, Node, Project};
 
 /// Roughly how much of a novel fits on one double-spaced manuscript page.
@@ -109,7 +111,8 @@ pub(crate) struct Book<'a> {
     pub title: &'a str,
     pub author: &'a str,
     /// Front-matter scenes, which stand in for the generated title page.
-    pub front: Vec<&'a str>,
+    /// Notes and TKs are already out of every piece of text in here.
+    pub front: Vec<Cow<'a, str>>,
     /// Words in every compiled scene of the chosen parts — the title page count.
     pub total: usize,
     pub pieces: Vec<Piece<'a>>,
@@ -129,10 +132,10 @@ pub(crate) enum Piece<'a> {
         number: usize,
         title: &'a str,
         depth: usize,
-        scenes: Vec<&'a str>,
+        scenes: Vec<Cow<'a, str>>,
     },
     /// A scene sitting outside any chapter.
-    Scene(&'a str),
+    Scene(Cow<'a, str>),
 }
 
 fn manuscript_roots(p: &Project) -> impl Iterator<Item = usize> + '_ {
@@ -169,14 +172,23 @@ fn edition_of(p: &Project, n: &Node) -> Option<Edition> {
 }
 
 /// The front-matter pages that go into `edition`, in order.
-fn front_pages(p: &Project, edition: Edition) -> Vec<&str> {
+fn front_pages(p: &Project, edition: Edition) -> Vec<Cow<'_, str>> {
     p.nodes
         .iter()
         .filter(|n| n.kind == Kind::Scene && n.front_matter && n.compile)
         .filter(|n| edition_of(p, n).is_none_or(|e| e == edition))
-        .map(|n| n.body.trim())
+        .map(|n| prose(&n.body))
         .filter(|body| !body.is_empty())
         .collect()
+}
+
+/// A scene's text as it goes into the book: `%% notes %%` and TKs taken out,
+/// then trimmed.
+fn prose(body: &str) -> Cow<'_, str> {
+    match notes::strip(body) {
+        Cow::Borrowed(b) => Cow::Borrowed(b.trim()),
+        Cow::Owned(o) => Cow::Owned(o.trim().to_string()),
+    }
 }
 
 /// Walk the manuscript. With `parts`, only those top-level parts are kept, but
@@ -266,7 +278,7 @@ fn gather<'a>(p: &'a Project, idx: usize, keep: bool, number: &mut usize, b: &mu
                     b.skipped += 1;
                     continue;
                 }
-                bodies.push(s.body.trim());
+                bodies.push(prose(&s.body));
                 b.words += s.words();
                 b.scenes += 1;
             }
@@ -285,7 +297,7 @@ fn gather<'a>(p: &'a Project, idx: usize, keep: bool, number: &mut usize, b: &mu
                 b.skipped += 1;
                 return;
             }
-            b.pieces.push(Piece::Scene(n.body.trim()));
+            b.pieces.push(Piece::Scene(prose(&n.body)));
             b.words += n.words();
             b.scenes += 1;
         }
@@ -1890,6 +1902,74 @@ mod tests {
         let b = book(&p, None).unwrap();
         assert_eq!(b.chapters, 2);
         assert!(markdown(&b).contains("## CHAPTER TWO\n\nThe road ran"));
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn notes_and_tks_never_reach_any_export() {
+        let d = book_dir("notes");
+        put(
+            &d,
+            "manuscript/01-Act-One/01-Chapter-One/02-Scene-Two.md",
+            "Gravel %% SECRETNOTE check the weather %% under her boots TK.\n\n\
+             %%\nBLOCKNOTE across\nthree lines\n%%\n\n\
+             She waited.\n",
+        );
+        put(
+            &d,
+            "front-matter/01-Title.md",
+            "THE ARCHIVE %% FRONTNOTE %%\n",
+        );
+        let p = Project::load(&d).unwrap();
+
+        // Counted as words: only the prose. Scene Two is 6 words, not 17.
+        let two = p
+            .nodes
+            .iter()
+            .find(|n| n.path.ends_with("02-Scene-Two.md"))
+            .unwrap();
+        assert_eq!(two.words(), 6);
+
+        let b = book(&p, None).unwrap();
+        let md = markdown(&b);
+        for secret in ["SECRETNOTE", "BLOCKNOTE", "FRONTNOTE", "%%", " TK"] {
+            assert!(!md.contains(secret), "{secret} reached the Markdown:\n{md}");
+        }
+        assert!(
+            md.contains("Gravel under her boots.\n\nShe waited."),
+            "{md}"
+        );
+
+        export(&p, &all_options()).unwrap();
+        let docx = unzip(&fs::read(d.join("exports/the-archive.docx")).unwrap());
+        let doc = entry(&docx, "word/document.xml");
+        let paras = docx_paragraphs(doc);
+        let text: String = paras
+            .iter()
+            .map(|(_, t)| t.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        for secret in ["SECRETNOTE", "BLOCKNOTE", "FRONTNOTE", "%%", "TK"] {
+            assert!(!text.contains(secret), "{secret} reached the DOCX");
+        }
+        assert!(paras.iter().any(|(_, t)| t == "Gravel under her boots."));
+        // No empty paragraph where the block note was.
+        let at = paras
+            .iter()
+            .position(|(_, t)| t == "Gravel under her boots.")
+            .unwrap();
+        assert_eq!(paras[at + 1].1, "She waited.");
+
+        let epub = unzip(&fs::read(d.join("exports/the-archive.epub")).unwrap());
+        for (name, _, text) in &epub {
+            if name.ends_with(".xhtml") {
+                xml_doc(text).unwrap_or_else(|e| panic!("{name} is not well-formed: {e}"));
+            }
+            for secret in ["SECRETNOTE", "BLOCKNOTE", "FRONTNOTE", "%%"] {
+                assert!(!text.contains(secret), "{secret} reached {name}");
+            }
+        }
+        assert!(entry(&epub, "OEBPS/chapter-01.xhtml").contains("Gravel under her boots."));
         fs::remove_dir_all(&d).unwrap();
     }
 
