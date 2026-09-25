@@ -21,9 +21,17 @@ pub const GAP: Duration = Duration::from_secs(5 * 60);
 const STAMP: &str = "%Y-%m-%d_%H%M%S";
 
 pub fn dir_for(root: &Path, scene: &Path) -> PathBuf {
-    let rel = scene.strip_prefix(root).unwrap_or(scene);
-    let rel = rel.with_extension("");
-    root.join(".grimoire").join("history").join(rel)
+    root.join(".grimoire")
+        .join("history")
+        .join(crate::names::nfc(&raw_rel(root, scene)))
+}
+
+/// The scene's place in the book as spelled on disk. History is kept under
+/// the composed (NFC) spelling so a Mac that hands over `e` + accent and a
+/// Linux machine that wrote `é` share one scene's versions; this is the
+/// spelling older history may have been kept under.
+fn raw_rel(root: &Path, scene: &Path) -> PathBuf {
+    scene.strip_prefix(root).unwrap_or(scene).with_extension("")
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -45,11 +53,19 @@ impl Version {
 
 /// Every kept version of a scene, newest first.
 pub fn versions(root: &Path, scene: &Path) -> Vec<Version> {
-    let Ok(rd) = fs::read_dir(dir_for(root, scene)) else {
-        return Vec::new();
-    };
-    let mut out: Vec<Version> = rd
-        .flatten()
+    let composed = dir_for(root, scene);
+    let spelled = root
+        .join(".grimoire")
+        .join("history")
+        .join(raw_rel(root, scene));
+    let mut dirs = vec![composed.clone()];
+    if spelled != composed {
+        dirs.push(spelled);
+    }
+    let mut out: Vec<Version> = dirs
+        .iter()
+        .filter_map(|d| fs::read_dir(d).ok())
+        .flat_map(|rd| rd.flatten())
         .filter_map(|e| {
             let file = e.path();
             let stem = file.file_stem()?.to_string_lossy().to_string();
@@ -115,10 +131,15 @@ pub fn follow_all(root: &Path, renames: &[(PathBuf, PathBuf)]) {
         .iter()
         .enumerate()
         .filter_map(|(i, (from, to))| {
-            let old = dir_for(root, from);
-            if !old.exists() {
-                return None;
-            }
+            // Kept under the composed spelling, or under the one on disk if an
+            // older Grimoire wrote it before names were normalised.
+            let spelled = root
+                .join(".grimoire")
+                .join("history")
+                .join(raw_rel(root, from));
+            let old = [dir_for(root, from), spelled]
+                .into_iter()
+                .find(|d| d.exists())?;
             let tmp = old.with_file_name(format!(".moving-{i}"));
             fs::rename(&old, &tmp).ok()?;
             Some((tmp, dir_for(root, to)))

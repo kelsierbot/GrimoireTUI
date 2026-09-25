@@ -1730,10 +1730,14 @@ impl App {
             .project
             .nodes
             .iter()
-            .position(|n| n.kind == Kind::Scene && n.path == scene)
+            // Spelled `é` here and `e` + accent by a Mac: still that scene.
+            .position(|n| {
+                n.kind == Kind::Scene && grimoire_core::names::same_path(&n.path, &scene)
+            })
         else {
             return;
         };
+        let scene = self.project.nodes[i].path.clone();
         self.reveal(i);
         self.editor = Editor::from_text(&self.project.nodes[i].body);
         self.open = Some(i);

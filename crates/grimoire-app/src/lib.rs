@@ -332,7 +332,11 @@ pub fn resuming(base: &Path) -> Option<Resuming> {
         let Some(r) = grimoire_core::resume::read(&book.path) else {
             continue;
         };
-        let scene = book.path.join(&r.scene);
+        // Found even if a Mac spelled an accent in its folder names the
+        // other way (see `names::resolve`).
+        let Some(scene) = grimoire_core::names::resolve(&book.path.join(&r.scene)) else {
+            continue;
+        };
         if !scene.is_file() {
             continue;
         }

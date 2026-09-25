@@ -18,6 +18,7 @@ unicode-width = "0.2.2"
 similar = "2"
 zip = { version = "8.6", default-features = false, features = ["deflate-flate2"] }
 flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
+unicode-normalization = "0.1"
 
 [dev-dependencies]
 roxmltree = "0.21"

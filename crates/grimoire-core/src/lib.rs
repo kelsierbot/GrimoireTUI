@@ -5,6 +5,7 @@
 //! and an Android app on a phone, with the book itself staying plain Markdown
 //! either way.
 
+pub mod cloud;
 pub mod codex;
 pub mod cork;
 pub mod create;
@@ -12,6 +13,7 @@ pub mod editor;
 pub mod export;
 pub mod history;
 pub mod manuscript;
+pub mod names;
 pub mod notes;
 pub mod paths;
 pub mod project;
