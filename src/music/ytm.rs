@@ -1,7 +1,7 @@
 //! YouTube Music, through th-ch/youtube-music's API Server plugin — and
 //! YouTube Music's public web endpoint for what's in a playlist.
 
-use super::{Backend, Cmd, Config, HTTP_TIMEOUT, Item, State, Track, Update};
+use super::{Backend, Cmd, Config, HTTP_TIMEOUT, Item, Modes, Repeat, State, Track, Update};
 use anyhow::{Result, anyhow};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -290,7 +290,36 @@ impl Ytm {
     }
 }
 
+impl Ytm {
+    fn read_modes(&mut self) -> Result<Modes> {
+        let repeat = match Ytm::read(&mut self.get("/repeat-mode")?)?["mode"].as_str() {
+            Some("ALL") => Some(Repeat::All),
+            Some("ONE") => Some(Repeat::One),
+            Some("NONE") => Some(Repeat::Off),
+            _ => None,
+        };
+        let shuffle = Ytm::read(&mut self.get("/shuffle")?)?["state"].as_bool();
+        let vol = Ytm::read(&mut self.get("/volume")?)?;
+        let liked = Ytm::read(&mut self.get("/like-state")?)?["state"]
+            .as_str()
+            .map(|s| s == "LIKE");
+        Ok(Modes {
+            repeat,
+            shuffle,
+            volume: vol["state"]
+                .as_f64()
+                .map(|v| v.round().clamp(0.0, 100.0) as u8),
+            muted: vol["isMuted"].as_bool().unwrap_or(false),
+            liked,
+        })
+    }
+}
+
 impl Backend for Ytm {
+    fn modes(&mut self) -> Result<Modes> {
+        self.read_modes()
+    }
+
     fn state(&mut self) -> Result<State> {
         let mut res = self
             .agent

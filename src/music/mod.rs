@@ -278,6 +278,115 @@ enum Update {
     Results(Vec<Item>),
     Playlists(Vec<Item>),
     Note(String),
+    Modes(Modes),
+}
+
+/// Repeat, as the player has it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Repeat {
+    Off,
+    All,
+    One,
+}
+
+impl Repeat {
+    pub fn label(self) -> &'static str {
+        match self {
+            Repeat::Off => "off",
+            Repeat::All => "all",
+            Repeat::One => "one",
+        }
+    }
+}
+
+/// The player's settings that a keypress changes but playback doesn't show:
+/// without them on screen, pressing `r` or `+` looked like nothing happened.
+/// `None` where the source can't say.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Modes {
+    pub repeat: Option<Repeat>,
+    pub shuffle: Option<bool>,
+    pub volume: Option<u8>,
+    pub muted: bool,
+    pub liked: Option<bool>,
+}
+
+impl Modes {
+    /// A few glyphs for a narrow pane: ↻ repeat all, ↻1 repeat one, ⇄
+    /// shuffle, ♥ liked, and the volume only when it's muted.
+    pub fn badges(&self) -> String {
+        let mut v: Vec<&str> = Vec::new();
+        match self.repeat {
+            Some(Repeat::All) => v.push("↻"),
+            Some(Repeat::One) => v.push("↻1"),
+            _ => {}
+        }
+        if self.shuffle == Some(true) {
+            v.push("⇄");
+        }
+        if self.liked == Some(true) {
+            v.push("♥");
+        }
+        if self.muted {
+            v.push("muted");
+        }
+        v.join(" ")
+    }
+
+    /// Everything known, in words, for the player.
+    pub fn line(&self) -> Vec<(String, bool)> {
+        let mut v = Vec::new();
+        if let Some(r) = self.repeat {
+            v.push((format!("repeat {}", r.label()), r != Repeat::Off));
+        }
+        if let Some(s) = self.shuffle {
+            v.push((format!("shuffle {}", if s { "on" } else { "off" }), s));
+        }
+        if let Some(vol) = self.volume {
+            v.push((
+                if self.muted {
+                    "muted".to_string()
+                } else {
+                    format!("volume {vol}")
+                },
+                false,
+            ));
+        }
+        if self.liked == Some(true) {
+            v.push(("♥ liked".to_string(), true));
+        }
+        v
+    }
+
+    /// Whether the setting `c` changes differs between `self` and `now`.
+    fn moved(&self, now: &Modes, c: &Cmd) -> bool {
+        match c {
+            Cmd::Repeat => self.repeat != now.repeat,
+            Cmd::Shuffle => self.shuffle != now.shuffle,
+            Cmd::Volume(_) => self.volume != now.volume || self.muted != now.muted,
+            Cmd::Like => self.liked != now.liked,
+            _ => true,
+        }
+    }
+
+    /// What a command just did, said once it's known.
+    fn said(&self, c: &Cmd) -> Option<String> {
+        match c {
+            Cmd::Repeat => self.repeat.map(|r| format!("repeat: {}", r.label())),
+            Cmd::Shuffle => self
+                .shuffle
+                .map(|s| format!("shuffle {}", if s { "on" } else { "off" })),
+            Cmd::Volume(d) => self.volume.map(|v| match (v, *d > 0) {
+                (100.., true) => "volume 100 — as loud as it goes".to_string(),
+                (0, false) => "volume 0".to_string(),
+                _ => format!("volume {v}"),
+            }),
+            Cmd::Like => self
+                .liked
+                .map(|l| if l { "liked ♥" } else { "like taken back" }.to_string()),
+            _ => None,
+        }
+    }
 }
 
 pub struct Music {
@@ -293,6 +402,10 @@ pub struct Music {
     pub playlists: Vec<Item>,
     /// A short line for the player: "searching…", or why something failed.
     pub note: Option<String>,
+    /// A note arrived since the app last looked (see `take_fresh_note`).
+    fresh_note: bool,
+    /// Repeat, shuffle, volume, like — as last read from the player.
+    pub modes: Modes,
     rx: Option<Receiver<Update>>,
     tx: Option<Sender<Cmd>>,
 }
@@ -312,6 +425,10 @@ trait Backend: Send {
     /// Your own playlists (`None`), or everyone's that match a query.
     fn playlists(&mut self, _query: Option<&str>) -> Result<Vec<Item>> {
         Err(anyhow!("playlists work with YouTube Music"))
+    }
+    /// Repeat, shuffle, volume and like, for sources that can say.
+    fn modes(&mut self) -> Result<Modes> {
+        Ok(Modes::default())
     }
     /// Start queueing a playlist. That takes a while, so it runs in the
     /// background and reports its progress, and the final queue, on `tell`.
@@ -368,6 +485,8 @@ impl Music {
                 results: Vec::new(),
                 playlists: Vec::new(),
                 note: None,
+                fresh_note: false,
+                modes: Modes::default(),
                 rx: None,
                 tx: None,
             };
@@ -377,11 +496,21 @@ impl Music {
         let (cmd_tx, cmd_rx) = mpsc::channel::<Cmd>();
 
         thread::spawn(move || {
+            let mut polls = 0u32;
             loop {
                 let next = backend.state().unwrap_or(State::Offline);
                 if up_tx.send(Update::State(next)).is_err() {
                     return;
                 }
+                // The settings change rarely; look every few polls, and
+                // straight after a key that changes one (below).
+                if polls.is_multiple_of(4)
+                    && let Ok(m) = backend.modes()
+                    && up_tx.send(Update::Modes(m)).is_err()
+                {
+                    return;
+                }
+                polls = polls.wrapping_add(1);
                 // Wait out the poll interval, but act on a command the moment
                 // it arrives, and re-poll straight after one that changes
                 // playback so the pane catches up with the keypress.
@@ -412,10 +541,42 @@ impl Music {
                                 .and_then(|_| backend.queue())
                                 .map(Update::Queue),
                         ),
-                        c => {
-                            let _ = backend.command(c);
-                            None
+                        // Settings: do it, then read back what it became, and say so.
+                        c @ (Cmd::Repeat | Cmd::Shuffle | Cmd::Volume(_) | Cmd::Like) => {
+                            let before = backend.modes().ok();
+                            match backend.command(c.clone()) {
+                                Ok(()) => {
+                                    // YouTube Music answers before it applies the
+                                    // change: read until it shows (a volume already
+                                    // at the top never will; that's fine).
+                                    let mut after = None;
+                                    for _ in 0..8 {
+                                        thread::sleep(Duration::from_millis(150));
+                                        if let Ok(m) = backend.modes() {
+                                            let moved =
+                                                before.as_ref().is_none_or(|b| b.moved(&m, &c));
+                                            after = Some(m);
+                                            if moved {
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    match after {
+                                        Some(m) => {
+                                            let note = m.said(&c);
+                                            if up_tx.send(Update::Modes(m)).is_err() {
+                                                return;
+                                            }
+                                            note.map(|n| Ok(Update::Note(n)))
+                                        }
+                                        None => None,
+                                    }
+                                }
+                                Err(e) => Some(Err(e)),
+                            }
                         }
+                        // A refusal used to vanish here; now it's said.
+                        c => backend.command(c).err().map(Err),
                     };
                     let sent = match reply {
                         Some(Ok(u)) => up_tx.send(u),
@@ -440,9 +601,20 @@ impl Music {
             results: Vec::new(),
             playlists: Vec::new(),
             note: None,
+            fresh_note: false,
+            modes: Modes::default(),
             rx: Some(up_rx),
             tx: Some(cmd_tx),
         }
+    }
+
+    /// The note the poller just sent, once: so a key pressed on the music
+    /// pane (where the player's note line isn't showing) is answered in the
+    /// status bar.
+    pub fn take_fresh_note(&mut self) -> Option<String> {
+        std::mem::take(&mut self.fresh_note)
+            .then(|| self.note.clone())
+            .flatten()
     }
 
     /// Drain whatever the poller has sent since the last frame.
@@ -462,7 +634,11 @@ impl Music {
                     self.note = p.is_empty().then(|| "no playlists found".to_string());
                     self.playlists = p;
                 }
-                Update::Note(n) => self.note = Some(n),
+                Update::Note(n) => {
+                    self.note = Some(n);
+                    self.fresh_note = true;
+                }
+                Update::Modes(m) => self.modes = m,
             }
         }
     }
@@ -476,6 +652,63 @@ impl Music {
 
 #[cfg(test)]
 mod config_tests {
+
+    #[test]
+    fn the_pane_badges_say_only_what_is_on() {
+        let mut m = Modes::default();
+        assert_eq!(m.badges(), "");
+        m.repeat = Some(Repeat::Off);
+        m.shuffle = Some(false);
+        assert_eq!(m.badges(), "", "off shows nothing");
+        m.repeat = Some(Repeat::One);
+        m.shuffle = Some(true);
+        m.liked = Some(true);
+        assert_eq!(m.badges(), "↻1 ⇄ ♥");
+        m.repeat = Some(Repeat::All);
+        m.muted = true;
+        assert_eq!(m.badges(), "↻ ⇄ ♥ muted");
+    }
+
+    #[test]
+    fn a_setting_is_said_as_it_now_is() {
+        let m = Modes {
+            repeat: Some(Repeat::One),
+            shuffle: Some(false),
+            volume: Some(100),
+            muted: false,
+            liked: Some(false),
+        };
+        assert_eq!(m.said(&Cmd::Repeat).as_deref(), Some("repeat: one"));
+        assert_eq!(m.said(&Cmd::Shuffle).as_deref(), Some("shuffle off"));
+        assert_eq!(
+            m.said(&Cmd::Volume(10)).as_deref(),
+            Some("volume 100 — as loud as it goes")
+        );
+        assert_eq!(m.said(&Cmd::Volume(-10)).as_deref(), Some("volume 100"));
+        assert_eq!(m.said(&Cmd::Like).as_deref(), Some("like taken back"));
+        assert_eq!(m.said(&Cmd::Next), None);
+        let words: Vec<String> = m.line().into_iter().map(|(w, _)| w).collect();
+        assert_eq!(words, ["repeat one", "shuffle off", "volume 100"]);
+    }
+
+    #[test]
+    fn a_change_is_seen_only_in_the_setting_it_touches() {
+        let before = Modes {
+            repeat: Some(Repeat::All),
+            ..Modes::default()
+        };
+        let after = Modes {
+            repeat: Some(Repeat::One),
+            ..Modes::default()
+        };
+        assert!(before.moved(&after, &Cmd::Repeat));
+        assert!(!before.moved(&after, &Cmd::Shuffle));
+        assert!(
+            !before.moved(&before, &Cmd::Repeat),
+            "unapplied yet: keep reading"
+        );
+    }
+
     use super::*;
 
     #[test]

@@ -4,6 +4,12 @@ use super::*;
 
 impl App {
     pub(super) fn on_player_key(&mut self, key: Key) {
+        // Transport keys first — unless a search is being typed, where every
+        // letter belongs to the query.
+        let typing = matches!(self.overlay, Overlay::Player { typing: true, .. });
+        if !typing && self.transport_key(key) {
+            return;
+        }
         let Overlay::Player {
             tab,
             sel,
@@ -136,19 +142,6 @@ impl App {
                     });
                 }
             }
-            Key::Char(' ') => self.music.send(Cmd::PlayPause),
-            Key::Right => self.music.send(Cmd::Seek(10)),
-            Key::Left => self.music.send(Cmd::Seek(-10)),
-            Key::Char(']') | Key::Char('n') => self.music.send(Cmd::Next),
-            Key::Char('[') | Key::Char('p') => self.music.send(Cmd::Prev),
-            Key::Char('s') => self.music.send(Cmd::Shuffle),
-            Key::Char('r') => self.music.send(Cmd::Repeat),
-            Key::Char('+') | Key::Char('=') => self.music.send(Cmd::Volume(10)),
-            Key::Char('-') => self.music.send(Cmd::Volume(-10)),
-            Key::Char('l') => {
-                self.music.note = Some("liked".into());
-                self.music.send(Cmd::Like);
-            }
             Key::F(n) => self.on_function_key(n),
             _ => {}
         }
@@ -208,6 +201,15 @@ pub(super) fn draw_player(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
                 Span::styled("─".repeat(barw - filled), Style::default().fg(t.border)),
                 Span::styled(times, dim),
             ]));
+            // Repeat, shuffle, volume, like: what r, s, +/- and l change.
+            let mut modes = vec![Span::raw(" ")];
+            for (i, (word, on)) in app.music.modes.line().into_iter().enumerate() {
+                if i > 0 {
+                    modes.push(Span::styled(" · ", dim));
+                }
+                modes.push(Span::styled(word, if on { accent } else { dim }));
+            }
+            lines.push(Line::from(modes));
         }
         other => {
             let why = match other {

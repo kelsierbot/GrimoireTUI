@@ -776,7 +776,13 @@ fn draw_music(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
             } else {
                 0.0
             };
-            let barw = w.saturating_sub(7).max(4);
+            let badges = app.music.modes.badges();
+            let extra = if badges.is_empty() {
+                0
+            } else {
+                badges.chars().count() + 1
+            };
+            let barw = w.saturating_sub(7 + extra).max(4);
             let filled = (frac * barw as f64).round() as usize;
             let mins = |s: f64| format!("{:.0}:{:02.0}", (s / 60.0).floor(), s % 60.0);
 
@@ -796,6 +802,14 @@ fn draw_music(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
                     Span::styled(
                         format!(" {}", mins(tr.progress)),
                         Style::default().fg(t.dim),
+                    ),
+                    Span::styled(
+                        if badges.is_empty() {
+                            String::new()
+                        } else {
+                            format!(" {badges}")
+                        },
+                        Style::default().fg(t.accent),
                     ),
                 ]),
             ]

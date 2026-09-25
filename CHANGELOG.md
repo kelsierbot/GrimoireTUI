@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.3
+
+- **The music pane takes every one of the player's keys** when it's
+  highlighted: `[` `]` change track, `←` `→` seek ten seconds, `space`, `r`
+  repeat, `s` shuffle, `+` `-` volume, `l` like. Its edge names them while it
+  has focus.
+- **Repeat, shuffle, volume and like are on screen**: under the player's
+  progress bar, and as `↻` `↻1` `⇄` `♥` beside the pane's time. Before, `r` and
+  friends worked but nothing showed it, so they looked broken.
+- **Every key says what it did** — "repeat: one", "shuffle on", "volume 100 —
+  as loud as it goes" — read back from the player once it has applied the
+  change, and a command the player refuses now says why instead of vanishing.
+
 ## 0.4.2
 
 - **A spellbook heads the tree**: an open grimoire, light rising from its

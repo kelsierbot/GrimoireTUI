@@ -3193,18 +3193,36 @@ impl App {
         }
     }
 
-    /// The music pane answers the same keys as the player (F7): `[` `]`
-    /// change track, `←` `→` seek ten seconds.
+    /// The music pane answers every one of the player's (F7) keys.
     pub fn on_music_key(&mut self, key: Key) {
-        match key {
-            Key::Enter => self.open_player(),
-            Key::Char(' ') => self.music.send(music::Cmd::PlayPause),
-            Key::Char(']') | Key::Char('n') => self.music.send(music::Cmd::Next),
-            Key::Char('[') | Key::Char('p') => self.music.send(music::Cmd::Prev),
-            Key::Right | Key::Char('l') => self.music.send(music::Cmd::Seek(10)),
-            Key::Left | Key::Char('h') => self.music.send(music::Cmd::Seek(-10)),
-            _ => {}
+        if key == Key::Enter {
+            self.open_player();
+        } else {
+            self.transport_key(key);
         }
+    }
+
+    /// The player's own keys, the same on the music pane and in the F7
+    /// player: `[` `]` track, `←` `→` seek, space, `s` shuffle, `r` repeat,
+    /// `+` `-` volume, `l` like. True if `key` was one of them. What each did
+    /// comes back from the player as a note ("repeat: one").
+    pub fn transport_key(&mut self, key: Key) -> bool {
+        use music::Cmd;
+        let cmd = match key {
+            Key::Char(' ') => Cmd::PlayPause,
+            Key::Right => Cmd::Seek(10),
+            Key::Left => Cmd::Seek(-10),
+            Key::Char(']') | Key::Char('n') => Cmd::Next,
+            Key::Char('[') | Key::Char('p') => Cmd::Prev,
+            Key::Char('s') => Cmd::Shuffle,
+            Key::Char('r') => Cmd::Repeat,
+            Key::Char('+') | Key::Char('=') => Cmd::Volume(10),
+            Key::Char('-') => Cmd::Volume(-10),
+            Key::Char('l') => Cmd::Like,
+            _ => return false,
+        };
+        self.music.send(cmd);
+        true
     }
 
     /// A left click focuses the pane under the pointer and acts on it.
@@ -3839,7 +3857,9 @@ impl App {
                 format!("{esc}{focus}  Tab pane  ←→ view  ↵ start/pause  r reset  {m}Q quit ")
             }
             Focus::Music => {
-                format!("{esc}  [ ] track  space pause  ←→ seek  ↵ player  Tab pane  {m}Q quit ")
+                format!(
+                    "{esc}  [ ] track  space pause  ←→ seek  r repeat  s shuffle  +/- volume  l like  ↵ player  {m}Q quit "
+                )
             }
         }
     }

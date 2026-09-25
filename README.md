@@ -199,6 +199,7 @@ heard of.
 | `F9` · `t` | themes |
 | `←` `→` | in the clearing pane: switch view |
 | `F4` `F5` `F6` | previous · play-pause · next (with music on) |
+| *(music pane)* | the player's keys: `[` `]` track · `space` pause · `←` `→` seek · `r` repeat · `s` shuffle · `+` `-` volume · `l` like · `Enter` the player |
 | `F7` | the music player — queue, your playlists, search, and every control (also in the menu, or `Enter` on the music pane) |
 
 ## Writing
@@ -403,8 +404,12 @@ bar; below it are three tabs, switched with `Tab`:
 - **Search** — `/`, type, `Enter`. `Enter` on a result plays it now; `a` plays
   it next. Songs and videos only.
 
-Everywhere in the player: `space` pause · `←` `→` seek 10 s · `[` `]` previous /
-next · `s` shuffle · `r` repeat · `+` `-` volume · `l` like · `Esc` close.
+Everywhere in the player — and on the music pane when it has focus: `space`
+pause · `←` `→` seek 10 s · `[` `]` previous / next · `s` shuffle · `r` repeat ·
+`+` `-` volume · `l` like · `Esc` close. The player shows repeat, shuffle,
+volume and like under the progress bar, the pane shows `↻` (repeat all), `↻1`,
+`⇄` and `♥` beside the time, and each key says what it did — "repeat: one",
+"volume 70" — or why the player refused it.
 
 How playlists work, since the API Server has no "play playlist" call: Grimoire
 reads the songs from YouTube Music's public web listing — so the playlist has

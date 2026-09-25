@@ -440,6 +440,12 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
         app.tick_speller();
         app.tick_backup();
         app.music.drain();
+        // The player shows its own notes; anywhere else, the status bar does.
+        if let Some(n) = app.music.take_fresh_note()
+            && !matches!(app.overlay, Overlay::Player { .. })
+        {
+            app.msg = format!("♪ {n}");
+        }
         app.tick_player();
         if app.pomo.tick() {
             app.msg = match app.pomo.phase {
