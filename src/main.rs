@@ -116,10 +116,14 @@ fn main() -> Result<()> {
     let (root, opening_msg) = resolve_project(first.map(PathBuf::from))?;
     remember(&root);
 
+    let stranded = project::restore_stranded(&root);
     let project = Project::load(&root).context("loading project")?;
     let mut app = App::new(project)?;
     if let Some(m) = opening_msg {
         app.msg = m;
+    }
+    if !stranded.is_empty() {
+        app.msg = App::stranded_note(&stranded);
     }
 
     let mut terminal = ratatui::try_init()

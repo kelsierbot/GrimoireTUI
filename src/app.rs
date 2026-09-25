@@ -2070,6 +2070,10 @@ impl App {
             .collect();
         let open_path = self.open.map(|i| self.project.nodes[i].path.clone());
         let root = self.project.root.clone();
+        let stranded = project::restore_stranded(&root);
+        if !stranded.is_empty() {
+            self.msg = Self::stranded_note(&stranded);
+        }
         self.project = Project::load(&root)?;
         for n in &mut self.project.nodes {
             if let Some(&(_, open)) = collapsed.iter().find(|(p, _)| *p == n.path) {
@@ -2095,6 +2099,25 @@ impl App {
         self.refresh_visible();
         self.refresh_names();
         Ok(())
+    }
+
+    /// Said when [`project::restore_stranded`] brought something back.
+    pub fn stranded_note(back: &[PathBuf]) -> String {
+        let names: Vec<String> = back
+            .iter()
+            .take(3)
+            .map(|p| {
+                let stem = p.file_stem().unwrap_or_default().to_string_lossy().to_string();
+                stem.trim_start_matches(|c: char| c.is_ascii_digit() || c == '-')
+                    .replace('-', " ")
+            })
+            .collect();
+        format!(
+            "brought back {} left hidden by a move that didn't finish: {}{}",
+            back.len(),
+            names.join(", "),
+            if back.len() > 3 { ", …" } else { "" }
+        )
     }
 
     // ---- the corkboard --------------------------------------------------

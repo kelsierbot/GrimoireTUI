@@ -183,6 +183,8 @@ pub fn create_book(base: &Path, name: &str) -> Result<Book> {
 
 /// Every manuscript scene in book order, with where it sits and how long it is.
 pub fn outline(book: &Path) -> Result<Outline> {
+    // A desktop move cut short can leave a scene under a hidden name.
+    grimoire_core::project::restore_stranded(book);
     let p = Project::load(book).with_context(|| format!("opening {}", book.display()))?;
     let parents = p.parents();
     let mut scenes = Vec::new();
