@@ -12,9 +12,10 @@
 //! the one thing a writing app must never get wrong.
 
 use crate::project::write_atomic;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 /// What a file looked like when it was read: its size and a hash of its bytes.
 /// Size alone would miss an edit that happens to be the same length; the hash
@@ -27,16 +28,41 @@ pub struct Fingerprint {
 
 impl Fingerprint {
     pub fn of(text: &str) -> Fingerprint {
+        Fingerprint::of_bytes(text.as_bytes())
+    }
+
+    pub fn of_bytes(bytes: &[u8]) -> Fingerprint {
         Fingerprint {
-            len: text.len() as u64,
-            hash: fnv1a(text.as_bytes()),
+            len: bytes.len() as u64,
+            hash: fnv1a(bytes),
         }
     }
 
     /// The file as it is on disk right now, or `None` if it isn't there —
-    /// which is itself meaningful: a scene that has never been written.
+    /// which is itself meaningful: a scene that has never been written. Bytes,
+    /// not text, so a file that isn't UTF-8 still has a fingerprint.
     pub fn read(path: &Path) -> Option<Fingerprint> {
-        fs::read_to_string(path).ok().map(|t| Fingerprint::of(&t))
+        fs::read(path).ok().map(|b| Fingerprint::of_bytes(&b))
+    }
+}
+
+/// The cheap half of noticing a change: size and modification time, from a
+/// `stat` rather than a read. When these match what was last seen, the file
+/// is taken as unchanged; when they don't, the [`Fingerprint`] decides (a
+/// sync client touches the time without changing a word more often than not).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Stat {
+    pub len: u64,
+    pub modified: Option<SystemTime>,
+}
+
+impl Stat {
+    pub fn of(path: &Path) -> Option<Stat> {
+        let m = fs::metadata(path).ok()?;
+        m.is_file().then(|| Stat {
+            len: m.len(),
+            modified: m.modified().ok(),
+        })
     }
 }
 
@@ -78,19 +104,63 @@ pub fn save_guarded(path: &Path, text: &str, seen: Option<Fingerprint>) -> Resul
 /// open both in Grimoire and merge by hand — nothing is ever thrown away for
 /// them.
 pub fn write_conflict_copy(path: &Path, text: &str) -> Result<PathBuf> {
-    let stem = path
+    let dir = path.parent().unwrap_or(Path::new("."));
+    park(dir, path, text)
+}
+
+/// Write `text` into `dir` under the conflict-copy name for `scene`. Two
+/// clashes in the same minute get "… 2", "… 3": a parked version must never
+/// land on top of another one.
+fn park(dir: &Path, scene: &Path, text: &str) -> Result<PathBuf> {
+    let stem = scene
         .file_stem()
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_else(|| "scene".into());
-    let ext = path
+    let ext = scene
         .extension()
         .map(|e| e.to_string_lossy().to_string())
         .unwrap_or_else(|| "md".into());
     let when = chrono::Local::now().format("%Y-%m-%d %H-%M");
     let machine = crate::resume::machine_name();
-    let copy = path.with_file_name(format!("{stem} (from {machine}, {when}).{ext}"));
+    fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
+    let base = format!("{stem} (from {machine}, {when})");
+    let mut copy = dir.join(format!("{base}.{ext}"));
+    let mut n = 2;
+    while copy.exists() {
+        copy = dir.join(format!("{base} {n}.{ext}"));
+        n += 1;
+    }
     write_atomic(&copy, text)?;
     Ok(copy)
+}
+
+/// A scene that vanished from disk (deleted or moved by something else) while
+/// this session still had unsaved words in it. Writing them back to the old
+/// path would resurrect a file someone meant to remove, so they go to the
+/// book's trash instead, under the conflict-copy name: on screen, and nothing
+/// lost.
+pub fn park_in_trash(root: &Path, scene: &Path, text: &str) -> Result<PathBuf> {
+    park(&crate::project::trash_dir(root), scene, text)
+}
+
+/// The shape a parked version has: "<scene> (from <machine>, <when>).md".
+pub fn is_conflict_copy(path: &Path) -> bool {
+    path.file_stem()
+        .map(|s| s.to_string_lossy().contains(" (from "))
+        .unwrap_or(false)
+}
+
+/// Throw away a parked version once the writer has settled the conflict. It
+/// refuses anything that is not a conflict copy: a bug in a front end should
+/// never be able to ask this to delete a scene.
+pub fn drop_conflict_copy(path: &Path) -> Result<()> {
+    if !is_conflict_copy(path) {
+        anyhow::bail!("{} is not a conflict copy", path.display());
+    }
+    if path.exists() {
+        fs::remove_file(path).with_context(|| format!("removing {}", path.display()))?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -172,6 +242,30 @@ mod tests {
             save_guarded(&g, "first words\n", None).unwrap(),
             SaveOutcome::Conflict { .. }
         ));
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn two_clashes_in_one_minute_park_two_copies() {
+        let d = scratch("twice");
+        let f = d.join("Gravel.md");
+        fs::write(&f, "theirs\n").unwrap();
+        let a = write_conflict_copy(&f, "first parked\n").unwrap();
+        let b = write_conflict_copy(&f, "second parked\n").unwrap();
+        assert_ne!(a, b);
+        assert_eq!(fs::read_to_string(&a).unwrap(), "first parked\n");
+        assert_eq!(fs::read_to_string(&b).unwrap(), "second parked\n");
+        assert!(is_conflict_copy(&a) && is_conflict_copy(&b));
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn a_file_that_is_not_utf8_still_has_a_fingerprint() {
+        let d = scratch("latin1");
+        let f = d.join("note.md");
+        fs::write(&f, b"caf\xe9\n").unwrap();
+        let fp = Fingerprint::read(&f).expect("bytes, not text");
+        assert_eq!(fp, Fingerprint::of_bytes(b"caf\xe9\n"));
         fs::remove_dir_all(&d).unwrap();
     }
 

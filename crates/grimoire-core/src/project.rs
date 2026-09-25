@@ -15,6 +15,7 @@
 //! Scene metadata lives in YAML frontmatter, which we preserve verbatim so
 //! Obsidian and anything else can read and write it without us mangling it.
 
+use crate::sync::{self, Fingerprint, SaveOutcome, Stat};
 use anyhow::{Context, Result};
 use serde::Deserialize;
 use std::fs;
@@ -214,9 +215,74 @@ pub struct Node {
     pub dirty: bool,
     pub pov: Option<String>,
     pub status: Option<String>,
+    /// What the file on disk looked like when it was last read or written.
+    /// A save only goes ahead while the disk still matches, so a change made
+    /// by Obsidian, a sync client or the phone is never overwritten.
+    pub seen: Option<Fingerprint>,
+    /// Size and time at that moment: the cheap check before hashing.
+    pub stat: Option<Stat>,
+    /// The file isn't UTF-8 text. It is shown as read (a best guess), and
+    /// never written — saving it would destroy the bytes that couldn't be read.
+    pub read_only: bool,
+    /// A version parked beside its scene after a clash ("… (from bazzite,
+    /// …).md"). Shown, never compiled or counted.
+    pub parked: bool,
 }
 
 impl Node {
+    /// Take the file as it is on disk now: text, frontmatter and the fields
+    /// read from it, and what it looked like. A file that isn't UTF-8 is read
+    /// with the undecodable bytes replaced, and marked read-only so it is
+    /// never written back — one odd file must not keep the book from opening.
+    pub fn read_disk(&mut self) -> Result<()> {
+        let stat = Stat::of(&self.path);
+        let bytes =
+            fs::read(&self.path).with_context(|| format!("reading {}", self.path.display()))?;
+        let seen = Fingerprint::of_bytes(&bytes);
+        let (raw, read_only) = match String::from_utf8(bytes) {
+            Ok(text) => (text, false),
+            Err(e) => (String::from_utf8_lossy(e.as_bytes()).into_owned(), true),
+        };
+        self.seen = Some(seen);
+        self.stat = stat;
+        self.read_only = read_only;
+        self.adopt(&raw);
+        Ok(())
+    }
+
+    /// Replace this scene's text with `raw` (a whole file), as if just read.
+    fn adopt(&mut self, raw: &str) {
+        let (front, body) = split_frontmatter(raw);
+        self.pov = front.as_deref().and_then(|f| front_get(f, "pov"));
+        self.status = front.as_deref().and_then(|f| front_get(f, "status"));
+        // A parked copy is there to be read and merged by hand, never
+        // compiled into the book beside the scene it came from.
+        self.compile = !self.parked
+            && front
+                .as_deref()
+                .and_then(|f| front_get(f, "compile"))
+                .map(|v| !matches!(v.to_lowercase().as_str(), "false" | "no" | "0"))
+                .unwrap_or(true);
+        self.title = display_title(&self.path, front.as_deref());
+        self.front = front;
+        self.body = body;
+        self.dirty = false;
+    }
+
+    /// After writing `text` ourselves: remember it as what the disk holds.
+    /// The stat is kept only if the file still hashes to what was written, so
+    /// a change landing in between is still noticed on the next look.
+    fn wrote(&mut self, text: &str) {
+        let fp = Fingerprint::of(text);
+        self.seen = Some(fp);
+        self.stat = if Fingerprint::read(&self.path) == Some(fp) {
+            Stat::of(&self.path)
+        } else {
+            None
+        };
+        self.dirty = false;
+    }
+
     pub fn words(&self) -> usize {
         self.body.split_whitespace().count()
     }
@@ -264,6 +330,28 @@ impl Node {
 pub struct SaveReport {
     pub saved: Vec<usize>,
     pub failed: Vec<(usize, String)>,
+    /// Changed on disk by something else since it was read. The disk version
+    /// is now the scene (in memory too); this session's words are parked at
+    /// the path beside it.
+    pub parked: Vec<(usize, PathBuf)>,
+    /// Gone from disk (deleted or moved elsewhere). Its unsaved words are in
+    /// the trash at the path given; the row is stale until the tree reloads.
+    pub gone: Vec<(usize, PathBuf)>,
+}
+
+/// What [`Project::check_disk`] found for one scene.
+#[derive(Debug, Clone, PartialEq)]
+pub enum DiskChange {
+    Same,
+    /// Changed elsewhere, nothing unsaved here: the new version is in memory.
+    Adopted,
+    /// Changed elsewhere while this session had unsaved words: the new
+    /// version is in memory, and those words were parked at this path.
+    Parked(PathBuf),
+    /// Deleted or moved elsewhere, nothing unsaved here.
+    Gone,
+    /// Deleted or moved elsewhere with unsaved words, now in the trash here.
+    GoneParked(PathBuf),
 }
 
 pub struct Project {
@@ -324,6 +412,10 @@ impl Project {
                 dirty: false,
                 pov: None,
                 status: None,
+                seen: None,
+                stat: None,
+                read_only: false,
+                parked: false,
             });
             let kids = p.scan(&path, 1, area)?;
             p.nodes[idx].children = kids;
@@ -391,6 +483,10 @@ impl Project {
                     dirty: false,
                     pov: None,
                     status: None,
+                    seen: None,
+                    stat: None,
+                    read_only: false,
+                    parked: false,
                 });
                 let kids = self.scan(&path, depth + 1, area)?;
                 self.nodes[idx].children = kids;
@@ -403,34 +499,29 @@ impl Project {
     }
 
     fn load_file(&mut self, path: &Path, depth: usize, area: Area) -> Result<usize> {
-        let raw =
-            fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-        let (front, body) = split_frontmatter(&raw);
-        let pov = front.as_deref().and_then(|f| front_get(f, "pov"));
-        let status = front.as_deref().and_then(|f| front_get(f, "status"));
-        let compile = front
-            .as_deref()
-            .and_then(|f| front_get(f, "compile"))
-            .map(|v| !matches!(v.to_lowercase().as_str(), "false" | "no" | "0"))
-            .unwrap_or(true);
-        let title = display_title(path, front.as_deref());
-        Ok(self.push(Node {
+        let mut node = Node {
             kind: Kind::Scene,
             area,
-            title,
+            title: String::new(),
             path: path.to_path_buf(),
             depth,
             expanded: false,
             children: Vec::new(),
             in_manuscript: area == Area::Manuscript,
-            compile,
+            compile: true,
             front_matter: area == Area::FrontMatter,
-            front,
-            body,
+            front: None,
+            body: String::new(),
             dirty: false,
-            pov,
-            status,
-        }))
+            pov: None,
+            status: None,
+            seen: None,
+            stat: None,
+            read_only: false,
+            parked: sync::is_conflict_copy(path),
+        };
+        node.read_disk()?;
+        Ok(self.push(node))
     }
 
     /// Each node's parent, for walking up the tree.
@@ -448,6 +539,7 @@ impl Project {
     pub fn subtree_words(&self, i: usize) -> usize {
         let n = &self.nodes[i];
         match n.kind {
+            Kind::Scene if n.parked => 0,
             Kind::Scene => n.words(),
             _ => n.children.iter().map(|&c| self.subtree_words(c)).sum(),
         }
@@ -456,7 +548,7 @@ impl Project {
     pub fn total_words(&self) -> usize {
         self.nodes
             .iter()
-            .filter(|n| n.kind == Kind::Scene && n.in_manuscript)
+            .filter(|n| n.kind == Kind::Scene && n.in_manuscript && !n.parked)
             .map(|n| n.words())
             .sum()
     }
@@ -481,19 +573,35 @@ impl Project {
     }
 
     /// Write every changed scene, each through a temporary file so a crash
-    /// mid-save can never leave half a scene behind.
+    /// mid-save can never leave half a scene behind — and only over the
+    /// version this session last read. A scene changed on disk since then
+    /// keeps the disk's version and this session's words are parked beside
+    /// it; one that vanished has them parked in the trash. Nothing written
+    /// elsewhere is ever overwritten, and nothing typed here is ever dropped.
     pub fn save_dirty(&mut self) -> SaveReport {
         let mut report = SaveReport::default();
         for i in 0..self.nodes.len() {
             if !(self.nodes[i].dirty && self.nodes[i].kind == Kind::Scene) {
                 continue;
             }
-            let n = &self.nodes[i];
-            match write_atomic(&n.path, &n.file_text()) {
-                Ok(()) => {
-                    self.nodes[i].dirty = false;
+            if self.nodes[i].read_only {
+                // Never written; the app refuses edits to it in the first place.
+                self.nodes[i].dirty = false;
+                continue;
+            }
+            let text = self.nodes[i].file_text();
+            let path = self.nodes[i].path.clone();
+            match sync::save_guarded(&path, &text, self.nodes[i].seen) {
+                Ok(SaveOutcome::Written) => {
+                    self.nodes[i].wrote(&text);
                     report.saved.push(i);
                 }
+                Ok(SaveOutcome::Conflict { .. }) => match self.park_unsaved(i, &text) {
+                    Ok(DiskChange::GoneParked(copy)) => report.gone.push((i, copy)),
+                    Ok(DiskChange::Parked(copy)) => report.parked.push((i, copy)),
+                    Ok(_) => report.saved.push(i),
+                    Err(e) => report.failed.push((i, short_reason(&e))),
+                },
                 // The reason, not the path: "Permission denied", "No space left".
                 Err(e) => report.failed.push((i, short_reason(&e))),
             }
@@ -501,8 +609,96 @@ impl Project {
         report
     }
 
+    /// Scene `i` has unsaved `text` and the disk has moved on: keep both.
+    fn park_unsaved(&mut self, i: usize, text: &str) -> Result<DiskChange> {
+        let path = self.nodes[i].path.clone();
+        if Stat::of(&path).is_none() {
+            let copy = sync::park_in_trash(&self.root, &path, text)?;
+            self.nodes[i].dirty = false;
+            return Ok(DiskChange::GoneParked(copy));
+        }
+        let copy = sync::write_conflict_copy(&path, text)?;
+        self.nodes[i].read_disk()?;
+        Ok(DiskChange::Parked(copy))
+    }
+
+    /// Has scene `i` changed on disk since it was read or saved here? The
+    /// size and time are checked first; the bytes are hashed only when those
+    /// moved (or always, with `force`, for filesystems with coarse times). A
+    /// change is taken into memory — and if this session had unsaved words in
+    /// the scene, those are parked beside it first. Call with the editor's
+    /// text already flushed into the node.
+    pub fn check_disk(&mut self, i: usize, force: bool) -> Result<DiskChange> {
+        let n = &self.nodes[i];
+        if n.kind != Kind::Scene {
+            return Ok(DiskChange::Same);
+        }
+        let unsaved = n.dirty && !n.read_only;
+        let Some(stat) = Stat::of(&n.path) else {
+            if unsaved {
+                let text = n.file_text();
+                return self.park_unsaved(i, &text);
+            }
+            return Ok(DiskChange::Gone);
+        };
+        if !force && n.stat == Some(stat) {
+            return Ok(DiskChange::Same);
+        }
+        let now = Fingerprint::read(&n.path);
+        if now.is_some() && now == n.seen {
+            self.nodes[i].stat = Some(stat);
+            return Ok(DiskChange::Same);
+        }
+        if unsaved {
+            let text = n.file_text();
+            return self.park_unsaved(i, &text);
+        }
+        self.nodes[i].read_disk()?;
+        Ok(DiskChange::Adopted)
+    }
+
+    /// Has something else added or removed files or folders since the tree
+    /// was read? Only names are compared — no file is opened.
+    pub fn tree_is_stale(&self) -> bool {
+        let mut on_disk = std::collections::BTreeSet::new();
+        for area in Area::ordered(&self.meta) {
+            let path = area.path(&self.root);
+            if area == Area::Format {
+                if path.is_file() {
+                    on_disk.insert(path);
+                }
+                continue;
+            }
+            if path.is_dir() {
+                on_disk.insert(path.clone());
+                list_tree(&path, &mut on_disk);
+            }
+        }
+        let in_tree: std::collections::BTreeSet<PathBuf> =
+            self.nodes.iter().map(|n| n.path.clone()).collect();
+        on_disk != in_tree
+    }
+
     pub fn dirty_count(&self) -> usize {
         self.nodes.iter().filter(|n| n.dirty).count()
+    }
+}
+
+/// Every folder and `.md` file under `dir`, as [`Project::load`] would read
+/// them (hidden names skipped).
+fn list_tree(dir: &Path, out: &mut std::collections::BTreeSet<PathBuf>) {
+    let Ok(rd) = fs::read_dir(dir) else { return };
+    for e in rd.flatten() {
+        if e.file_name().to_string_lossy().starts_with('.') {
+            continue;
+        }
+        let path = e.path();
+        if path.is_dir() {
+            out.insert(path.clone());
+            list_tree(&path, out);
+        } else if path.extension().and_then(|s| s.to_str()) == Some("md") {
+            out.insert(path);
+        }
     }
 }
 
@@ -1051,12 +1247,12 @@ pub fn rename(path: &Path, name: &str) -> Result<PathBuf> {
         }
         fs::rename(path, &target).with_context(|| format!("renaming {}", path.display()))?;
     }
-    if !folder {
-        let raw =
-            fs::read_to_string(&target).with_context(|| format!("reading {}", target.display()))?;
-        if let Some(updated) = retitle(&raw, name) {
-            fs::write(&target, updated).with_context(|| format!("writing {}", target.display()))?;
-        }
+    // A file that isn't UTF-8 keeps its bytes: renamed, never rewritten.
+    if !folder
+        && let Ok(raw) = fs::read_to_string(&target)
+        && let Some(updated) = retitle(&raw, name)
+    {
+        fs::write(&target, updated).with_context(|| format!("writing {}", target.display()))?;
     }
     Ok(target)
 }
@@ -2242,6 +2438,177 @@ mod tests {
         let d = temp_dir("empty");
         let p = create(&d.join("new-chapter"), "Opening", false).unwrap();
         assert_eq!(p.file_name().unwrap(), "01-Opening.md");
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    // ---- the book changing under us ------------------------------------
+
+    /// A one-scene book: manuscript/01-Act-One/01-Chapter-One/01-Gravel.md.
+    fn sync_book(tag: &str) -> (PathBuf, PathBuf) {
+        let d = temp_dir(&format!("sync-{tag}"));
+        let ch = d.join("manuscript/01-Act-One/01-Chapter-One");
+        fs::create_dir_all(&ch).unwrap();
+        fs::write(d.join("novel.toml"), "title = \"Sync\"\n").unwrap();
+        let scene = ch.join("01-Gravel.md");
+        fs::write(
+            &scene,
+            "---\ntitle: \"Gravel\"\n---\n\nThe lot was empty.\n",
+        )
+        .unwrap();
+        (d, scene)
+    }
+
+    fn scene_idx(p: &Project, path: &Path) -> usize {
+        p.nodes.iter().position(|n| n.path == path).unwrap()
+    }
+
+    #[test]
+    fn a_save_never_overwrites_a_change_made_elsewhere() {
+        let (d, scene) = sync_book("clash");
+        let mut p = Project::load(&d).unwrap();
+        let i = scene_idx(&p, &scene);
+
+        // the phone writes the scene; this session is still typing in it
+        fs::write(&scene, "---\ntitle: \"Gravel\"\n---\n\nPHONE EDIT.\n").unwrap();
+        p.nodes[i].body = "The lot was empty. Then a van.\n".into();
+        p.nodes[i].dirty = true;
+
+        let report = p.save_dirty();
+        assert!(
+            report.saved.is_empty() && report.failed.is_empty(),
+            "{report:?}"
+        );
+        let (at, copy) = &report.parked[0];
+        assert_eq!(*at, i);
+        // the phone's words are the scene, on disk and in memory
+        assert!(fs::read_to_string(&scene).unwrap().contains("PHONE EDIT."));
+        assert_eq!(p.nodes[i].body, "PHONE EDIT.\n");
+        assert!(!p.nodes[i].dirty);
+        // and this session's words are parked beside it, not lost
+        assert!(copy.starts_with(scene.parent().unwrap()));
+        assert!(fs::read_to_string(copy).unwrap().contains("Then a van."));
+        assert!(sync::is_conflict_copy(copy));
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn a_scene_deleted_elsewhere_is_not_brought_back_and_its_words_go_to_the_trash() {
+        let (d, scene) = sync_book("gone");
+        let mut p = Project::load(&d).unwrap();
+        let i = scene_idx(&p, &scene);
+        fs::remove_file(&scene).unwrap();
+        p.nodes[i].body = "Words typed after it went.\n".into();
+        p.nodes[i].dirty = true;
+
+        let report = p.save_dirty();
+        assert!(!scene.exists(), "resurrected at its old path");
+        let (_, parked) = &report.gone[0];
+        assert!(parked.starts_with(trash_dir(&d)));
+        assert!(
+            fs::read_to_string(parked)
+                .unwrap()
+                .contains("Words typed after it went.")
+        );
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn a_change_on_disk_is_taken_in_or_parked_depending_on_what_is_unsaved() {
+        let (d, scene) = sync_book("check");
+        let mut p = Project::load(&d).unwrap();
+        let i = scene_idx(&p, &scene);
+        assert_eq!(p.check_disk(i, false).unwrap(), DiskChange::Same);
+
+        // nothing unsaved here: the new version is simply taken in
+        fs::write(&scene, "---\ntitle: \"Gravel\"\n---\n\nSynced in.\n").unwrap();
+        assert_eq!(p.check_disk(i, true).unwrap(), DiskChange::Adopted);
+        assert_eq!(p.nodes[i].body, "Synced in.\n");
+        assert_eq!(p.check_disk(i, true).unwrap(), DiskChange::Same);
+
+        // unsaved words here, and it changes again: both are kept
+        p.nodes[i].body = "Mine, unsaved.\n".into();
+        p.nodes[i].dirty = true;
+        fs::write(&scene, "---\ntitle: \"Gravel\"\n---\n\nTheirs again.\n").unwrap();
+        let DiskChange::Parked(copy) = p.check_disk(i, true).unwrap() else {
+            panic!("should have parked");
+        };
+        assert_eq!(p.nodes[i].body, "Theirs again.\n");
+        assert!(
+            fs::read_to_string(&copy)
+                .unwrap()
+                .contains("Mine, unsaved.")
+        );
+
+        // and a scene that vanishes with nothing unsaved is just gone
+        fs::remove_file(&scene).unwrap();
+        assert_eq!(p.check_disk(i, false).unwrap(), DiskChange::Gone);
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn a_file_added_or_removed_elsewhere_makes_the_tree_stale() {
+        let (d, scene) = sync_book("stale");
+        let p = Project::load(&d).unwrap();
+        assert!(!p.tree_is_stale());
+        let new = scene.with_file_name("02-From-The-Phone.md");
+        fs::write(&new, "New.\n").unwrap();
+        assert!(p.tree_is_stale());
+        fs::remove_file(&new).unwrap();
+        assert!(!p.tree_is_stale());
+        fs::remove_file(&scene).unwrap();
+        assert!(p.tree_is_stale());
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn a_new_book_is_not_stale_the_moment_it_is_read() {
+        // Otherwise every tick would re-read the whole book.
+        let d = temp_dir("sync-scaffold");
+        let root = d.join("Book");
+        fs::create_dir_all(&root).unwrap();
+        scaffold(&root).unwrap();
+        let p = Project::load(&root).unwrap();
+        assert!(p.nodes.len() > 80);
+        assert!(!p.tree_is_stale());
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn a_parked_copy_is_shown_but_never_counted_or_compiled() {
+        let (d, scene) = sync_book("parkedcount");
+        let before = Project::load(&d).unwrap().total_words();
+        let copy = sync::write_conflict_copy(&scene, "Four more words here.\n").unwrap();
+        let p = Project::load(&d).unwrap();
+        let j = scene_idx(&p, &copy);
+        assert!(p.nodes[j].parked && !p.nodes[j].compile);
+        assert_eq!(p.total_words(), before);
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn one_file_that_is_not_utf8_does_not_lock_the_book() {
+        let (d, scene) = sync_book("latin1");
+        let odd = scene.with_file_name("02-Cafe.md");
+        let bytes = b"Le caf\xe9 \xe9tait ferm\xe9.\n".to_vec();
+        fs::write(&odd, &bytes).unwrap();
+
+        let mut p = Project::load(&d).expect("the book opens");
+        let i = scene_idx(&p, &odd);
+        assert!(p.nodes[i].read_only);
+        assert!(p.nodes[i].body.contains("caf"));
+        assert!(!p.nodes[scene_idx(&p, &scene)].read_only);
+
+        // even if something marks it changed, it is never written
+        p.nodes[i].body = "overwritten".into();
+        p.nodes[i].dirty = true;
+        let report = p.save_dirty();
+        assert!(report.failed.is_empty());
+        assert_eq!(fs::read(&odd).unwrap(), bytes);
+        assert_eq!(p.check_disk(i, true).unwrap(), DiskChange::Same);
+
+        // and renaming it keeps its bytes
+        let renamed = rename(&odd, "Bistro").unwrap();
+        assert_eq!(fs::read(&renamed).unwrap(), bytes);
         fs::remove_dir_all(&d).unwrap();
     }
 }

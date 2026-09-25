@@ -214,7 +214,19 @@ fn draw_tree(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
         } else {
             0
         };
-        let count = if words > 0 {
+        // A parked copy or a file Grimoire won't write says so where the
+        // count would be: two rows with the same name and different words is
+        // exactly how the wrong one gets edited.
+        let tag = if n.read_only {
+            "read-only"
+        } else if n.parked {
+            "parked copy"
+        } else {
+            ""
+        };
+        let count = if !tag.is_empty() {
+            tag.to_string()
+        } else if words > 0 {
             thousands(words)
         } else {
             String::new()
@@ -260,7 +272,12 @@ fn draw_tree(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
                 Span::styled(icon, Style::default().fg(icon_colour).patch(base)),
                 Span::styled(title, name_style.patch(base)),
                 Span::styled(" ".repeat(gap), base),
-                Span::styled(count, Style::default().fg(t.dim).patch(base)),
+                Span::styled(
+                    count,
+                    Style::default()
+                        .fg(if tag.is_empty() { t.dim } else { t.warn })
+                        .patch(base),
+                ),
                 Span::styled(" ", base),
             ])
             .style(base),
