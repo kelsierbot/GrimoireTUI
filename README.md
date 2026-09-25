@@ -392,7 +392,11 @@ computer is playing — on a Mac (macOS 14.6+, once your terminal is allowed
 under *Privacy & Security › Screen & System Audio Recording › System Audio
 Recording Only*), and on Linux through PipeWire's `pw-record` or PulseAudio's
 `parec` (set `GRIMOIRE_MONITOR=<sink>` to hear an output other than the
-default).
+default). It too is drawn in each theme's own style — meter segments for
+Gruvbox, pastel beads for Catppuccin, dotted frost over snowdrifts for Nord, a
+lit skyline for Tokyo Night, a rolling wave for Kanagawa, a synthwave grid, a
+mirrored prism for Rainbow — and it always names the song that's playing, in
+its title or written along the bottom, cut to fit.
 
 ## Music
 

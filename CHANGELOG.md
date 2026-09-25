@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.4.6
+
+- **The garden is gone.** The pane under the tree has two views, the
+  **Pomodoro** and the **Visualizer**; `←` `→` switches between them.
+- **Every theme has its own Pomodoro world**: a wizard's tower for Grimoire, a
+  castle and bats for Dracula, snowy peaks and the aurora for Nord, cats on a
+  fence for Catppuccin, the great wave for Kanagawa, a neon horizon for
+  Synthwave '84 (its striped sun is the clock), a rainbow over the hills for
+  Rainbow — nineteen in all. Lost Forest and custom themes keep the glade.
+- **The ground fills in behind the sun** as a session goes, and a paused sun
+  waits, dimmed.
+- **The Visualizer looks different in every theme** too — meters, beads,
+  dotted frost, a lit skyline, a synthwave grid, a rolling wave, a mirrored
+  prism — and custom themes keep the original.
+- **It always names the song**, cut to fit, in its title or written along the
+  bottom and lit as the song plays.
+- **Calmer**: a gentler beat, fewer stray peak marks, and a quiet resting line
+  with the reason when nothing's playing.
+
 ## 0.4.5
 
 - **Volume steps evenly**: each `+` or `-` moves it about ten (100 → 90 → 80),
