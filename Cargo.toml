@@ -24,15 +24,8 @@ chrono = "0.4.45"
 cpal = { version = "0.17", optional = true }
 ratatui = "0.30.2"
 rodio = { version = "0.22.2", default-features = false, features = ["playback", "symphonia-mp3", "symphonia-flac", "symphonia-vorbis", "symphonia-wav"], optional = true }
-serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
-toml = "1.1.6"
-unicode-width = "0.2.2"
 ureq = { version = "3.4.1", features = ["json"] }
-# DOCX and EPUB are zip files. Deflate only, through flate2's pure-Rust backend
-# (miniz_oxide), so export builds the same everywhere with no C compiler.
-zip = { version = "8.6", default-features = false, features = ["deflate-flate2"] }
-flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
 
 # Saving on the way out when the terminal window is closed or the machine asks
 # the process to stop: SIGHUP/SIGTERM on Unix, the console close event on Windows.
@@ -41,10 +34,6 @@ signal-hook = "0.3"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Console"] }
-
-[dev-dependencies]
-# The export tests parse the XML they write, to prove it is well-formed.
-roxmltree = "0.21"
 
 [profile.release]
 opt-level = 3
