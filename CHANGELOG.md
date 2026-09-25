@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.5.0 — safe in every sync service
+
+A complete pass over how a book behaves in pCloud, Google Drive, Dropbox and
+Box (and OneDrive, iCloud Drive, Syncthing), checked against each service's
+documented behaviour and tested on a real pCloud Drive.
+
+- **Conflict copies from every sync service are recognised** — Dropbox's
+  "conflicted copy", pCloud's "(conflicted)", Box's "(1)", OneDrive's device
+  suffix, iCloud's "2", Syncthing's "sync-conflict", Google Drive's variants,
+  and Grimoire's own — named in the tree ("Dropbox copy"), never counted or
+  exported twice, and moved with their scene. `⚠ N conflicts` shows in the
+  status bar until you settle them.
+- **Settle conflicts…** puts both versions side by side: take the copy, keep
+  the scene, or keep both. One `Ctrl-Z` undoes it; nothing is ever deleted.
+- **A file your sync service hasn't downloaded, or can't deliver offline,
+  never stops a book opening.** It's shown as *offline*, never saved over, and
+  read once it arrives. An online-only placeholder (empty, or iCloud's stub) is
+  never taken for a scene cut to nothing or deleted.
+- **A file that blinks** while a service replaces it, or that is still
+  arriving, is no longer sent to the trash or taken in half-written.
+- **Saves never write a file in place**: a temp name every service ignores,
+  retried while another program holds the file, and the words kept in
+  recovery until it succeeds.
+- **Every name Grimoire makes is safe on every service and system** — no
+  characters Windows forbids, no reserved names, nothing too long, never two
+  names that differ only by capitals or accents. Pairs like that already on
+  disk are marked *name clash*.
+- **Writing-session history lives on each machine, outside the book**, where
+  no sync service can damage it; an older book's history can be moved out.
+- **The phone never saves over words** that arrive just after its own save,
+  and moving its shelf never loses a file that changes mid-move.
+- Grimoire says which sync service a book is in.
+- Fixed: an unreadable `novel.toml` could be replaced by a one-line file at
+  launch; a scene that became unreadable could spawn a conflict copy every two
+  seconds.
+
 ## 0.4.7
 
 - **Custom themes mix and match**: under the swatches, choose any theme's

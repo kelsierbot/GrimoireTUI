@@ -810,7 +810,7 @@ fn ensure_gitignore(root: &Path) -> Result<()> {
     };
     let wanted = gitignore_keeping_resume(&existing);
     if wanted != existing {
-        fs::write(&path, wanted).with_context(|| format!("writing {}", path.display()))?;
+        crate::atomic::write_text(&path, &wanted)?;
     }
     Ok(())
 }

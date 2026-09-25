@@ -5,6 +5,7 @@
 //! and an Android app on a phone, with the book itself staying plain Markdown
 //! either way.
 
+pub mod atomic;
 pub mod cloud;
 pub mod codex;
 pub mod cork;
