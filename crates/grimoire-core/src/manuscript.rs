@@ -19,7 +19,7 @@
 //! magazines expect: rounded word count on the title page, spelled-out chapter
 //! headings, and `#` alone on a line for a scene break.
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
@@ -194,7 +194,7 @@ pub fn write_project_file(p: &Project) -> Result<PathBuf> {
         format!("{}\n\n{body}\n", existing.trim_end())
     };
 
-    std::fs::write(&path, out).with_context(|| format!("writing {}", path.display()))?;
+    crate::atomic::write_text(&path, &out)?;
     Ok(path)
 }
 
@@ -353,12 +353,12 @@ pub struct Compiled {
 /// Front matter owns the title page, as in Scrivener: it's emitted verbatim
 /// rather than having a generated one stacked on top of it.
 pub fn compile(p: &Project) -> Result<Compiled> {
+    p.ensure_whole()?;
     let book = crate::export::book(p, None)?;
     let path = p
         .root
         .join(format!("{}-manuscript.md", crate::export::slug(book.title)));
-    std::fs::write(&path, crate::export::markdown(&book))
-        .with_context(|| format!("writing {}", path.display()))?;
+    crate::atomic::write_text(&path, &crate::export::markdown(&book))?;
 
     Ok(Compiled {
         path,

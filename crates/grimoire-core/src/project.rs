@@ -193,6 +193,72 @@ impl Area {
     }
 }
 
+/// Why a file can't be read right now: a word for the tree, a sentence for
+/// the status bar. Such a file is shown and kept, and never written until a
+/// read succeeds again.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Unavailable {
+    pub tag: &'static str,
+    pub why: String,
+}
+
+impl Unavailable {
+    /// A read that failed: an online-only file with no connection (Dropbox,
+    /// Google Drive, Box, OneDrive, pCloud Drive), a download that failed, a
+    /// permission problem.
+    pub fn from_io(e: &std::io::Error) -> Unavailable {
+        let reason = e.to_string();
+        let reason = match reason.find(" (os error") {
+            Some(i) => reason[..i].to_string(),
+            None => reason,
+        };
+        if e.kind() == std::io::ErrorKind::PermissionDenied {
+            Unavailable {
+                tag: "can't read",
+                why: format!("it can't be read ({reason})"),
+            }
+        } else {
+            Unavailable {
+                tag: "offline",
+                why: format!("it can't be read right now — not downloaded, or offline? ({reason})"),
+            }
+        }
+    }
+
+    /// iCloud's older placeholder: the file is replaced by a hidden
+    /// `.Name.md.icloud` until it downloads.
+    pub fn icloud() -> Unavailable {
+        Unavailable {
+            tag: "in iCloud",
+            why: "it's in iCloud and hasn't downloaded yet".into(),
+        }
+    }
+
+    /// Empty on disk where there were words: an online-only placeholder
+    /// showing its size as nothing. Never taken for a scene cut to nothing.
+    pub fn empty() -> Unavailable {
+        Unavailable {
+            tag: "downloading",
+            why: "it's empty on disk — waiting for it to download".into(),
+        }
+    }
+}
+
+/// What the disk checks have seen of a scene between one look and the next.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct DiskState {
+    /// Set while the file can't be read. The words last read stay in memory;
+    /// the file is never written until a read works again.
+    pub unavailable: Option<Unavailable>,
+    /// Checks in a row that found the file missing. Once is a sync client
+    /// replacing it (or a folder blinking out and back); twice is gone.
+    pub missing: u8,
+    /// A change seen on disk but not taken in yet, by its size and time. A
+    /// second look that finds it the same takes it in; a client still writing
+    /// the file would have moved on.
+    pub pending: Option<Stat>,
+}
+
 #[derive(Debug, Clone)]
 pub struct Node {
     pub kind: Kind,
@@ -227,6 +293,8 @@ pub struct Node {
     /// A version parked beside its scene after a clash ("… (from bazzite,
     /// …).md"). Shown, never compiled or counted.
     pub parked: bool,
+    /// Between disk checks: unreadable, missing, or changing. See [`DiskState`].
+    pub disk: DiskState,
 }
 
 impl Node {
@@ -238,16 +306,30 @@ impl Node {
         let stat = Stat::of(&self.path);
         let bytes =
             fs::read(&self.path).with_context(|| format!("reading {}", self.path.display()))?;
+        self.take_bytes(bytes, stat);
+        Ok(())
+    }
+
+    /// The file's `bytes`, just read, become the scene. `stat` is what it
+    /// looked like just before; it is remembered only once it's old enough to
+    /// be trusted ([`sync::settled`]).
+    fn take_bytes(&mut self, bytes: Vec<u8>, stat: Option<Stat>) {
         let seen = Fingerprint::of_bytes(&bytes);
         let (raw, read_only) = match String::from_utf8(bytes) {
             Ok(text) => (text, false),
             Err(e) => (String::from_utf8_lossy(e.as_bytes()).into_owned(), true),
         };
         self.seen = Some(seen);
-        self.stat = stat;
+        self.stat = sync::settled(stat);
         self.read_only = read_only;
+        self.disk = DiskState::default();
         self.adopt(&raw);
-        Ok(())
+    }
+
+    /// Unreadable since the book opened: no words in memory, nothing to show
+    /// or count until it downloads.
+    pub fn never_read(&self) -> bool {
+        self.kind == Kind::Scene && self.seen.is_none() && self.disk.unavailable.is_some()
     }
 
     /// Replace this scene's text with `raw` (a whole file), as if just read.
@@ -276,10 +358,11 @@ impl Node {
         let fp = Fingerprint::of(text);
         self.seen = Some(fp);
         self.stat = if Fingerprint::read(&self.path) == Some(fp) {
-            Stat::of(&self.path)
+            sync::settled(Stat::of(&self.path))
         } else {
             None
         };
+        self.disk = DiskState::default();
         self.dirty = false;
     }
 
@@ -339,6 +422,10 @@ pub struct SaveReport {
     /// Gone from disk (deleted or moved elsewhere). Its unsaved words are in
     /// the trash at the path given; the row is stale until the tree reloads.
     pub gone: Vec<(usize, PathBuf)>,
+    /// Not written yet, and not failed: the file can't be read right now, or
+    /// went missing for a moment. The words are still unsaved in memory; keep
+    /// them in recovery and try again later.
+    pub waiting: Vec<usize>,
 }
 
 /// What [`Project::check_disk`] found for one scene.
@@ -354,6 +441,12 @@ pub enum DiskChange {
     Gone,
     /// Deleted or moved elsewhere with unsaved words, now in the trash here.
     GoneParked(PathBuf),
+    /// The file can't be read right now (why): what's in memory stays, and
+    /// nothing is written until it can be.
+    Unavailable(Unavailable),
+    /// Readable again — or for the first time, a scene that opened
+    /// unreadable — and its words are in memory now.
+    Available,
 }
 
 pub struct Project {
@@ -361,17 +454,37 @@ pub struct Project {
     pub meta: ProjectMeta,
     pub nodes: Vec<Node>,
     pub roots: Vec<usize>,
+    /// `novel.toml` couldn't be read or understood, so the book opened with
+    /// the defaults (it is never rewritten from them): why, for the status bar.
+    pub meta_unreadable: Option<String>,
 }
 
 impl Project {
     pub fn load(root: &Path) -> Result<Project> {
+        // A novel.toml that can't be read (not downloaded yet) or parsed (a
+        // sync caught halfway) opens the book on the defaults rather than not
+        // at all. Nothing rewrites novel.toml from them: everything that
+        // writes it reads it first.
         let meta_path = root.join("novel.toml");
-        let meta: ProjectMeta = if meta_path.exists() {
-            let s = fs::read_to_string(&meta_path)
-                .with_context(|| format!("reading {}", meta_path.display()))?;
-            toml::from_str(&s).with_context(|| format!("parsing {}", meta_path.display()))?
-        } else {
-            ProjectMeta::default()
+        let (meta, meta_unreadable) = match fs::read_to_string(&meta_path) {
+            Ok(s) => match toml::from_str::<ProjectMeta>(&s) {
+                Ok(m) => (m, None),
+                Err(e) => (
+                    ProjectMeta::default(),
+                    Some(format!(
+                        "novel.toml didn't read as settings ({})",
+                        e.message()
+                    )),
+                ),
+            },
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => (ProjectMeta::default(), None),
+            Err(e) => (
+                ProjectMeta::default(),
+                Some(format!(
+                    "novel.toml {}",
+                    Unavailable::from_io(&e).why.trim_start_matches("it ")
+                )),
+            ),
         };
 
         let mut p = Project {
@@ -379,6 +492,7 @@ impl Project {
             meta,
             nodes: Vec::new(),
             roots: Vec::new(),
+            meta_unreadable,
         };
 
         // Every section, in order, as a row that folds. The front matter sits
@@ -390,7 +504,7 @@ impl Project {
             let path = area.path(root);
             if area == Area::Format {
                 if path.is_file() {
-                    let idx = p.load_file(&path, 0, area)?;
+                    let idx = p.load_file(&path, 0, area);
                     p.roots.push(idx);
                 }
                 continue;
@@ -418,8 +532,9 @@ impl Project {
                 stat: None,
                 read_only: false,
                 parked: false,
+                disk: DiskState::default(),
             });
-            let kids = p.scan(&path, 1, area)?;
+            let kids = p.scan(idx, &path, 1, area);
             p.nodes[idx].children = kids;
             p.roots.push(idx);
         }
@@ -449,22 +564,43 @@ impl Project {
         self.nodes.len() - 1
     }
 
-    fn scan(&mut self, dir: &Path, depth: usize, area: Area) -> Result<Vec<usize>> {
-        let mut entries: Vec<_> = fs::read_dir(dir)
-            .with_context(|| format!("reading {}", dir.display()))?
-            .filter_map(|e| e.ok())
-            .filter(|e| {
-                let name = e.file_name();
-                let name = name.to_string_lossy();
-                !name.starts_with('.')
-            })
-            .collect();
-        entries.sort_by_key(|e| e.file_name());
+    /// The folder `dir` (node `at`) and everything under it. A folder or file
+    /// that can't be read becomes a row that says so rather than stopping the
+    /// book opening: an online-only file with no connection is a normal thing
+    /// to have in a synced book.
+    fn scan(&mut self, at: usize, dir: &Path, depth: usize, area: Area) -> Vec<usize> {
+        let rd = match fs::read_dir(dir) {
+            Ok(rd) => rd,
+            Err(e) => {
+                self.nodes[at].disk.unavailable = Some(Unavailable::from_io(&e));
+                return Vec::new();
+            }
+        };
+        // Sorted by the name each entry stands for: an iCloud stub
+        // `.01-Scene.md.icloud` takes the place of `01-Scene.md`.
+        let mut entries: Vec<(std::ffi::OsString, PathBuf, bool)> = Vec::new();
+        for e in rd.filter_map(|e| e.ok()) {
+            let name = e.file_name();
+            let path = e.path();
+            if let Some(real) = icloud_stub_for(&path) {
+                if !real.exists() {
+                    let key = real.file_name().unwrap_or_default().to_os_string();
+                    entries.push((key, real, true));
+                }
+                continue;
+            }
+            if name.to_string_lossy().starts_with('.') {
+                continue;
+            }
+            entries.push((name, path, false));
+        }
+        entries.sort_by(|a, b| a.0.cmp(&b.0));
 
         let mut out = Vec::new();
-        for e in entries {
-            let path = e.path();
-            if path.is_dir() {
+        for (_, path, stub) in entries {
+            if stub {
+                out.push(self.placeholder(&path, depth, area, Unavailable::icloud()));
+            } else if path.is_dir() {
                 let idx = self.push(Node {
                     kind: Kind::Container,
                     area,
@@ -489,18 +625,22 @@ impl Project {
                     stat: None,
                     read_only: false,
                     parked: false,
+                    disk: DiskState::default(),
                 });
-                let kids = self.scan(&path, depth + 1, area)?;
+                let kids = self.scan(idx, &path, depth + 1, area);
                 self.nodes[idx].children = kids;
                 out.push(idx);
             } else if path.extension().and_then(|s| s.to_str()) == Some("md") {
-                out.push(self.load_file(&path, depth, area)?);
+                out.push(self.load_file(&path, depth, area));
             }
         }
-        Ok(out)
+        out
     }
 
-    fn load_file(&mut self, path: &Path, depth: usize, area: Area) -> Result<usize> {
+    /// A scene read from disk — or, when it can't be read, a row that stands
+    /// in for it: titled from its filename, read-only, never written, never
+    /// counted, and read properly once it can be.
+    fn load_file(&mut self, path: &Path, depth: usize, area: Area) -> usize {
         let mut node = Node {
             kind: Kind::Scene,
             area,
@@ -521,9 +661,52 @@ impl Project {
             stat: None,
             read_only: false,
             parked: sync::is_conflict_copy(path),
+            disk: DiskState::default(),
         };
-        node.read_disk()?;
-        Ok(self.push(node))
+        let stat = Stat::of(path);
+        match sync::probe(path) {
+            sync::Probe::Bytes(bytes) => {
+                node.take_bytes(bytes, stat);
+                self.push(node)
+            }
+            sync::Probe::Unreadable(e) => {
+                self.placeholder(path, depth, area, Unavailable::from_io(&e))
+            }
+            // Gone between listing and reading: a sync client's delete. The
+            // next look at the tree takes it out.
+            sync::Probe::Missing => {
+                let gone = std::io::Error::from(std::io::ErrorKind::NotFound);
+                self.placeholder(path, depth, area, Unavailable::from_io(&gone))
+            }
+        }
+    }
+
+    fn placeholder(&mut self, path: &Path, depth: usize, area: Area, why: Unavailable) -> usize {
+        self.push(Node {
+            kind: Kind::Scene,
+            area,
+            title: display_title(path, None),
+            path: path.to_path_buf(),
+            depth,
+            expanded: false,
+            children: Vec::new(),
+            in_manuscript: area == Area::Manuscript,
+            compile: true,
+            front_matter: area == Area::FrontMatter,
+            front: None,
+            body: String::new(),
+            dirty: false,
+            pov: None,
+            status: None,
+            seen: None,
+            stat: None,
+            read_only: true,
+            parked: sync::is_conflict_copy(path),
+            disk: DiskState {
+                unavailable: Some(why),
+                ..DiskState::default()
+            },
+        })
     }
 
     /// Each node's parent, for walking up the tree.
@@ -578,7 +761,10 @@ impl Project {
     /// mid-save can never leave half a scene behind — and only over the
     /// version this session last read. A scene changed on disk since then
     /// keeps the disk's version and this session's words are parked beside
-    /// it; one that vanished has them parked in the trash. Nothing written
+    /// it; one that vanished has them parked in the trash. A scene whose file
+    /// can't be read right now, or is missing for just a moment, waits: its
+    /// words stay unsaved (and the caller keeps them in recovery) rather than
+    /// be written over something that can't be checked. Nothing written
     /// elsewhere is ever overwritten, and nothing typed here is ever dropped.
     pub fn save_dirty(&mut self) -> SaveReport {
         let mut report = SaveReport::default();
@@ -591,8 +777,30 @@ impl Project {
                 self.nodes[i].dirty = false;
                 continue;
             }
+            if self.nodes[i].disk.unavailable.is_some() {
+                report.waiting.push(i);
+                continue;
+            }
             let text = self.nodes[i].file_text();
             let path = self.nodes[i].path.clone();
+            // Missing only since the last look: a sync client replacing it, or
+            // a folder blinking out. The disk check decides, on a second look.
+            if self.nodes[i].seen.is_some() && Stat::of(&path).is_none() {
+                if icloud_stub(&path).exists() {
+                    self.nodes[i].disk.unavailable = Some(Unavailable::icloud());
+                    report.waiting.push(i);
+                    continue;
+                }
+                if self.nodes[i].disk.missing < 2 {
+                    report.waiting.push(i);
+                    continue;
+                }
+            }
+            if let sync::Probe::Unreadable(e) = sync::probe(&path) {
+                self.nodes[i].disk.unavailable = Some(Unavailable::from_io(&e));
+                report.waiting.push(i);
+                continue;
+            }
             match sync::save_guarded(&path, &text, self.nodes[i].seen) {
                 Ok(SaveOutcome::Written) => {
                     self.nodes[i].wrote(&text);
@@ -612,6 +820,9 @@ impl Project {
     }
 
     /// Scene `i` has unsaved `text` and the disk has moved on: keep both.
+    /// Once the copy is written the words are safe, so the scene is no longer
+    /// unsaved even if the new version can't be read yet — otherwise every
+    /// later look would park the same words again.
     fn park_unsaved(&mut self, i: usize, text: &str) -> Result<DiskChange> {
         let path = self.nodes[i].path.clone();
         if Stat::of(&path).is_none() {
@@ -620,43 +831,164 @@ impl Project {
             return Ok(DiskChange::GoneParked(copy));
         }
         let copy = sync::write_conflict_copy(&path, text)?;
-        self.nodes[i].read_disk()?;
+        let stat = Stat::of(&path);
+        match sync::probe(&path) {
+            sync::Probe::Bytes(bytes) => self.nodes[i].take_bytes(bytes, stat),
+            sync::Probe::Unreadable(e) => {
+                let n = &mut self.nodes[i];
+                n.dirty = false;
+                n.stat = None;
+                n.disk.unavailable = Some(Unavailable::from_io(&e));
+            }
+            sync::Probe::Missing => {
+                let n = &mut self.nodes[i];
+                n.dirty = false;
+                n.stat = None;
+            }
+        }
         Ok(DiskChange::Parked(copy))
     }
 
     /// Has scene `i` changed on disk since it was read or saved here? The
     /// size and time are checked first; the bytes are hashed only when those
-    /// moved (or always, with `force`, for filesystems with coarse times). A
-    /// change is taken into memory — and if this session had unsaved words in
-    /// the scene, those are parked beside it first. Call with the editor's
-    /// text already flushed into the node.
+    /// moved, or when the time was too recent to trust ([`sync::settled`]), or
+    /// always with `force` (opening a scene). A change is taken in only once a
+    /// second look finds it settled — a sync client may still be writing it —
+    /// and if this session had unsaved words in the scene, those are parked
+    /// beside it first. A file missing once is given a second look before
+    /// it's taken as deleted, a file that can't be read is left as it was
+    /// (see [`Unavailable`]), and an empty file where there were words is an
+    /// online-only placeholder, not a scene cut to nothing. Call with the
+    /// editor's text already flushed into the node.
     pub fn check_disk(&mut self, i: usize, force: bool) -> Result<DiskChange> {
-        let n = &self.nodes[i];
-        if n.kind != Kind::Scene {
+        if self.nodes[i].kind != Kind::Scene {
             return Ok(DiskChange::Same);
         }
-        let unsaved = n.dirty && !n.read_only;
-        let Some(stat) = Stat::of(&n.path) else {
-            if unsaved {
-                let text = n.file_text();
-                return self.park_unsaved(i, &text);
-            }
-            return Ok(DiskChange::Gone);
+        let path = self.nodes[i].path.clone();
+        let Some(stat) = Stat::of(&path) else {
+            return self.missing_on_disk(i);
         };
-        if !force && n.stat == Some(stat) {
+        self.nodes[i].disk.missing = 0;
+        let n = &self.nodes[i];
+        if !force && n.disk.unavailable.is_none() && n.stat == Some(stat) {
             return Ok(DiskChange::Same);
         }
-        let now = Fingerprint::read(&n.path);
-        if now.is_some() && now == n.seen {
-            self.nodes[i].stat = Some(stat);
+        let bytes = match sync::probe(&path) {
+            sync::Probe::Bytes(b) => b,
+            sync::Probe::Missing => return self.missing_on_disk(i),
+            sync::Probe::Unreadable(e) => {
+                return Ok(self.mark_unavailable(i, Unavailable::from_io(&e)));
+            }
+        };
+        let n = &self.nodes[i];
+        let had_words = n.seen.is_some_and(|s| s.len > 0) || !n.body.trim().is_empty();
+        if bytes.is_empty() && had_words {
+            return Ok(self.mark_unavailable(i, Unavailable::empty()));
+        }
+        let fp = Fingerprint::of_bytes(&bytes);
+        if n.seen == Some(fp) {
+            let n = &mut self.nodes[i];
+            let back = n.disk.unavailable.take().is_some();
+            n.disk.pending = None;
+            n.stat = sync::settled(Some(stat));
+            return Ok(if back {
+                DiskChange::Available
+            } else {
+                DiskChange::Same
+            });
+        }
+        // Changed elsewhere. Wait for it to settle unless asked not to.
+        if !force && self.nodes[i].disk.pending != Some(stat) {
+            self.nodes[i].disk.pending = Some(stat);
             return Ok(DiskChange::Same);
         }
-        if unsaved {
+        let n = &self.nodes[i];
+        let first_read = n.seen.is_none();
+        let was_unavailable = n.disk.unavailable.is_some();
+        if n.dirty && !n.read_only {
             let text = n.file_text();
-            return self.park_unsaved(i, &text);
+            let copy = sync::write_conflict_copy(&path, &text)?;
+            self.nodes[i].take_bytes(bytes, Some(stat));
+            return Ok(DiskChange::Parked(copy));
         }
-        self.nodes[i].read_disk()?;
-        Ok(DiskChange::Adopted)
+        self.nodes[i].take_bytes(bytes, Some(stat));
+        Ok(if first_read || was_unavailable {
+            DiskChange::Available
+        } else {
+            DiskChange::Adopted
+        })
+    }
+
+    /// Scene `i`'s file wasn't there just now. iCloud's stub standing in for
+    /// it means not downloaded, not deleted; otherwise a first miss is given
+    /// the benefit of the doubt (a client replacing the file, a folder
+    /// renamed away and back), and only a second, confirmed by a fresh look,
+    /// makes it gone — with any unsaved words parked in the trash.
+    fn missing_on_disk(&mut self, i: usize) -> Result<DiskChange> {
+        let path = self.nodes[i].path.clone();
+        if icloud_stub(&path).exists() {
+            return Ok(self.mark_unavailable(i, Unavailable::icloud()));
+        }
+        let n = &mut self.nodes[i];
+        n.disk.missing = n.disk.missing.saturating_add(1);
+        if n.disk.missing < 2 {
+            return Ok(DiskChange::Same);
+        }
+        if Stat::of(&path).is_some() {
+            self.nodes[i].disk.missing = 0;
+            return Ok(DiskChange::Same);
+        }
+        let n = &self.nodes[i];
+        if n.dirty && !n.read_only {
+            let text = n.file_text();
+            let copy = sync::park_in_trash(&self.root, &path, &text)?;
+            self.nodes[i].dirty = false;
+            return Ok(DiskChange::GoneParked(copy));
+        }
+        Ok(DiskChange::Gone)
+    }
+
+    /// Scene `i` can't be read: keep what's in memory, never write it, and
+    /// say so once (not on every look).
+    fn mark_unavailable(&mut self, i: usize, why: Unavailable) -> DiskChange {
+        let d = &mut self.nodes[i].disk;
+        d.pending = None;
+        if d.unavailable.as_ref() == Some(&why) {
+            return DiskChange::Same;
+        }
+        d.unavailable = Some(why.clone());
+        DiskChange::Unavailable(why)
+    }
+
+    /// Refuse to compile or export a manuscript with scenes that have never
+    /// been readable here: the result would be a book with holes in it and no
+    /// sign of them.
+    pub fn ensure_whole(&self) -> Result<()> {
+        let missing = self.missing_from_manuscript();
+        if missing.is_empty() {
+            return Ok(());
+        }
+        let shown: Vec<&str> = missing.iter().take(3).map(|s| s.as_str()).collect();
+        let more = if missing.len() > 3 {
+            format!(" and {} more", missing.len() - 3)
+        } else {
+            String::new()
+        };
+        anyhow::bail!(
+            "{}{more} can't be read yet (not downloaded, or offline?) — nothing was written; try again once they've downloaded",
+            shown.join(", ")
+        )
+    }
+
+    /// Scenes in the manuscript that have never been readable here: a compile
+    /// or export without them would be a book with holes and no warning.
+    pub fn missing_from_manuscript(&self) -> Vec<String> {
+        self.nodes
+            .iter()
+            .enumerate()
+            .filter(|(i, n)| n.in_manuscript && n.never_read() && !n.parked && !self.in_trash(*i))
+            .map(|(_, n)| n.title.clone())
+            .collect()
     }
 
     /// Has something else added or removed files or folders since the tree
@@ -691,6 +1023,12 @@ impl Project {
 fn list_tree(dir: &Path, out: &mut std::collections::BTreeSet<PathBuf>) {
     let Ok(rd) = fs::read_dir(dir) else { return };
     for e in rd.flatten() {
+        if let Some(real) = icloud_stub_for(&e.path()) {
+            if !real.exists() {
+                out.insert(real);
+            }
+            continue;
+        }
         if e.file_name().to_string_lossy().starts_with('.') {
             continue;
         }
@@ -714,32 +1052,9 @@ fn short_reason(e: &anyhow::Error) -> String {
 }
 
 /// Write a whole file so that it is either the old version or the new one,
-/// never a torn mix: write a hidden sibling, flush it to disk, then rename it
-/// over. The sibling starts with a dot, so a crash that leaves one behind never
-/// shows up in the tree.
+/// never a torn mix — see [`crate::atomic`].
 pub fn write_atomic(path: &Path, text: &str) -> Result<()> {
-    use std::io::Write;
-    let name = path
-        .file_name()
-        .map(|n| n.to_string_lossy().to_string())
-        .unwrap_or_else(|| "scene".into());
-    let tmp = path.with_file_name(format!(".{name}.saving"));
-    let written = (|| -> std::io::Result<()> {
-        let mut f = fs::File::create(&tmp)?;
-        f.write_all(text.as_bytes())?;
-        f.sync_all()
-    })();
-    if let Err(e) = written {
-        let _ = fs::remove_file(&tmp);
-        return Err(e).with_context(|| format!("writing {}", path.display()));
-    }
-    if fs::rename(&tmp, path).is_ok() {
-        return Ok(());
-    }
-    // Windows refuses to replace a file another program has open (a sync
-    // client, an editor). Writing in place is second best, but it saves.
-    let _ = fs::remove_file(&tmp);
-    fs::write(path, text).with_context(|| format!("writing {}", path.display()))
+    crate::atomic::write_text(path, text)
 }
 
 /// Split a `---` fenced YAML frontmatter block off the front of a file.
@@ -1088,7 +1403,14 @@ pub fn upgrade(root: &Path) -> Result<Vec<String>> {
 /// so new ones match. `Some(what it did)`, for the status line.
 fn keep_page_label(root: &Path) -> Result<Option<String>> {
     let toml_path = root.join("novel.toml");
-    let text = fs::read_to_string(&toml_path).unwrap_or_default();
+    // A novel.toml that can't be read (an online-only file not downloaded
+    // yet) is not an empty one: writing "part_label" into it would replace
+    // the book's title and targets with a single line.
+    let text = match fs::read_to_string(&toml_path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(_) => return Ok(None),
+    };
     // A novel.toml that doesn't parse is left alone rather than appended to on
     // every launch.
     let Ok(table) = toml::from_str::<toml::Table>(&text) else {
@@ -1111,7 +1433,7 @@ fn keep_page_label(root: &Path) -> Result<Option<String>> {
     text.push_str(
         "\n# What this book calls its largest division: Part, Act, Book…\npart_label = \"Page\"\n",
     );
-    fs::write(&toml_path, text).with_context(|| format!("writing {}", toml_path.display()))?;
+    write_atomic(&toml_path, &text)?;
     Ok(Some("this book counts in pages, as its folders do".into()))
 }
 
@@ -1186,7 +1508,7 @@ fn write_new(path: &Path, body: &str) -> Result<()> {
     if path.exists() {
         return Ok(());
     }
-    fs::write(path, body).with_context(|| format!("writing {}", path.display()))
+    write_atomic(path, body)
 }
 
 /// Make a new scene (`.md`) or folder at the end of `dir`, numbered after
@@ -1208,11 +1530,10 @@ pub fn create(dir: &Path, name: &str, folder: bool) -> Result<PathBuf> {
     }
     // The title is kept exactly as typed; only the filename is tidied.
     let title = name.replace('"', "'");
-    fs::write(
+    write_atomic(
         &path,
-        format!("---\ntitle: \"{title}\"\npov:\nstatus: draft\nsynopsis:\n---\n\n"),
-    )
-    .with_context(|| format!("writing {}", path.display()))?;
+        &format!("---\ntitle: \"{title}\"\npov:\nstatus: draft\nsynopsis:\n---\n\n"),
+    )?;
     Ok(path)
 }
 
@@ -1246,7 +1567,7 @@ pub fn rename(path: &Path, name: &str) -> Result<PathBuf> {
         && let Ok(raw) = fs::read_to_string(&target)
         && let Some(updated) = retitle(&raw, name)
     {
-        fs::write(&target, updated).with_context(|| format!("writing {}", target.display()))?;
+        write_atomic(&target, &updated)?;
     }
     Ok(target)
 }
@@ -1867,11 +2188,29 @@ fn relink(text: &str, pairs: &[(String, String, String, String)]) -> String {
 fn next_number(dir: &Path) -> Result<usize> {
     let mut top = 0;
     for e in fs::read_dir(dir).with_context(|| format!("reading {}", dir.display()))? {
-        if let Some(n) = leading_number(&e?.path()) {
+        let path = e?.path();
+        // A scene iCloud hasn't downloaded still has its number.
+        let path = icloud_stub_for(&path).unwrap_or(path);
+        if let Some(n) = leading_number(&path) {
             top = top.max(n);
         }
     }
     Ok(top + 1)
+}
+
+/// iCloud (before macOS 14) replaces a file it hasn't downloaded with a
+/// hidden stub: `01-Scene.md` becomes `.01-Scene.md.icloud`. The file a stub
+/// stands for, if `path` is one.
+pub fn icloud_stub_for(path: &Path) -> Option<PathBuf> {
+    let name = path.file_name()?.to_str()?;
+    let real = name.strip_prefix('.')?.strip_suffix(".icloud")?;
+    real.ends_with(".md").then(|| path.with_file_name(real))
+}
+
+/// Where iCloud's stub for `path` would be.
+pub fn icloud_stub(path: &Path) -> PathBuf {
+    let name = path.file_name().unwrap_or_default().to_string_lossy();
+    path.with_file_name(format!(".{name}.icloud"))
 }
 
 /// The `1` in `01-the-archive.md`, which is what orders the tree.
@@ -2771,9 +3110,16 @@ mod tests {
         p.nodes[i].body = "Words typed after it went.\n".into();
         p.nodes[i].dirty = true;
 
+        // Missing once is a sync client replacing it: the words wait.
         let report = p.save_dirty();
+        assert_eq!(report.waiting, vec![i]);
+        assert!(p.nodes[i].dirty, "still unsaved, not dropped");
+        assert_eq!(p.check_disk(i, false).unwrap(), DiskChange::Same);
+        // Missing twice is gone.
+        let DiskChange::GoneParked(parked) = p.check_disk(i, false).unwrap() else {
+            panic!("a second miss should park the words in the trash");
+        };
         assert!(!scene.exists(), "resurrected at its old path");
-        let (_, parked) = &report.gone[0];
         assert!(parked.starts_with(trash_dir(&d)));
         assert!(
             fs::read_to_string(parked)
@@ -2810,8 +3156,10 @@ mod tests {
                 .contains("Mine, unsaved.")
         );
 
-        // and a scene that vanishes with nothing unsaved is just gone
+        // and a scene that vanishes with nothing unsaved is gone — on the
+        // second look, not the first
         fs::remove_file(&scene).unwrap();
+        assert_eq!(p.check_disk(i, false).unwrap(), DiskChange::Same);
         assert_eq!(p.check_disk(i, false).unwrap(), DiskChange::Gone);
         fs::remove_dir_all(&d).unwrap();
     }

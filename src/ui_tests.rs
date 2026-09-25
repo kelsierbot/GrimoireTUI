@@ -1037,3 +1037,70 @@ fn a_custom_theme_mixes_one_presets_world_with_anothers_visualizer() {
     assert_eq!(swatches(&d.app.theme), before);
     assert_eq!(d.app.theme.name, "Custom");
 }
+
+// ---- files a sync client hasn't delivered -----------------------------------
+
+#[cfg(unix)]
+fn set_mode(path: &Path, mode: u32) {
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(path, fs::Permissions::from_mode(mode)).unwrap();
+}
+
+/// An online-only scene with no connection: the book opens, the row says it
+/// can't be read, and typing into it is refused with the reason — nothing is
+/// ever written over it.
+#[cfg(unix)]
+#[test]
+fn a_scene_that_cannot_be_read_opens_as_a_row_that_says_so() {
+    let root = book("unreadable", true);
+    let scene = first_scene(&root);
+    let before = fs::read(&scene).unwrap();
+    set_mode(&scene, 0o000);
+    let mut d = Desk::open(root.clone(), 120, 35);
+    assert!(
+        d.status().contains("can't be read right now"),
+        "{}",
+        d.status()
+    );
+    assert!(d.shows("can't read"), "the row carries the reason");
+    d.key(KeyCode::Tab);
+    d.typed("x");
+    assert!(d.status().contains("can't be edited yet"), "{}", d.status());
+    assert_eq!(d.app.project.dirty_count(), 0);
+    set_mode(&scene, 0o644);
+    assert_eq!(fs::read(&scene).unwrap(), before, "never written");
+}
+
+/// A scene that becomes unreadable while it has unsaved words: the save
+/// waits (it doesn't fail, and it doesn't write), the words are kept in
+/// recovery, and the status bar says it's waiting.
+#[cfg(unix)]
+#[test]
+fn unsaved_words_wait_for_a_file_that_cannot_be_read() {
+    let root = book("waiting", true);
+    let scene = first_scene(&root);
+    let mut d = Desk::open(root.clone(), 120, 35);
+    d.key(KeyCode::Tab);
+    d.typed("Kept.");
+    set_mode(&scene, 0o000);
+    assert!(d.app.commit_saves(), "waiting isn't a failure");
+    d.draw();
+    assert!(d.status().contains("waiting"), "{}", d.status());
+    assert!(d.app.msg.contains("can't be saved yet"), "{}", d.app.msg);
+    assert_eq!(d.app.project.dirty_count(), 1, "still unsaved, not dropped");
+    let rel = scene.strip_prefix(&root).unwrap();
+    let kept = root.join(".grimoire/recovery").join(rel);
+    assert!(
+        fs::read_to_string(&kept).unwrap().contains("Kept."),
+        "a copy in recovery"
+    );
+    set_mode(&scene, 0o644);
+    assert!(
+        !fs::read_to_string(&scene).unwrap().contains("Kept."),
+        "not written while it couldn't be checked"
+    );
+    // Readable again: the next save goes through.
+    d.app.project.nodes[d.app.open.unwrap()].disk.unavailable = None;
+    assert!(d.app.commit_saves());
+    assert!(fs::read_to_string(&scene).unwrap().contains("Kept."));
+}

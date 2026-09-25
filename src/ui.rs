@@ -348,7 +348,9 @@ fn draw_tree(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
         // A parked copy or a file Grimoire won't write says so where the
         // count would be: two rows with the same name and different words is
         // exactly how the wrong one gets edited.
-        let tag = if n.read_only {
+        let tag = if let Some(u) = &n.disk.unavailable {
+            u.tag
+        } else if n.read_only {
             "read-only"
         } else if n.parked {
             "parked copy"
@@ -1197,6 +1199,11 @@ fn draw_status(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
         crate::app::SaveState::Failed(_) if dirty > 0 => spans.push(Span::styled(
             format!("  ● {dirty} not saved"),
             Style::default().fg(t.warn),
+        )),
+        // Held until a file can be read again: kept, not failed.
+        crate::app::SaveState::Waiting(_) if dirty > 0 => spans.push(Span::styled(
+            format!("  ◌ {dirty} waiting"),
+            Style::default().fg(t.sun),
         )),
         _ if dirty > 0 => spans.push(Span::styled("  ○ saving", Style::default().fg(t.dim))),
         crate::app::SaveState::Saved(at) if at.elapsed() < std::time::Duration::from_secs(3) => {

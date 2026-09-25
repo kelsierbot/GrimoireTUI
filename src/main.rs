@@ -337,7 +337,7 @@ fn remember(root: &Path) {
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
-    let _ = std::fs::write(path, format!("last = \"{}\"\n", root.display()));
+    let _ = grimoire_core::atomic::write_text(&path, &format!("last = \"{}\"\n", root.display()));
 }
 
 /// Decide what `grimoire` with no arguments should open. In order: the current
@@ -345,7 +345,13 @@ fn remember(root: &Path) {
 /// Find the book to open, and bring it into the current shape first (once).
 fn resolve_project(arg: Option<PathBuf>) -> Result<(PathBuf, Option<String>)> {
     let (root, msg) = find_project(arg)?;
-    let done = project::upgrade(&root).context("bringing the book up to date")?;
+    // Something the upgrade can't reach (a folder not downloaded yet) mustn't
+    // keep the book shut: open it as it is and try again next time.
+    let done = project::upgrade(&root).unwrap_or_else(|e| {
+        vec![format!(
+            "not all of it could be brought up to date yet ({e:#})"
+        )]
+    });
     let msg = match (msg, done.is_empty()) {
         (msg, true) => msg,
         (Some(m), false) => Some(format!("{m} · {}", done.join(" · "))),

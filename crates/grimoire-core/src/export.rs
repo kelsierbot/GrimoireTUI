@@ -69,6 +69,7 @@ pub fn parts(p: &Project) -> Vec<(usize, String)> {
 
 /// Write the chosen formats to `<book>/exports/`.
 pub fn export(p: &Project, opts: &ExportOptions) -> Result<Exported> {
+    p.ensure_whole()?;
     if !(opts.docx || opts.epub || opts.markdown) {
         bail!("nothing to export — choose DOCX, EPUB or Markdown");
     }
@@ -80,7 +81,7 @@ pub fn export(p: &Project, opts: &ExportOptions) -> Result<Exported> {
     let mut files = Vec::new();
     let mut put = |ext: &str, bytes: &[u8]| -> Result<()> {
         let path = dir.join(format!("{stem}.{ext}"));
-        std::fs::write(&path, bytes).with_context(|| format!("writing {}", path.display()))?;
+        crate::atomic::write(&path, bytes)?;
         files.push(path);
         Ok(())
     };

@@ -47,6 +47,10 @@ pub enum SaveState {
     Clean,
     Saved(Instant),
     Failed(String),
+    /// Words that can't be written yet — the file can't be read right now,
+    /// or went missing for a moment — held in memory and recovery until it
+    /// can be checked. Not a failure; retried on the same backoff.
+    Waiting(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -249,6 +253,9 @@ pub struct App {
     /// Files were added, removed or parked on disk: re-read the tree as soon
     /// as nothing unsaved is at risk.
     tree_stale: bool,
+    /// When re-reading the tree last failed; it isn't tried again until
+    /// [`RETRY`] has passed.
+    reload_failed: Option<Instant>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -604,6 +611,7 @@ impl App {
             sprint: None,
             last_disk_check: None,
             tree_stale: false,
+            reload_failed: None,
         })
         .map(|mut app: App| {
             if setup.background {
@@ -632,6 +640,21 @@ impl App {
                     "a new book — this is how it's laid out · Tab to read, Esc for the menu".into();
             }
             app.resume_where_left();
+            // Say what couldn't be read, once, so an empty row isn't a mystery.
+            let unreadable = app
+                .project
+                .nodes
+                .iter()
+                .filter(|n| n.disk.unavailable.is_some())
+                .count();
+            if let Some(why) = &app.project.meta_unreadable {
+                app.msg = format!("{why} — opened with the defaults, and it won't be rewritten");
+            } else if unreadable > 0 {
+                app.msg = format!(
+                    "{unreadable} file{} can't be read right now (not downloaded, or offline?) — shown, kept, and never saved over",
+                    if unreadable == 1 { "" } else { "s" }
+                );
+            }
             app
         })
     }
@@ -708,6 +731,18 @@ impl App {
     /// happened to it in memory is put back from disk, and the writer is told
     /// why. Writing it would replace the bytes that couldn't be read.
     fn refuse_read_only(&mut self, i: usize) {
+        if let Some(why) = self.project.nodes[i].disk.unavailable.clone()
+            && self.project.nodes[i].never_read()
+        {
+            if self.open == Some(i) {
+                self.editor = Editor::from_text("");
+            }
+            self.msg = format!(
+                "{} can't be edited yet — {}",
+                self.project.nodes[i].title, why.why
+            );
+            return;
+        }
         let _ = self.project.nodes[i].read_disk();
         if self.open == Some(i) {
             let (cy, cx) = (self.editor.cy, self.editor.cx);
@@ -792,6 +827,13 @@ impl App {
         for (i, copy) in &report.gone {
             self.take_disk_change(*i, DiskChange::GoneParked(copy.clone()));
         }
+        // Waiting on a file that can't be read or checked yet: the words stay
+        // unsaved in memory, and a copy goes to recovery in case Grimoire
+        // closes before the file comes back.
+        for &i in &report.waiting {
+            let n = &self.project.nodes[i];
+            let _ = recovery::keep(&root, &n.path, &n.file_text());
+        }
         let notes_changed = report
             .saved
             .iter()
@@ -807,6 +849,23 @@ impl App {
         if report.failed.is_empty() {
             for (i, _) in report.parked.iter().chain(&report.gone) {
                 recovery::clear(&root, &self.project.nodes[*i].path);
+            }
+            if let Some(&i) = report.waiting.first() {
+                let n = &self.project.nodes[i];
+                let why = n
+                    .disk
+                    .unavailable
+                    .as_ref()
+                    .map(|u| u.why.clone())
+                    .unwrap_or_else(|| "its file is missing just now".into());
+                let wait = format!("{} can't be saved yet — {why}", n.title);
+                if !matches!(&self.save_state, SaveState::Waiting(w) if *w == wait) {
+                    self.msg =
+                        format!("{wait}. Your words are kept and will be saved once it can be.");
+                }
+                self.save_state = SaveState::Waiting(wait);
+                self.save_resume(false);
+                return true;
             }
             self.save_state = SaveState::Saved(Instant::now());
             self.unsaved_since = None;
@@ -873,6 +932,17 @@ impl App {
         write_baseline(&dir, &dir.join("progress.toml"), &self.baseline_date, n);
     }
 
+    /// After a failed or waiting save, the next try waits out [`RETRY`] —
+    /// however it's asked for.
+    fn may_retry(&self) -> bool {
+        match self.save_state {
+            SaveState::Failed(_) | SaveState::Waiting(_) => {
+                self.last_attempt.is_none_or(|t| t.elapsed() >= RETRY)
+            }
+            _ => true,
+        }
+    }
+
     pub fn autosave_tick(&mut self) {
         if self.project.dirty_count() == 0 {
             self.unsaved_since = None;
@@ -882,11 +952,7 @@ impl App {
         let overdue = self
             .unsaved_since
             .is_some_and(|t| t.elapsed() >= AUTOSAVE_MAX);
-        let may_retry = match self.save_state {
-            SaveState::Failed(_) => self.last_attempt.is_none_or(|t| t.elapsed() >= RETRY),
-            _ => true,
-        };
-        if (idle || overdue) && may_retry {
+        if (idle || overdue) && self.may_retry() {
             self.commit_saves();
         }
     }
@@ -904,10 +970,15 @@ impl App {
             self.flush();
             let mut notes_changed = false;
             for i in 0..self.project.nodes.len() {
+                let before = self.project.total_words();
                 // An error is a file caught mid-write by a sync client: next time.
                 if let Ok(change) = self.project.check_disk(i, false) {
                     notes_changed |=
                         change != DiskChange::Same && !self.project.nodes[i].in_manuscript;
+                    // A scene downloading isn't writing: "today" doesn't move.
+                    if change == DiskChange::Available {
+                        self.keep_today(before);
+                    }
                     self.take_disk_change(i, change);
                 }
             }
@@ -969,6 +1040,21 @@ impl App {
                 );
                 self.tree_stale = true;
             }
+            DiskChange::Unavailable(why) => {
+                if open || self.project.nodes[i].dirty {
+                    self.msg = format!(
+                        "{title}: {} — what's here is kept, and nothing is saved over it until it can be read",
+                        why.why
+                    );
+                }
+            }
+            DiskChange::Available => {
+                if open {
+                    let body = self.project.nodes[i].body.clone();
+                    self.editor.set_text(&body);
+                    self.msg = format!("{title} can be read again");
+                }
+            }
         }
     }
 
@@ -976,6 +1062,11 @@ impl App {
     /// parked) first, so re-reading the tree can't drop them; if something
     /// can't be saved yet, this waits for a later tick.
     fn reload_after_sync(&mut self) {
+        // A save that failed waits out its backoff here too, and a re-read
+        // that failed isn't tried again every frame.
+        if !self.may_retry() || self.reload_failed.is_some_and(|t| t.elapsed() < RETRY) {
+            return;
+        }
         if !self.commit_saves() {
             return;
         }
@@ -988,8 +1079,11 @@ impl App {
         });
         if let Err(e) = self.reload_tree() {
             self.msg = format!("couldn't re-read the book: {e}");
+            self.reload_failed = Some(Instant::now());
+            self.tree_stale = true;
             return;
         }
+        self.reload_failed = None;
         let Some((path, seen)) = open_was else {
             return;
         };
@@ -4117,9 +4211,9 @@ fn load_baseline(project: &Project) -> Result<usize> {
 
 fn write_baseline(dir: &Path, path: &Path, today: &str, total: usize) {
     let _ = fs::create_dir_all(dir);
-    let _ = fs::write(
+    let _ = grimoire_core::atomic::write_text(
         path,
-        format!("date = \"{today}\"\nbaseline = {total}\nrule = {COUNT_RULE}\n"),
+        &format!("date = \"{today}\"\nbaseline = {total}\nrule = {COUNT_RULE}\n"),
     );
 }
 

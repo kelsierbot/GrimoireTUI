@@ -66,6 +66,41 @@ impl Stat {
     }
 }
 
+/// A modification time this close to the moment it was read can't be
+/// trusted to show the next change: pCloud and others keep whole seconds, so
+/// a same-size edit landing in the same second leaves size and time exactly
+/// as they were. Git calls such an entry "racily clean". Within this window
+/// the stat isn't recorded, and the next look hashes the bytes instead.
+const RACY: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// `stat`, if it's old enough to be trusted as "unchanged" next time; see
+/// [`RACY`].
+pub fn settled(stat: Option<Stat>) -> Option<Stat> {
+    let s = stat?;
+    let modified = s.modified?;
+    let age = SystemTime::now()
+        .duration_since(modified)
+        .unwrap_or_default();
+    (age >= RACY).then_some(s)
+}
+
+/// What reading a file found: it isn't there, it's there but can't be read
+/// right now (an online-only file offline, a permission problem, a download
+/// in progress), or its bytes.
+pub enum Probe {
+    Missing,
+    Unreadable(std::io::Error),
+    Bytes(Vec<u8>),
+}
+
+pub fn probe(path: &Path) -> Probe {
+    match fs::read(path) {
+        Ok(b) => Probe::Bytes(b),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Probe::Missing,
+        Err(e) => Probe::Unreadable(e),
+    }
+}
+
 /// FNV-1a. Not cryptographic, and it doesn't need to be: this only has to
 /// notice that a file changed, never resist someone trying to fool it.
 fn fnv1a(bytes: &[u8]) -> u64 {
@@ -90,7 +125,16 @@ pub enum SaveOutcome {
 /// fingerprint taken when the scene was read. Pass `None` for a scene that did
 /// not exist on disk yet; then anything already there counts as a conflict.
 pub fn save_guarded(path: &Path, text: &str, seen: Option<Fingerprint>) -> Result<SaveOutcome> {
-    let now = Fingerprint::read(path);
+    // A file that's there but can't be read can't be checked, so it isn't
+    // written: it may be an online-only placeholder whose real words are
+    // somewhere else. The caller keeps the text and tries again later.
+    let now = match probe(path) {
+        Probe::Bytes(b) => Some(Fingerprint::of_bytes(&b)),
+        Probe::Missing => None,
+        Probe::Unreadable(e) => {
+            return Err(e).with_context(|| format!("reading {} to check it", path.display()));
+        }
+    };
     if now != seen {
         let on_disk = fs::read_to_string(path).unwrap_or_default();
         return Ok(SaveOutcome::Conflict { on_disk });
