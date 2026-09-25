@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.5.2 — a paperback and a proper ebook
+
+- **Paperback** (Export ▸ Paperback, or `grimoire export --paperback --trim
+  6x9`): a print-ready interior — a DOCX for Word, and a PDF when LibreOffice
+  is installed. Trim 5×8, 5.25×8, 5.5×8.5 or 6×9, mirrored margins with KDP's
+  gutter for the page count, author and title running heads, every chapter on
+  a right-hand page with a small-caps lead-in (or a drop cap), justified and
+  hyphenated text, an ornament between scenes, a title and copyright page.
+  `[paperback]` in `novel.toml` sets the font, size, ornament and drop caps.
+- **EPUB**: a cover (`cover.jpg` in the book), a contents page, `[ebook]`
+  metadata (language, ISBN, publisher, description, subjects, series) and back
+  matter. EPUBCheck-clean.
+- **Back Matter**: a new section for Acknowledgements, About the Author and
+  Also By, per edition like Front Matter.
+- The paperback and the ebook are compiled exactly like the manuscript: no
+  empty chapters, curly quotes and real dashes, TKs kept and warned about, a
+  Prologue's own heading, samples.
+
 ## 0.5.1 — compiled for submission
 
 - **Export compiles a manuscript the way Scrivener's Manuscript format does**
