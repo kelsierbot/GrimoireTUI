@@ -504,6 +504,7 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
             match m.kind {
                 MouseEventKind::Up(MouseButton::Left) => app.drop_tree_drag(),
                 MouseEventKind::Down(MouseButton::Left) => app.on_click(m.column, m.row),
+                MouseEventKind::Down(MouseButton::Right) => app.on_right_click(m.column, m.row),
                 MouseEventKind::Drag(MouseButton::Left) => app.on_drag(m.column, m.row),
                 MouseEventKind::ScrollDown => app.on_scroll(m.column, m.row, true),
                 MouseEventKind::ScrollUp => app.on_scroll(m.column, m.row, false),

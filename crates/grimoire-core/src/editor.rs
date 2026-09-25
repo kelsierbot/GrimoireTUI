@@ -212,6 +212,31 @@ impl Editor {
         true
     }
 
+    /// Replace chars `start..end` of paragraph `line` with `with` — a
+    /// spelling fix — as one undo step. The cursor lands after the new word.
+    pub fn replace_in_line(&mut self, line: usize, start: usize, end: usize, with: &str) {
+        let Some(chars) = self
+            .lines
+            .get(line)
+            .map(|l| l.chars().collect::<Vec<char>>())
+        else {
+            return;
+        };
+        let (start, end) = (start.min(chars.len()), end.min(chars.len()));
+        if start > end {
+            return;
+        }
+        self.remember(Edit::Whole);
+        let head: String = chars[..start].iter().collect();
+        let tail: String = chars[end..].iter().collect();
+        self.lines[line] = format!("{head}{with}{tail}");
+        self.cy = line;
+        self.cx = start + with.chars().count();
+        self.goal = None;
+        self.anchor = None;
+        self.hist.last = Some((Edit::Whole, Instant::now()));
+    }
+
     /// Insert text that may span paragraphs, as one undo step.
     pub fn insert_str(&mut self, text: &str) {
         let text = text.replace("\r\n", "\n").replace('\r', "\n");
@@ -606,6 +631,18 @@ fn char_at_width(line: &str, start: usize, end: usize, goal: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_word_replaced_in_place_comes_back_with_one_undo() {
+        let mut e = Editor::from_text("Teh cat sat.");
+        e.replace_in_line(0, 0, 3, "The");
+        assert_eq!(e.text(), "The cat sat.");
+        assert_eq!((e.cy, e.cx), (0, 3));
+        assert!(e.undo());
+        assert_eq!(e.text(), "Teh cat sat.", "one step back is the whole fix");
+        assert!(e.redo());
+        assert_eq!(e.text(), "The cat sat.");
+    }
 
     fn ed(s: &str) -> Editor {
         Editor::from_text(s)

@@ -8,8 +8,10 @@ use super::*;
 use crate::app::Setup;
 use grimoire_core::recovery;
 use grimoire_core::settings::Settings;
+use grimoire_core::spell;
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
+use ratatui::style::Modifier;
 use std::fs;
 
 struct Desk {
@@ -613,4 +615,173 @@ fn the_music_pane_says_its_keys_when_focused() {
         "the pane's edge names the keys"
     );
     assert!(d.status().contains("[ ] track"), "{}", d.status());
+}
+
+// ---- spelling: click a misspelt word ----------------------------------------
+
+/// A book whose first scene reads `body`, open on it with the dictionary
+/// loaded (tests start no background work, so it's built here).
+fn spelling_desk(tag: &str, body: &str) -> Desk {
+    let root = book(tag, true);
+    let scene = first_scene(&root);
+    let text = fs::read_to_string(&scene).unwrap();
+    let front_end = text.find("\n---\n").map(|i| i + 5).unwrap_or(0);
+    fs::write(&scene, format!("{}\n{body}\n", &text[..front_end])).unwrap();
+    let mut d = Desk::open(root, 120, 35);
+    d.app.load_speller_now();
+    d.draw();
+    d
+}
+
+/// Where `needle` is on screen, (x, y), searching right of the tree.
+fn at(d: &Desk, needle: &str) -> (u16, u16) {
+    for (y, r) in d.rows().iter().enumerate() {
+        let chars: Vec<char> = r.chars().collect();
+        let n: Vec<char> = needle.chars().collect();
+        for x in 31..chars.len().saturating_sub(n.len()) {
+            if chars[x..x + n.len()] == n[..] {
+                return (x as u16, y as u16);
+            }
+        }
+    }
+    panic!("{needle:?} not on screen:\n{}", d.rows().join("\n"));
+}
+
+fn click(d: &mut Desk, needle: &str) {
+    let (x, y) = at(d, needle);
+    d.app.on_click(x + 1, y);
+    d.draw();
+}
+
+fn popup_open(d: &Desk) -> bool {
+    matches!(d.app.overlay, Overlay::Spelling { inline: true, .. })
+}
+
+fn scene_text(d: &Desk) -> String {
+    d.app.editor.text()
+}
+
+#[test]
+fn clicking_a_misspelt_word_offers_its_fixes_and_one_undo_takes_one_back() {
+    let mut d = spelling_desk("spell-fix", "Teh cat sat.");
+    click(&mut d, "Teh cat");
+    assert!(popup_open(&d), "the popup opens on the word");
+    assert!(d.shows("“Teh”"));
+    assert!(d.shows("Always ignore — every book"));
+    // "The", in the word's own capitalisation, is on offer; clicking it fixes.
+    click(&mut d, "The ");
+    assert!(!popup_open(&d));
+    assert!(
+        scene_text(&d).contains("The cat sat."),
+        "{}",
+        scene_text(&d)
+    );
+    let i = d.app.open.unwrap();
+    assert!(d.app.project.nodes[i].dirty, "autosave sees the change");
+    d.ctrl('z');
+    assert!(
+        scene_text(&d).contains("Teh cat sat."),
+        "one undo takes it back"
+    );
+}
+
+#[test]
+fn right_click_opens_the_same_popup() {
+    let mut d = spelling_desk("spell-right", "Teh cat sat.");
+    let (x, y) = at(&d, "Teh cat");
+    d.app.on_right_click(x + 1, y);
+    d.draw();
+    assert!(popup_open(&d));
+}
+
+#[test]
+fn always_ignore_in_this_book_writes_its_list_and_lifts_the_underline() {
+    let mut d = spelling_desk("spell-book", "Qwyrk waits.");
+    let (x, y) = at(&d, "Qwyrk");
+    assert!(
+        d.term.backend().buffer()[(x, y)]
+            .modifier
+            .contains(Modifier::UNDERLINED),
+        "underlined to begin with"
+    );
+    click(&mut d, "Qwyrk");
+    click(&mut d, "Always ignore — this book");
+    let list = fs::read_to_string(d.root.join("dictionary.txt")).unwrap_or_default();
+    assert!(list.lines().any(|l| l == "Qwyrk"), "{list}");
+    d.key(KeyCode::End); // off the word, so it would be underlined again
+    let (x, y) = at(&d, "Qwyrk");
+    assert!(
+        !d.term.backend().buffer()[(x, y)]
+            .modifier
+            .contains(Modifier::UNDERLINED),
+        "no longer underlined"
+    );
+}
+
+#[test]
+fn the_every_book_list_is_kept_and_read_by_the_next_launch() {
+    let dir = std::env::temp_dir().join(format!("grimoire-ui-userdict-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    let list = dir.join("dictionary.txt");
+    let mut d = spelling_desk("spell-user", "Zorblat waits.");
+    d.app.user_dict = Some(list.clone());
+    click(&mut d, "Zorblat");
+    click(&mut d, "Always ignore — every book");
+    assert!(spell::words_in(&list).contains(&"Zorblat".to_string()));
+    // A fresh app — another book, even — accepts it once it reads the list.
+    let mut other = spelling_desk("spell-user-2", "Zorblat returns.");
+    let line = other
+        .app
+        .editor
+        .lines
+        .iter()
+        .position(|l| l.contains("Zorblat"))
+        .unwrap();
+    assert!(
+        !other.app.misspellings(line).is_empty(),
+        "without the list it's a misspelling"
+    );
+    other.app.user_dict = Some(list.clone());
+    other.app.load_speller_now();
+    assert!(
+        other.app.misspellings(line).is_empty(),
+        "accepted in every book"
+    );
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_letter_closes_the_popup_and_is_typed() {
+    let mut d = spelling_desk("spell-type", "Teh cat sat.");
+    click(&mut d, "Teh cat");
+    assert!(popup_open(&d));
+    d.key(KeyCode::Char('x'));
+    assert!(!popup_open(&d), "typing puts the popup away");
+    assert!(
+        scene_text(&d).contains('x'),
+        "and the letter lands in the prose"
+    );
+}
+
+#[test]
+fn clicking_a_correct_word_or_a_note_opens_nothing() {
+    let mut d = spelling_desk("spell-none", "%% Teh %% the cat sat.");
+    click(&mut d, "cat sat");
+    assert!(!popup_open(&d), "a correct word just places the caret");
+    click(&mut d, "Teh %%");
+    assert!(!popup_open(&d), "notes aren't prose to correct");
+}
+
+#[test]
+fn f8_offers_the_same_ways_to_ignore() {
+    let mut d = spelling_desk("spell-f8", "Teh cat sat.");
+    d.key(KeyCode::Tab);
+    d.key(KeyCode::F(8));
+    assert!(matches!(
+        d.app.overlay,
+        Overlay::Spelling { inline: false, .. }
+    ));
+    assert!(d.shows("Ignore for now"));
+    assert!(d.shows("Always ignore — this book"));
+    assert!(d.shows("Always ignore — every book"));
 }

@@ -14,7 +14,7 @@ use anyhow::{Context, Result, bail};
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, OpenOptions};
 use std::io::{ErrorKind, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
 
 const EN_US_AFF: &str = include_str!("../../../assets/dict/en_US.aff");
@@ -25,6 +25,7 @@ const EXTRA_WORDS: &str = include_str!("../../../assets/dict/extra_words.dic");
 /// The book's own word list, at the project root.
 const BOOK_DICTIONARY: &str = "dictionary.txt";
 const BOOK_DICTIONARY_HEADER: &str = "# Words the spellchecker accepts in this book (names, places, invented terms), one per line; lines starting with # are ignored.\n";
+const USER_DICTIONARY_HEADER: &str = "# Words the spellchecker accepts in every book, one per line; lines starting with # are ignored.\n";
 
 /// Checked words remembered before the cache starts over.
 const CACHE_LIMIT: usize = 50_000;
@@ -272,9 +273,7 @@ pub fn names_from_titles(titles: &[String]) -> Vec<String> {
 /// The book's own word list: `<root>/dictionary.txt`, one word per line,
 /// `#` starts a comment. A missing or unreadable file is an empty list.
 pub fn book_words(root: &Path) -> Vec<String> {
-    fs::read_to_string(root.join(BOOK_DICTIONARY))
-        .map(|text| parse_word_list(&text))
-        .unwrap_or_default()
+    words_in(&root.join(BOOK_DICTIONARY))
 }
 
 fn parse_word_list(text: &str) -> Vec<String> {
@@ -291,12 +290,57 @@ fn parse_word_list(text: &str) -> Vec<String> {
 /// capitalisation), creating the file with a comment header first. A
 /// possessive is stored as its stem, which covers both forms.
 pub fn add_book_word(root: &Path, word: &str) -> Result<()> {
+    add_word_to(&root.join(BOOK_DICTIONARY), BOOK_DICTIONARY_HEADER, word)
+}
+
+/// The writer's own word list, accepted in every book:
+/// `~/.config/grimoire/dictionary.txt`.
+pub fn user_dictionary() -> PathBuf {
+    crate::paths::home()
+        .join(".config")
+        .join("grimoire")
+        .join(BOOK_DICTIONARY)
+}
+
+/// The words in a word list file; a missing or unreadable file is empty.
+pub fn words_in(path: &Path) -> Vec<String> {
+    fs::read_to_string(path)
+        .map(|text| parse_word_list(&text))
+        .unwrap_or_default()
+}
+
+/// Append a word to the writer's own list (see [`user_dictionary`]), making
+/// its folder if need be.
+pub fn add_user_word(path: &Path, word: &str) -> Result<()> {
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir).with_context(|| format!("making {}", dir.display()))?;
+    }
+    add_word_to(path, USER_DICTIONARY_HEADER, word)
+}
+
+/// A suggestion in the shape of the word it replaces: `Teh` → `The`,
+/// `TEH` → `THE`, `teh` → `the`. A suggestion that is itself capitalised (a
+/// proper noun) keeps its capital.
+pub fn match_case(original: &str, suggestion: &str) -> String {
+    let letters: Vec<char> = original.chars().filter(|c| c.is_alphabetic()).collect();
+    let all_caps = letters.len() > 1 && letters.iter().all(|c| c.is_uppercase());
+    if all_caps {
+        return suggestion.to_uppercase();
+    }
+    let first_up = original.chars().next().is_some_and(|c| c.is_uppercase());
+    let mut chars = suggestion.chars();
+    match chars.next() {
+        Some(c) if first_up => c.to_uppercase().chain(chars).collect(),
+        _ => suggestion.to_string(),
+    }
+}
+
+fn add_word_to(path: &Path, header: &str, word: &str) -> Result<()> {
     let word = drop_possessive(word.trim());
     if word.is_empty() || word.contains(['\n', '\r', '#']) {
         bail!("{word:?} can't go in the book's word list");
     }
-    let path = root.join(BOOK_DICTIONARY);
-    let existing = match fs::read_to_string(&path) {
+    let existing = match fs::read_to_string(path) {
         Ok(text) => text,
         Err(e) if e.kind() == ErrorKind::NotFound => String::new(),
         Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
@@ -311,7 +355,7 @@ pub fn add_book_word(root: &Path, word: &str) -> Result<()> {
 
     let mut text = String::new();
     if existing.trim().is_empty() {
-        text.push_str(BOOK_DICTIONARY_HEADER);
+        text.push_str(header);
     } else if !existing.ends_with('\n') {
         text.push('\n');
     }
@@ -320,7 +364,7 @@ pub fn add_book_word(root: &Path, word: &str) -> Result<()> {
     let mut file = OpenOptions::new()
         .create(true)
         .append(true)
-        .open(&path)
+        .open(path)
         .with_context(|| format!("opening {}", path.display()))?;
     file.write_all(text.as_bytes())
         .with_context(|| format!("writing {}", path.display()))
@@ -666,6 +710,34 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::OnceLock;
     use std::time::Instant;
+
+    #[test]
+    fn a_suggestion_takes_the_shape_of_the_word_it_replaces() {
+        assert_eq!(match_case("Teh", "the"), "The");
+        assert_eq!(match_case("TEH", "the"), "THE");
+        assert_eq!(match_case("teh", "the"), "the");
+        // A proper noun keeps its capital even for a lowercase slip.
+        assert_eq!(match_case("englsh", "English"), "English");
+        // One capital letter isn't shouting.
+        assert_eq!(match_case("I", "a"), "A");
+    }
+
+    #[test]
+    fn the_writers_own_list_is_made_where_it_goes_and_read_back() {
+        let dir = std::env::temp_dir().join(format!("grimoire-userdict-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let path = dir.join("config").join("dictionary.txt");
+        assert!(words_in(&path).is_empty(), "missing is empty");
+        add_user_word(&path, "Wyvernkin").unwrap();
+        add_user_word(&path, "wyvernkin").unwrap(); // already there, any case
+        assert_eq!(words_in(&path), vec!["Wyvernkin".to_string()]);
+        assert!(
+            fs::read_to_string(&path)
+                .unwrap()
+                .starts_with("# Words the spellchecker accepts in every book")
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
 
     /// One shared speller with a couple of the book's names added.
     fn speller() -> &'static Speller {

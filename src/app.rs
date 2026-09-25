@@ -205,6 +205,9 @@ pub struct App {
     pub icons_on: bool,
     /// The dictionary, once it has loaded in the background.
     pub speller: Option<spell::Speller>,
+    /// The writer's own word list, accepted in every book. None in tests, so
+    /// nothing ever reads or writes the real one there.
+    pub user_dict: Option<PathBuf>,
     speller_rx: Option<std::sync::mpsc::Receiver<spell::Speller>>,
     /// A tree row being dragged to a new place: (row it started on, row now under the pointer).
     pub tree_drag: Option<(usize, usize)>,
@@ -418,6 +421,9 @@ pub enum Overlay {
         word: String,
         suggestions: Vec<String>,
         sel: usize,
+        /// Opened by clicking the word, not F8: keys it doesn't use go on to
+        /// the editor, so clicking a word to fix it by hand still works.
+        inline: bool,
     },
     /// Index cards for one act, chapter by chapter.
     Cork {
@@ -580,6 +586,7 @@ impl App {
             spell_on: setup.settings.spellcheck,
             icons_on: setup.settings.icons,
             speller: None,
+            user_dict: setup.background.then(spell::user_dictionary),
             speller_rx: None,
             tree_drag: None,
             screen: (120, 40),
@@ -1654,8 +1661,7 @@ impl App {
     /// Build the dictionary off the UI thread, with the notebook's names and
     /// the book's own word list already accepted.
     fn load_speller(&mut self) {
-        let mut words = spell::names_from_titles(&self.note_titles());
-        words.extend(spell::book_words(&self.project.root));
+        let words = self.speller_words();
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
             let mut s = spell::Speller::new();
@@ -1663,6 +1669,26 @@ impl App {
             let _ = tx.send(s);
         });
         self.speller_rx = Some(rx);
+    }
+
+    /// Everything the dictionary should accept beyond English: the
+    /// notebook's names, this book's list and the writer's own.
+    fn speller_words(&self) -> Vec<String> {
+        let mut words = spell::names_from_titles(&self.note_titles());
+        words.extend(spell::book_words(&self.project.root));
+        if let Some(p) = &self.user_dict {
+            words.extend(spell::words_in(p));
+        }
+        words
+    }
+
+    /// The dictionary, built right now on this thread — for tests, which
+    /// start no background work.
+    #[cfg(test)]
+    pub(crate) fn load_speller_now(&mut self) {
+        let mut s = spell::Speller::new();
+        s.add_words(self.speller_words());
+        self.speller = Some(s);
     }
 
     fn note_titles(&self) -> Vec<String> {
@@ -2079,7 +2105,7 @@ impl App {
             .skip(start)
             .take(end - start)
             .collect();
-        let suggestions = rank_suggestions(&word, speller.suggest(&word, 8), 6);
+        let suggestions = suggestions_for(speller, &word);
         self.editor.select((line, start), (line, end));
         self.overlay = Overlay::Spelling {
             line,
@@ -2088,14 +2114,86 @@ impl App {
             word,
             suggestions,
             sel: 0,
+            inline: false,
         };
     }
 
-    fn apply_spelling(&mut self, line: usize, start: usize, end: usize, with: &str) {
-        self.editor.select((line, start), (line, end));
-        self.editor.delete_selection();
-        self.editor.insert_str(with);
+    /// After a click in the prose: if the caret landed on a misspelt word
+    /// (not inside a `%% note %%`), offer its suggestions right under it.
+    /// True if it did.
+    pub fn offer_spelling_at_caret(&mut self) -> bool {
+        let (Some(speller), true, Some(_)) = (&self.speller, self.spell_on, self.open) else {
+            return false;
+        };
+        let (line, cx) = (self.editor.cy, self.editor.cx);
+        let Some(text) = self.editor.lines.get(line) else {
+            return false;
+        };
+        let marks = grimoire_core::notes::line_spans(&self.editor.lines);
+        let Some((start, end)) =
+            App::misspellings_outside_marks(speller.misspellings(text), &marks[line])
+                .into_iter()
+                .find(|&(a, b)| cx >= a && cx < b)
+        else {
+            return false;
+        };
+        let word: String = text.chars().skip(start).take(end - start).collect();
+        let suggestions = suggestions_for(speller, &word);
+        self.overlay = Overlay::Spelling {
+            line,
+            start,
+            end,
+            word,
+            suggestions,
+            sel: 0,
+            inline: true,
+        };
+        true
+    }
+
+    /// Put `with` where the misspelt word was — one undoable edit — unless
+    /// the text has moved under the popup since it opened.
+    fn apply_spelling(&mut self, line: usize, start: usize, end: usize, word: &str, with: &str) {
+        let still: Option<String> = self
+            .editor
+            .lines
+            .get(line)
+            .map(|l| l.chars().skip(start).take(end - start).collect());
+        if still.as_deref() != Some(word) {
+            self.msg = "the text changed under it — try again".into();
+            return;
+        }
+        self.editor.replace_in_line(line, start, end, with);
         self.flush();
+    }
+
+    /// Accept a word from now on: until Grimoire closes, in this book
+    /// (dictionary.txt), or in every book (the writer's own list).
+    fn ignore_word(&mut self, word: &str, scope: Ignore) {
+        match scope {
+            Ignore::Now => {
+                if let Some(s) = &mut self.speller {
+                    s.add_words([word.to_string()]);
+                }
+                self.msg = format!("“{word}” ignored until you close Grimoire");
+            }
+            Ignore::Book => self.add_to_book(word),
+            Ignore::Everywhere => {
+                let Some(path) = self.user_dict.clone() else {
+                    self.msg = "there's no word list for every book here".into();
+                    return;
+                };
+                match spell::add_user_word(&path, word) {
+                    Ok(()) => {
+                        if let Some(s) = &mut self.speller {
+                            s.add_words([word.to_string()]);
+                        }
+                        self.msg = format!("“{word}” is now a word in every book");
+                    }
+                    Err(e) => self.msg = format!("couldn't add it: {e}"),
+                }
+            }
+        }
     }
 
     fn add_to_book(&mut self, word: &str) {
@@ -3227,6 +3325,11 @@ impl App {
 
     /// A left click focuses the pane under the pointer and acts on it.
     pub fn on_click(&mut self, x: u16, y: u16) {
+        // The spelling popup takes clicks on itself; any other click closes
+        // it and goes on as usual.
+        if matches!(self.overlay, Overlay::Spelling { .. }) && self.click_spelling(x, y) {
+            return;
+        }
         let clicked = self
             .create_hits
             .iter()
@@ -3296,6 +3399,8 @@ impl App {
             let rows = self.editor.layout(self.edit_width);
             let vis = self.editor.scroll + (cy - r.y) as usize;
             self.editor.click(&rows, vis, (cx - r.x) as usize);
+            // A misspelt word under the click offers its fixes right there.
+            self.offer_spelling_at_caret();
         } else if hit(self.rect_scene, x, y) {
             if self.focus == Focus::Editor {
                 self.flush();
@@ -3308,6 +3413,17 @@ impl App {
             }
             self.focus = Focus::Music;
             self.music.send(music::Cmd::PlayPause);
+        }
+    }
+
+    /// A right click in the prose: the same as a left click there, which
+    /// offers spelling fixes when it lands on a misspelt word.
+    pub fn on_right_click(&mut self, x: u16, y: u16) {
+        if matches!(self.overlay, Overlay::Spelling { .. }) {
+            self.overlay = Overlay::None;
+        }
+        if hit(self.rect_prose, x, y) && self.open.is_some() {
+            self.on_click(x, y);
         }
     }
 
@@ -3335,6 +3451,12 @@ impl App {
         let rows = self.editor.layout(self.edit_width);
         let vis = self.editor.scroll + (cy - r.y) as usize;
         self.editor.drag(&rows, vis, (cx - r.x) as usize);
+        // Dragging from a misspelt word is selecting, not asking for fixes.
+        if self.editor.has_selection()
+            && matches!(self.overlay, Overlay::Spelling { inline: true, .. })
+        {
+            self.overlay = Overlay::None;
+        }
     }
 
     /// Copy the editor selection to the system clipboard.
@@ -3898,6 +4020,28 @@ fn human_size(bytes: u64) -> String {
 /// Put the likeliest fix first: fewest edits (a swap counts as one), then the
 /// same letters rearranged, then the same length, then the same first letter.
 /// "Teh" offers "The" before "Ted" or "Eh".
+/// How far a word may be accepted from here on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Ignore {
+    Now,
+    Book,
+    Everywhere,
+}
+
+/// The best few suggestions for a misspelt word, each in the word's own
+/// capitalisation.
+fn suggestions_for(speller: &spell::Speller, word: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for s in rank_suggestions(word, speller.suggest(word, 8), 8) {
+        let s = spell::match_case(word, &s);
+        if s != word && !out.contains(&s) {
+            out.push(s);
+        }
+    }
+    out.truncate(5);
+    out
+}
+
 fn rank_suggestions(word: &str, mut found: Vec<String>, max: usize) -> Vec<String> {
     let w = word.to_lowercase();
     let len = w.chars().count() as isize;
