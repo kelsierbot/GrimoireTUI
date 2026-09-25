@@ -185,7 +185,10 @@ impl Area {
     /// names. Template sheets aren't in it, or "Character Sketch" would be a
     /// character.
     pub fn is_notebook(self) -> bool {
-        matches!(self, Area::Characters | Area::Places | Area::Notes | Area::Research)
+        matches!(
+            self,
+            Area::Characters | Area::Places | Area::Notes | Area::Research
+        )
     }
 }
 
@@ -340,7 +343,9 @@ impl Project {
     pub fn manuscript(&self) -> Vec<usize> {
         self.roots
             .iter()
-            .find(|&&r| self.nodes[r].kind == Kind::Category && self.nodes[r].area == Area::Manuscript)
+            .find(|&&r| {
+                self.nodes[r].kind == Kind::Category && self.nodes[r].area == Area::Manuscript
+            })
             .map(|&r| self.nodes[r].children.clone())
             .unwrap_or_default()
     }
@@ -398,7 +403,8 @@ impl Project {
     }
 
     fn load_file(&mut self, path: &Path, depth: usize, area: Area) -> Result<usize> {
-        let raw = fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+        let raw =
+            fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
         let (front, body) = split_frontmatter(&raw);
         let pov = front.as_deref().and_then(|f| front_get(f, "pov"));
         let status = front.as_deref().and_then(|f| front_get(f, "status"));
@@ -495,8 +501,6 @@ impl Project {
         report
     }
 
-
-
     pub fn dirty_count(&self) -> usize {
         self.nodes.iter().filter(|n| n.dirty).count()
     }
@@ -552,7 +556,9 @@ pub fn split_frontmatter(raw: &str) -> (Option<String>, String) {
         let trimmed = line.trim_end_matches(['\n', '\r']);
         if trimmed == "---" {
             let front = rest[..offset].to_string();
-            let body = rest[offset + line.len()..].trim_start_matches('\n').to_string();
+            let body = rest[offset + line.len()..]
+                .trim_start_matches('\n')
+                .to_string();
             return (Some(front), body);
         }
         offset += line.len();
@@ -583,18 +589,26 @@ fn front_get(front: &str, key: &str) -> Option<String> {
 /// the order, the comments, or keys Grimoire has never heard of.
 pub fn set_front(front: Option<&str>, key: &str, value: &str) -> String {
     let value = value.trim();
-    let needs_quotes = value.contains(':') || value.contains('#') || value.starts_with(['"', '\'', '[', '{', '-', '&', '*', '!', '|', '>', '%', '@', '`']);
+    let needs_quotes = value.contains(':')
+        || value.contains('#')
+        || value.starts_with([
+            '"', '\'', '[', '{', '-', '&', '*', '!', '|', '>', '%', '@', '`',
+        ]);
     let line = if value.is_empty() {
         format!("{key}:")
     } else if needs_quotes {
-        format!("{key}: \"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
+        format!(
+            "{key}: \"{}\"",
+            value.replace('\\', "\\\\").replace('"', "\\\"")
+        )
     } else {
         format!("{key}: {value}")
     };
     let mut out = String::new();
     let mut done = false;
     for l in front.unwrap_or("").lines() {
-        let is_key = !l.starts_with([' ', '\t']) && l.split_once(':').is_some_and(|(k, _)| k.trim() == key);
+        let is_key =
+            !l.starts_with([' ', '\t']) && l.split_once(':').is_some_and(|(k, _)| k.trim() == key);
         if is_key && !done {
             out.push_str(&line);
             done = true;
@@ -709,14 +723,18 @@ pub fn scaffold(root: &Path) -> Result<()> {
 
     let mut chapter = 0usize;
     for page in 1..=PAGES {
-        let page_dir = root
-            .join("manuscript")
-            .join(numbered_dir(page, &crate::manuscript::numbered("Page", page)));
+        let page_dir = root.join("manuscript").join(numbered_dir(
+            page,
+            &crate::manuscript::numbered("Page", page),
+        ));
         for c in 1..=CHAPTERS_PER_PAGE {
             chapter += 1;
             // Chapters are numbered straight through the book, the way the
             // finished manuscript numbers them, not restarted on each page.
-            let ch_dir = page_dir.join(numbered_dir(c, &crate::manuscript::numbered("Chapter", chapter)));
+            let ch_dir = page_dir.join(numbered_dir(
+                c,
+                &crate::manuscript::numbered("Chapter", chapter),
+            ));
             fs::create_dir_all(&ch_dir)
                 .with_context(|| format!("creating {}", ch_dir.display()))?;
             for s in 1..=SCENES_PER_CHAPTER {
@@ -757,7 +775,10 @@ fn add_sections(root: &Path, fresh: bool) -> Result<Vec<String>> {
                 added.push(area.title().to_string());
             }
             if area == Area::Templates {
-                write_new(&path.join("01-Character-Sketch.md"), starter::CHARACTER_SKETCH)?;
+                write_new(
+                    &path.join("01-Character-Sketch.md"),
+                    starter::CHARACTER_SKETCH,
+                )?;
                 write_new(&path.join("02-Setting-Sketch.md"), starter::SETTING_SKETCH)?;
             }
         }
@@ -825,7 +846,8 @@ pub fn upgrade(root: &Path) -> Result<Vec<String>> {
         let empty = |p: &Path| fs::read_dir(p).is_ok_and(|mut rd| rd.next().is_none());
         if area != Area::Notes && (!target.exists() || empty(&target)) {
             if target.exists() {
-                fs::remove_dir(&target).with_context(|| format!("replacing {}", target.display()))?;
+                fs::remove_dir(&target)
+                    .with_context(|| format!("replacing {}", target.display()))?;
             }
             fs::rename(&dir, &target).with_context(|| format!("moving {}", dir.display()))?;
             renames.push((dir.clone(), target));
@@ -855,8 +877,14 @@ pub fn upgrade(root: &Path) -> Result<Vec<String>> {
         let ms = Area::Manuscript.path(root);
         let mut pages = 0;
         for dir in tree_entries(&ms).into_iter().filter(|p| p.is_dir()) {
-            let name = dir.file_name().unwrap_or_default().to_string_lossy().to_string();
-            let Some(renamed) = part_to_page(&name) else { continue };
+            let name = dir
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
+            let Some(renamed) = part_to_page(&name) else {
+                continue;
+            };
             let to = dir.with_file_name(renamed);
             if to.exists() {
                 continue;
@@ -866,7 +894,10 @@ pub fn upgrade(root: &Path) -> Result<Vec<String>> {
             pages += 1;
         }
         if pages > 0 {
-            done.push(format!("{pages} part{} renamed to page{0}", if pages == 1 { "" } else { "s" }));
+            done.push(format!(
+                "{pages} part{} renamed to page{0}",
+                if pages == 1 { "" } else { "s" }
+            ));
         }
     }
 
@@ -883,16 +914,30 @@ pub fn upgrade(root: &Path) -> Result<Vec<String>> {
 /// `02-Part-Two` → `02-Page-Two`, `01-part-one` → `01-page-one`, keeping the
 /// case it was written in. `None` if it isn't a part.
 fn part_to_page(name: &str) -> Option<String> {
-    let digits = name.chars().take_while(|c| c.is_ascii_digit() || matches!(c, '-' | '_' | ' ')).count();
+    let digits = name
+        .chars()
+        .take_while(|c| c.is_ascii_digit() || matches!(c, '-' | '_' | ' '))
+        .count();
     let (num, rest) = name.split_at(digits);
     let word = rest.get(..4)?;
-    if !word.eq_ignore_ascii_case("part") || rest[4..].chars().next().is_some_and(|c| c.is_alphanumeric()) {
+    if !word.eq_ignore_ascii_case("part")
+        || rest[4..]
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_alphanumeric())
+    {
         return None;
     }
     let page: String = word
         .chars()
         .zip("page".chars())
-        .map(|(was, now)| if was.is_uppercase() { now.to_ascii_uppercase() } else { now })
+        .map(|(was, now)| {
+            if was.is_uppercase() {
+                now.to_ascii_uppercase()
+            } else {
+                now
+            }
+        })
         .collect();
     Some(format!("{num}{page}{}", &rest[4..]))
 }
@@ -930,7 +975,8 @@ Leave this out (`compile: false`) and the Word export makes a standard title pag
 from novel.toml: your name, the title and a rounded word count. Set `compile: true` \
 and write your own here to use it instead.\n";
 
-    pub const TITLE_PAGE: &str = "---\ntitle: \"Title Page\"\ncompile: false\n---\n\n# Title\n\nAuthor Name\n";
+    pub const TITLE_PAGE: &str =
+        "---\ntitle: \"Title Page\"\ncompile: false\n---\n\n# Title\n\nAuthor Name\n";
 
     pub const COPYRIGHT: &str = "---\ntitle: \"Copyright\"\ncompile: false\n---\n\n\
 Copyright © Year Author Name\n\nAll rights reserved. No part of this book may be reproduced \
@@ -1003,15 +1049,13 @@ pub fn rename(path: &Path, name: &str) -> Result<PathBuf> {
         if target.exists() {
             anyhow::bail!("{} already exists", target.display());
         }
-        fs::rename(path, &target)
-            .with_context(|| format!("renaming {}", path.display()))?;
+        fs::rename(path, &target).with_context(|| format!("renaming {}", path.display()))?;
     }
     if !folder {
-        let raw = fs::read_to_string(&target)
-            .with_context(|| format!("reading {}", target.display()))?;
+        let raw =
+            fs::read_to_string(&target).with_context(|| format!("reading {}", target.display()))?;
         if let Some(updated) = retitle(&raw, name) {
-            fs::write(&target, updated)
-                .with_context(|| format!("writing {}", target.display()))?;
+            fs::write(&target, updated).with_context(|| format!("writing {}", target.display()))?;
         }
     }
     Ok(target)
@@ -1025,7 +1069,11 @@ fn retitle(raw: &str, name: &str) -> Option<String> {
     let mut done = false;
     let mut out = String::new();
     for line in front.lines() {
-        if !done && line.split_once(':').is_some_and(|(k, _)| k.trim() == "title") {
+        if !done
+            && line
+                .split_once(':')
+                .is_some_and(|(k, _)| k.trim() == "title")
+        {
             out.push_str(&format!("title: \"{}\"\n", name.replace('"', "'")));
             done = true;
         } else {
@@ -1052,8 +1100,7 @@ pub fn trash(root: &Path, path: &Path) -> Result<PathBuf> {
         .map(|d| d.as_secs())
         .unwrap_or(0);
     let target = dir.join(format!("{stamp}-{name}"));
-    fs::rename(path, &target)
-        .with_context(|| format!("moving {} to the trash", path.display()))?;
+    fs::rename(path, &target).with_context(|| format!("moving {} to the trash", path.display()))?;
     Ok(target)
 }
 
@@ -1100,7 +1147,9 @@ fn split_number(path: &Path) -> Option<(usize, usize, String)> {
     if digits.is_empty() {
         return None;
     }
-    let rest = name[digits.len()..].trim_start_matches(['-', '_', ' ']).to_string();
+    let rest = name[digits.len()..]
+        .trim_start_matches(['-', '_', ' '])
+        .to_string();
     Some((digits.parse().ok()?, digits.len(), rest))
 }
 
@@ -1124,12 +1173,23 @@ pub fn move_item(root: &Path, path: &Path, up: bool) -> Result<Moved> {
     // shows, so the move has numbers to swap.
     let mut numbering: Vec<(PathBuf, PathBuf)> = Vec::new();
     let entries = tree_entries(&parent);
-    let at = entries.iter().position(|p| p == path).context("it isn't in its folder any more")?;
-    let beside = if up { at.checked_sub(1) } else { (at + 1 < entries.len()).then_some(at + 1) };
+    let at = entries
+        .iter()
+        .position(|p| p == path)
+        .context("it isn't in its folder any more")?;
+    let beside = if up {
+        at.checked_sub(1)
+    } else {
+        (at + 1 < entries.len()).then_some(at + 1)
+    };
     if beside.is_some_and(|b| split_number(path).is_none() || split_number(&entries[b]).is_none()) {
         let width = entries.len().to_string().len().max(2);
         for (i, p) in entries.iter().enumerate() {
-            let name = p.file_name().unwrap_or_default().to_string_lossy().to_string();
+            let name = p
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
             let rest = split_number(p).map_or(name, |(_, _, r)| r);
             let to = parent.join(numbered_name(i + 1, width, &rest));
             if to != *p {
@@ -1139,20 +1199,36 @@ pub fn move_item(root: &Path, path: &Path, up: bool) -> Result<Moved> {
         rename_all(&numbering)?;
         rewrite_links(root, &numbering);
     }
-    let path = &numbering.iter().find(|(f, _)| f == path).map_or(path.to_path_buf(), |(_, t)| t.clone());
+    let path = &numbering
+        .iter()
+        .find(|(f, _)| f == path)
+        .map_or(path.to_path_buf(), |(_, t)| t.clone());
     let siblings = tree_entries(&parent);
-    let pos = siblings.iter().position(|p| p == path).context("it isn't in its folder any more")?;
-    let neighbour = if up { pos.checked_sub(1) } else { (pos + 1 < siblings.len()).then_some(pos + 1) };
+    let pos = siblings
+        .iter()
+        .position(|p| p == path)
+        .context("it isn't in its folder any more")?;
+    let neighbour = if up {
+        pos.checked_sub(1)
+    } else {
+        (pos + 1 < siblings.len()).then_some(pos + 1)
+    };
 
     let mut renames: Vec<(PathBuf, PathBuf)> = Vec::new();
     let target;
     if let Some(n) = neighbour.map(|i| siblings[i].clone()) {
         // Swap numbers with the neighbour.
-        let (a_num, a_w, a_rest) = split_number(path).context("only numbered items can be moved — give it a number first")?;
-        let (b_num, b_w, b_rest) = split_number(&n).context("its neighbour has no number, so there's nothing to swap with")?;
+        let (a_num, a_w, a_rest) = split_number(path)
+            .context("only numbered items can be moved — give it a number first")?;
+        let (b_num, b_w, b_rest) = split_number(&n)
+            .context("its neighbour has no number, so there's nothing to swap with")?;
         let (a_num, b_num) = if a_num == b_num {
             // Same number (it happens): order by name, so just nudge.
-            if up { (a_num, a_num + 1) } else { (a_num + 1, a_num) }
+            if up {
+                (a_num, a_num + 1)
+            } else {
+                (a_num + 1, a_num)
+            }
         } else {
             (a_num, b_num)
         };
@@ -1164,19 +1240,54 @@ pub fn move_item(root: &Path, path: &Path, up: bool) -> Result<Moved> {
     } else {
         // Cross into the neighbouring folder at the parent's level.
         if top.contains(&parent) || parent == root {
-            anyhow::bail!(if up { "it's already first" } else { "it's already last" });
+            anyhow::bail!(if up {
+                "it's already first"
+            } else {
+                "it's already last"
+            });
         }
         let grand = parent.parent().context("no folder above")?;
-        let uncles: Vec<PathBuf> = tree_entries(grand).into_iter().filter(|p| p.is_dir()).collect();
-        let at = uncles.iter().position(|p| *p == parent).context("its folder moved")?;
-        let dest = if up { at.checked_sub(1) } else { (at + 1 < uncles.len()).then_some(at + 1) }
-            .map(|i| uncles[i].clone())
-            .or_else(|| cousin_folder(root, &parent, up))
-            .with_context(|| if up { "it's already first" } else { "it's already last" })?;
-        let (_, width, rest) = split_number(path).unwrap_or((0, 2, path.file_name().unwrap_or_default().to_string_lossy().to_string()));
+        let uncles: Vec<PathBuf> = tree_entries(grand)
+            .into_iter()
+            .filter(|p| p.is_dir())
+            .collect();
+        let at = uncles
+            .iter()
+            .position(|p| *p == parent)
+            .context("its folder moved")?;
+        let dest = if up {
+            at.checked_sub(1)
+        } else {
+            (at + 1 < uncles.len()).then_some(at + 1)
+        }
+        .map(|i| uncles[i].clone())
+        .or_else(|| cousin_folder(root, &parent, up))
+        .with_context(|| {
+            if up {
+                "it's already first"
+            } else {
+                "it's already last"
+            }
+        })?;
+        let (_, width, rest) = split_number(path).unwrap_or((
+            0,
+            2,
+            path.file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string(),
+        ));
         let there = tree_entries(&dest);
-        let numbers: Vec<(usize, usize)> = there.iter().filter_map(|p| split_number(p).map(|(n, w, _)| (n, w))).collect();
-        let width = numbers.iter().map(|&(_, w)| w).max().unwrap_or(width).max(width);
+        let numbers: Vec<(usize, usize)> = there
+            .iter()
+            .filter_map(|p| split_number(p).map(|(n, w, _)| (n, w)))
+            .collect();
+        let width = numbers
+            .iter()
+            .map(|&(_, w)| w)
+            .max()
+            .unwrap_or(width)
+            .max(width);
         let number = if up {
             numbers.iter().map(|&(n, _)| n).max().unwrap_or(0) + 1
         } else {
@@ -1187,7 +1298,8 @@ pub fn move_item(root: &Path, path: &Path, up: bool) -> Result<Moved> {
                 // No room before the first: shift everything there along one.
                 for p in there.iter().rev() {
                     if let Some((n, w, r)) = split_number(p) {
-                        renames.push((p.clone(), dest.join(numbered_name(n + 1, w.max(width), &r))));
+                        renames
+                            .push((p.clone(), dest.join(numbered_name(n + 1, w.max(width), &r))));
                     }
                 }
                 1
@@ -1207,7 +1319,11 @@ pub fn move_item(root: &Path, path: &Path, up: bool) -> Result<Moved> {
     let links = rewrite_links(root, &renames);
     // Report it as one set of moves from where everything started.
     let renames = compose(&numbering, &renames);
-    Ok(Moved { renames, target, links })
+    Ok(Moved {
+        renames,
+        target,
+        links,
+    })
 }
 
 /// `first` then `then`, as one list from the original paths to the final ones.
@@ -1217,7 +1333,14 @@ fn compose(first: &[(PathBuf, PathBuf)], then: &[(PathBuf, PathBuf)]) -> Vec<(Pa
     }
     let mut out: Vec<(PathBuf, PathBuf)> = first
         .iter()
-        .map(|(a, b)| (a.clone(), then.iter().find(|(f, _)| f == b).map_or(b.clone(), |(_, t)| t.clone())))
+        .map(|(a, b)| {
+            (
+                a.clone(),
+                then.iter()
+                    .find(|(f, _)| f == b)
+                    .map_or(b.clone(), |(_, t)| t.clone()),
+            )
+        })
         .collect();
     for (f, t) in then {
         if !first.iter().any(|(_, b)| b == f) {
@@ -1235,11 +1358,25 @@ fn cousin_folder(root: &Path, folder: &Path, up: bool) -> Option<PathBuf> {
     if great == root {
         return None;
     }
-    let aunts: Vec<PathBuf> = tree_entries(great).into_iter().filter(|p| p.is_dir()).collect();
+    let aunts: Vec<PathBuf> = tree_entries(great)
+        .into_iter()
+        .filter(|p| p.is_dir())
+        .collect();
     let at = aunts.iter().position(|p| p == grand)?;
-    let aunt = if up { at.checked_sub(1)? } else { (at + 1 < aunts.len()).then_some(at + 1)? };
-    let kids: Vec<PathBuf> = tree_entries(&aunts[aunt]).into_iter().filter(|p| p.is_dir()).collect();
-    if up { kids.last().cloned() } else { kids.first().cloned() }
+    let aunt = if up {
+        at.checked_sub(1)?
+    } else {
+        (at + 1 < aunts.len()).then_some(at + 1)?
+    };
+    let kids: Vec<PathBuf> = tree_entries(&aunts[aunt])
+        .into_iter()
+        .filter(|p| p.is_dir())
+        .collect();
+    if up {
+        kids.last().cloned()
+    } else {
+        kids.first().cloned()
+    }
 }
 
 /// Save the order of the tree's sections in novel.toml, as one
@@ -1247,7 +1384,11 @@ fn cousin_folder(root: &Path, folder: &Path, up: bool) -> Option<PathBuf> {
 pub fn save_section_order(root: &Path, order: &[Area]) -> Result<()> {
     let path = root.join("novel.toml");
     let old = fs::read_to_string(&path).unwrap_or_default();
-    let keys: Vec<String> = order.iter().filter(|&&a| a != Area::Trash).map(|a| format!("\"{}\"", a.key())).collect();
+    let keys: Vec<String> = order
+        .iter()
+        .filter(|&&a| a != Area::Trash)
+        .map(|a| format!("\"{}\"", a.key()))
+        .collect();
     let line = format!("sections = [{}]", keys.join(", "));
     let mut out = String::new();
     let mut done = false;
@@ -1286,10 +1427,16 @@ pub fn save_section_order(root: &Path, order: &[Area]) -> Result<()> {
 pub fn apply_moves(root: &Path, renames: &[(PathBuf, PathBuf)], links: bool) -> Result<()> {
     for (from, to) in renames {
         if !from.exists() {
-            anyhow::bail!("{} isn't there any more", from.file_name().unwrap_or_default().to_string_lossy());
+            anyhow::bail!(
+                "{} isn't there any more",
+                from.file_name().unwrap_or_default().to_string_lossy()
+            );
         }
         if to.exists() && !renames.iter().any(|(f, _)| f == to) {
-            anyhow::bail!("{} is already taken", to.file_name().unwrap_or_default().to_string_lossy());
+            anyhow::bail!(
+                "{} is already taken",
+                to.file_name().unwrap_or_default().to_string_lossy()
+            );
         }
     }
     rename_all(renames)?;
@@ -1323,11 +1470,19 @@ fn rename_all(renames: &[(PathBuf, PathBuf)]) -> Result<()> {
 /// a renamed folder. Returns how many files changed.
 pub fn rewrite_links(root: &Path, renames: &[(PathBuf, PathBuf)]) -> usize {
     let rel = |p: &Path| -> String {
-        let r = p.strip_prefix(root).unwrap_or(p).to_string_lossy().replace('\\', "/");
+        let r = p
+            .strip_prefix(root)
+            .unwrap_or(p)
+            .to_string_lossy()
+            .replace('\\', "/");
         r.strip_suffix(".md").map(str::to_string).unwrap_or(r)
     };
     let stem = |p: &Path| -> String {
-        let n = p.file_name().unwrap_or_default().to_string_lossy().to_string();
+        let n = p
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
         n.strip_suffix(".md").map(str::to_string).unwrap_or(n)
     };
     let pairs: Vec<(String, String, String, String)> = renames
@@ -1339,7 +1494,9 @@ pub fn rewrite_links(root: &Path, renames: &[(PathBuf, PathBuf)]) -> usize {
     collect_md(root, &mut files);
     let mut changed = 0;
     for file in files {
-        let Ok(text) = fs::read_to_string(&file) else { continue };
+        let Ok(text) = fs::read_to_string(&file) else {
+            continue;
+        };
         if !text.contains("[[") {
             continue;
         }
@@ -1463,7 +1620,10 @@ mod tests {
         let p = create(&d, "  Wren's \"last\" letter: part 2 ", false).unwrap();
         let raw = fs::read_to_string(&p).unwrap();
         let (front, body) = split_frontmatter(&raw);
-        assert_eq!(display_title(&p, front.as_deref()), "Wren's 'last' letter: part 2");
+        assert_eq!(
+            display_title(&p, front.as_deref()),
+            "Wren's 'last' letter: part 2"
+        );
         assert!(body.is_empty(), "a new scene starts blank");
         fs::remove_dir_all(&d).unwrap();
     }
@@ -1523,27 +1683,61 @@ mod tests {
         let d = temp_dir("sections");
         scaffold(&d).unwrap();
         let p = Project::load(&d).unwrap();
-        let rows: Vec<(String, Kind)> = p.roots.iter().map(|&r| (p.nodes[r].title.clone(), p.nodes[r].kind)).collect();
+        let rows: Vec<(String, Kind)> = p
+            .roots
+            .iter()
+            .map(|&r| (p.nodes[r].title.clone(), p.nodes[r].kind))
+            .collect();
         let want: Vec<(String, Kind)> = Area::ALL
             .iter()
-            .map(|a| (a.title().to_string(), if *a == Area::Format { Kind::Scene } else { Kind::Category }))
+            .map(|a| {
+                (
+                    a.title().to_string(),
+                    if *a == Area::Format {
+                        Kind::Scene
+                    } else {
+                        Kind::Category
+                    },
+                )
+            })
             .collect();
         assert_eq!(rows, want);
 
         let under = |area: Area| -> Vec<String> {
-            let r = p.roots.iter().find(|&&r| p.nodes[r].area == area).copied().unwrap();
-            p.nodes[r].children.iter().map(|&c| p.nodes[c].title.clone()).collect()
+            let r = p
+                .roots
+                .iter()
+                .find(|&&r| p.nodes[r].area == area)
+                .copied()
+                .unwrap();
+            p.nodes[r]
+                .children
+                .iter()
+                .map(|&c| p.nodes[c].title.clone())
+                .collect()
         };
         assert_eq!(under(Area::FrontMatter), FRONT_MATTER_FORMATS);
         assert_eq!(under(Area::Research), ["Sample Output"]);
-        assert_eq!(under(Area::Templates), ["Character Sketch", "Setting Sketch"]);
+        assert_eq!(
+            under(Area::Templates),
+            ["Character Sketch", "Setting Sketch"]
+        );
         assert!(under(Area::Characters).is_empty() && under(Area::Places).is_empty());
 
         // Starter front matter is there, but nothing of it goes into a book yet.
-        let fm: Vec<&Node> = p.nodes.iter().filter(|n| n.kind == Kind::Scene && n.front_matter).collect();
+        let fm: Vec<&Node> = p
+            .nodes
+            .iter()
+            .filter(|n| n.kind == Kind::Scene && n.front_matter)
+            .collect();
         assert_eq!(fm.len(), 7);
         assert!(fm.iter().all(|n| !n.compile));
-        assert!(p.nodes.iter().filter(|n| n.kind == Kind::Scene && n.area == Area::Templates).all(|n| !n.area.is_notebook()));
+        assert!(
+            p.nodes
+                .iter()
+                .filter(|n| n.kind == Kind::Scene && n.area == Area::Templates)
+                .all(|n| !n.area.is_notebook())
+        );
         fs::remove_dir_all(&d).unwrap();
     }
 
@@ -1560,9 +1754,17 @@ mod tests {
             }
         }
         let visible = p.visible();
-        let fm = p.roots.iter().copied().find(|&r| p.nodes[r].area == Area::FrontMatter).unwrap();
+        let fm = p
+            .roots
+            .iter()
+            .copied()
+            .find(|&r| p.nodes[r].area == Area::FrontMatter)
+            .unwrap();
         let editions = &p.nodes[fm].children;
-        assert!(editions.iter().all(|&e| !p.nodes[e].expanded), "each edition starts folded");
+        assert!(
+            editions.iter().all(|&e| !p.nodes[e].expanded),
+            "each edition starts folded"
+        );
         assert!(!visible.iter().any(|&v| p.nodes[v].title == "Copyright"));
         fs::remove_dir_all(&d).unwrap();
     }
@@ -1576,9 +1778,18 @@ mod tests {
             fs::write(path, text).unwrap();
         };
         fs::write(d.join("novel.toml"), "title = \"Old\"\n").unwrap();
-        put("manuscript/01-part-one/01-chapter-one/01-opening.md", "---\ntitle: Opening\n---\n\nWren waits. See [[notes/01-Characters/01-Wren]].\n");
-        put("manuscript/02-Part-Two/01-Chapter-Two/01-later.md", "Later.\n");
-        put("notes/01-Characters/01-Wren.md", "---\ntitle: Wren\n---\n\nSee [[manuscript/02-Part-Two/01-Chapter-Two/01-later]].\n");
+        put(
+            "manuscript/01-part-one/01-chapter-one/01-opening.md",
+            "---\ntitle: Opening\n---\n\nWren waits. See [[notes/01-Characters/01-Wren]].\n",
+        );
+        put(
+            "manuscript/02-Part-Two/01-Chapter-Two/01-later.md",
+            "Later.\n",
+        );
+        put(
+            "notes/01-Characters/01-Wren.md",
+            "---\ntitle: Wren\n---\n\nSee [[manuscript/02-Part-Two/01-Chapter-Two/01-later]].\n",
+        );
         put("notes/places/harbour.md", "Salt.\n");
         put("notes/03-Magic-System/01-rules.md", "Rules.\n");
         put("notes/07-Notes/01-stray.md", "A thought.\n");
@@ -1595,21 +1806,46 @@ mod tests {
         assert!(d.join("characters/01-Wren.md").exists());
         assert!(d.join("places/harbour.md").exists());
         assert!(d.join("research/01-tides.md").exists());
-        assert!(d.join("notes/01-stray.md").exists(), "a Notes folder inside notes empties into it");
+        assert!(
+            d.join("notes/01-stray.md").exists(),
+            "a Notes folder inside notes empties into it"
+        );
         assert!(!d.join("notes/07-Notes").exists());
-        assert!(d.join("notes/03-Magic-System/01-rules.md").exists(), "other notebook folders stay");
-        assert!(d.join("manuscript/01-page-one/01-chapter-one/01-opening.md").exists());
-        assert!(d.join("manuscript/02-Page-Two/01-Chapter-Two/01-later.md").exists());
-        assert!(d.join("Novel-Format.md").exists() && d.join("template-sheets/01-Character-Sketch.md").exists());
+        assert!(
+            d.join("notes/03-Magic-System/01-rules.md").exists(),
+            "other notebook folders stay"
+        );
+        assert!(
+            d.join("manuscript/01-page-one/01-chapter-one/01-opening.md")
+                .exists()
+        );
+        assert!(
+            d.join("manuscript/02-Page-Two/01-Chapter-Two/01-later.md")
+                .exists()
+        );
+        assert!(
+            d.join("Novel-Format.md").exists()
+                && d.join("template-sheets/01-Character-Sketch.md").exists()
+        );
         assert!(d.join("front-matter/01-Manuscript-Format").is_dir());
-        let fm_files = fs::read_dir(d.join("front-matter/02-Paperback")).unwrap().count();
-        assert_eq!(fm_files, 0, "an existing book gets no starter pages in its exports");
+        let fm_files = fs::read_dir(d.join("front-matter/02-Paperback"))
+            .unwrap()
+            .count();
+        assert_eq!(
+            fm_files, 0,
+            "an existing book gets no starter pages in its exports"
+        );
 
         // Links follow both kinds of move.
-        let opening = fs::read_to_string(d.join("manuscript/01-page-one/01-chapter-one/01-opening.md")).unwrap();
+        let opening =
+            fs::read_to_string(d.join("manuscript/01-page-one/01-chapter-one/01-opening.md"))
+                .unwrap();
         assert!(opening.contains("[[characters/01-Wren]]"), "{opening}");
         let wren = fs::read_to_string(d.join("characters/01-Wren.md")).unwrap();
-        assert!(wren.contains("[[manuscript/02-Page-Two/01-Chapter-Two/01-later]]"), "{wren}");
+        assert!(
+            wren.contains("[[manuscript/02-Page-Two/01-Chapter-Two/01-later]]"),
+            "{wren}"
+        );
 
         let p = Project::load(&d).unwrap();
         assert_eq!(p.meta.part_word(), "Page");
@@ -1621,9 +1857,16 @@ mod tests {
     #[test]
     fn a_book_that_counts_in_acts_keeps_them() {
         let d = old_book("upgrade-acts");
-        fs::write(d.join("novel.toml"), "title = \"Old\"\npart_label = \"Act\"\n").unwrap();
+        fs::write(
+            d.join("novel.toml"),
+            "title = \"Old\"\npart_label = \"Act\"\n",
+        )
+        .unwrap();
         upgrade(&d).unwrap();
-        assert!(d.join("manuscript/01-part-one").exists(), "its own word was chosen; parts aren't touched");
+        assert!(
+            d.join("manuscript/01-part-one").exists(),
+            "its own word was chosen; parts aren't touched"
+        );
         fs::remove_dir_all(&d).unwrap();
     }
 
@@ -1651,7 +1894,12 @@ mod tests {
         trash(&d, &scene).unwrap();
 
         let p = Project::load(&d).unwrap();
-        assert!(p.nodes.iter().any(|n| n.kind == Kind::Category && n.title == "Trash"), "the section shows");
+        assert!(
+            p.nodes
+                .iter()
+                .any(|n| n.kind == Kind::Category && n.title == "Trash"),
+            "the section shows"
+        );
         let gone = p
             .nodes
             .iter()
@@ -1659,14 +1907,24 @@ mod tests {
             .expect("the deleted scene is listed under it");
         assert!(p.in_trash(gone));
         assert!(!p.nodes[gone].in_manuscript);
-        assert_eq!(p.total_words(), 0, "trashed words don't count toward the draft");
+        assert_eq!(
+            p.total_words(),
+            0,
+            "trashed words don't count toward the draft"
+        );
         fs::remove_dir_all(&d).unwrap();
     }
 
     #[test]
     fn a_spelled_out_chapter_keeps_its_hyphen_but_a_title_keeps_its_spaces() {
-        assert_eq!(display_title(Path::new("07-Chapter-Twenty-Seven"), None), "Chapter Twenty-Seven");
-        assert_eq!(display_title(Path::new("01-the-archive.md"), None), "The Archive");
+        assert_eq!(
+            display_title(Path::new("07-Chapter-Twenty-Seven"), None),
+            "Chapter Twenty-Seven"
+        );
+        assert_eq!(
+            display_title(Path::new("01-the-archive.md"), None),
+            "The Archive"
+        );
         assert_eq!(display_title(Path::new("03-Act-Three"), None), "Act Three");
     }
 
@@ -1680,7 +1938,10 @@ mod tests {
         let raw = fs::read_to_string(&to).unwrap();
         let (front, body) = split_frontmatter(&raw);
         assert_eq!(display_title(&to, front.as_deref()), "The Gravel Road");
-        assert!(front.unwrap().contains("status: draft"), "the rest of the frontmatter stays");
+        assert!(
+            front.unwrap().contains("status: draft"),
+            "the rest of the frontmatter stays"
+        );
         assert!(body.is_empty());
         fs::remove_dir_all(&d).unwrap();
     }
@@ -1717,20 +1978,35 @@ mod tests {
     }
 
     fn names_in(dir: &Path) -> Vec<String> {
-        tree_entries(dir).iter().map(|p| p.file_name().unwrap().to_string_lossy().to_string()).collect()
+        tree_entries(dir)
+            .iter()
+            .map(|p| p.file_name().unwrap().to_string_lossy().to_string())
+            .collect()
     }
 
     fn move_book(tag: &str) -> PathBuf {
         let d = temp_dir(tag);
         let ch = |a: &str, c: &str| d.join("manuscript").join(a).join(c);
         for (a, c, scenes) in [
-            ("01-Act-One", "01-Chapter-One", vec!["01-Gravel.md", "02-Low-Tide.md"]),
-            ("01-Act-One", "02-Chapter-Two", vec!["01-Ashfall.md", "02-The-Crossing.md"]),
+            (
+                "01-Act-One",
+                "01-Chapter-One",
+                vec!["01-Gravel.md", "02-Low-Tide.md"],
+            ),
+            (
+                "01-Act-One",
+                "02-Chapter-Two",
+                vec!["01-Ashfall.md", "02-The-Crossing.md"],
+            ),
             ("02-Act-Two", "03-Chapter-Three", vec!["01-Lantern.md"]),
         ] {
             fs::create_dir_all(ch(a, c)).unwrap();
             for s in scenes {
-                fs::write(ch(a, c).join(s), format!("---\ntitle: {s}\n---\n\nwords of {s}\n")).unwrap();
+                fs::write(
+                    ch(a, c).join(s),
+                    format!("---\ntitle: {s}\n---\n\nwords of {s}\n"),
+                )
+                .unwrap();
             }
         }
         fs::create_dir_all(d.join("notes/01-Characters")).unwrap();
@@ -1750,7 +2026,12 @@ mod tests {
         assert_eq!(names_in(&ch1), ["01-Low-Tide.md", "02-Gravel.md"]);
         assert_eq!(m.target, ch1.join("01-Low-Tide.md"));
         assert_eq!(m.renames.len(), 2, "only the two that swapped");
-        assert!(fs::read_to_string(ch1.join("01-Low-Tide.md")).unwrap().contains("words of 02-Low-Tide.md"), "content travels with the name");
+        assert!(
+            fs::read_to_string(ch1.join("01-Low-Tide.md"))
+                .unwrap()
+                .contains("words of 02-Low-Tide.md"),
+            "content travels with the name"
+        );
         let note = fs::read_to_string(d.join("notes/01-Characters/01-Wren.md")).unwrap();
         assert!(note.contains("[[01-Low-Tide]]"));
         assert!(note.contains("[[manuscript/01-Act-One/01-Chapter-One/02-Gravel|the lot]]"));
@@ -1764,8 +2045,15 @@ mod tests {
         let ch1 = d.join("manuscript/01-Act-One/01-Chapter-One");
         let ch2 = d.join("manuscript/01-Act-One/02-Chapter-Two");
         move_item(&d, &ch2.join("01-Ashfall.md"), true).unwrap();
-        assert_eq!(names_in(&ch1), ["01-Gravel.md", "02-Low-Tide.md", "03-Ashfall.md"]);
-        assert_eq!(names_in(&ch2), ["02-The-Crossing.md"], "the gap is left; nothing else renamed");
+        assert_eq!(
+            names_in(&ch1),
+            ["01-Gravel.md", "02-Low-Tide.md", "03-Ashfall.md"]
+        );
+        assert_eq!(
+            names_in(&ch2),
+            ["02-The-Crossing.md"],
+            "the gap is left; nothing else renamed"
+        );
         fs::remove_dir_all(&d).unwrap();
     }
 
@@ -1775,7 +2063,11 @@ mod tests {
         let ch2 = d.join("manuscript/01-Act-One/02-Chapter-Two");
         let ch3 = d.join("manuscript/02-Act-Two/03-Chapter-Three");
         let m = move_item(&d, &ch2.join("02-The-Crossing.md"), false).unwrap();
-        assert_eq!(names_in(&ch3), ["01-The-Crossing.md", "02-Lantern.md"], "the first there shifts along to make room");
+        assert_eq!(
+            names_in(&ch3),
+            ["01-The-Crossing.md", "02-Lantern.md"],
+            "the first there shifts along to make room"
+        );
         assert_eq!(m.target, ch3.join("01-The-Crossing.md"));
         fs::remove_dir_all(&d).unwrap();
     }
@@ -1788,7 +2080,10 @@ mod tests {
         move_item(&d, &act1.join("02-Chapter-Two"), false).unwrap();
         assert_eq!(names_in(&act1), ["01-Chapter-One"]);
         assert_eq!(names_in(&act2), ["02-Chapter-Two", "03-Chapter-Three"]);
-        assert!(act2.join("02-Chapter-Two/01-Ashfall.md").exists(), "scenes travel inside");
+        assert!(
+            act2.join("02-Chapter-Two/01-Ashfall.md").exists(),
+            "scenes travel inside"
+        );
         fs::remove_dir_all(&d).unwrap();
     }
 
@@ -1796,7 +2091,14 @@ mod tests {
     fn nothing_moves_past_the_ends() {
         let d = move_book("move-ends");
         assert!(move_item(&d, &d.join("manuscript/01-Act-One"), true).is_err());
-        assert!(move_item(&d, &d.join("manuscript/02-Act-Two/03-Chapter-Three/01-Lantern.md"), false).is_err());
+        assert!(
+            move_item(
+                &d,
+                &d.join("manuscript/02-Act-Two/03-Chapter-Three/01-Lantern.md"),
+                false
+            )
+            .is_err()
+        );
         assert!(move_item(&d, &d.join("manuscript"), true).is_err());
         fs::remove_dir_all(&d).unwrap();
     }
@@ -1806,11 +2108,18 @@ mod tests {
         let d = move_book("move-undo");
         let ch1 = d.join("manuscript/01-Act-One/01-Chapter-One");
         let m = move_item(&d, &ch1.join("02-Low-Tide.md"), true).unwrap();
-        let back: Vec<(PathBuf, PathBuf)> = m.renames.iter().map(|(f, t)| (t.clone(), f.clone())).collect();
+        let back: Vec<(PathBuf, PathBuf)> = m
+            .renames
+            .iter()
+            .map(|(f, t)| (t.clone(), f.clone()))
+            .collect();
         apply_moves(&d, &back, true).unwrap();
         assert_eq!(names_in(&ch1), ["01-Gravel.md", "02-Low-Tide.md"]);
         let note = fs::read_to_string(d.join("notes/01-Characters/01-Wren.md")).unwrap();
-        assert!(note.contains("[[02-Low-Tide]]"), "links follow it back: {note}");
+        assert!(
+            note.contains("[[02-Low-Tide]]"),
+            "links follow it back: {note}"
+        );
         apply_moves(&d, &m.renames, true).unwrap();
         assert_eq!(names_in(&ch1), ["01-Low-Tide.md", "02-Gravel.md"]);
         fs::remove_dir_all(&d).unwrap();
@@ -1826,7 +2135,10 @@ mod tests {
 
         let gone = trash(&d, &scene).unwrap();
         fs::write(&scene, "something new in its place").unwrap();
-        assert!(apply_moves(&d, &[(gone.clone(), scene.clone())], false).is_err(), "never overwrites");
+        assert!(
+            apply_moves(&d, &[(gone.clone(), scene.clone())], false).is_err(),
+            "never overwrites"
+        );
         assert!(gone.exists(), "and touches nothing when it refuses");
         fs::remove_dir_all(&d).unwrap();
     }
@@ -1840,12 +2152,22 @@ mod tests {
         fs::write(chars.join("bo.md"), "Bo, see [[ann]].\n").unwrap();
         let m = move_item(&d, &chars.join("bo.md"), true).unwrap();
         assert_eq!(names_in(&chars), ["01-bo.md", "02-ann.md"]);
-        assert_eq!(fs::read_to_string(chars.join("01-bo.md")).unwrap(), "Bo, see [[02-ann]].\n");
+        assert_eq!(
+            fs::read_to_string(chars.join("01-bo.md")).unwrap(),
+            "Bo, see [[02-ann]].\n"
+        );
         // Undo is one set of moves back to the original names.
-        let back: Vec<(PathBuf, PathBuf)> = m.renames.iter().map(|(f, t)| (t.clone(), f.clone())).collect();
+        let back: Vec<(PathBuf, PathBuf)> = m
+            .renames
+            .iter()
+            .map(|(f, t)| (t.clone(), f.clone()))
+            .collect();
         apply_moves(&d, &back, true).unwrap();
         assert_eq!(names_in(&chars), ["ann.md", "bo.md"]);
-        assert_eq!(fs::read_to_string(chars.join("bo.md")).unwrap(), "Bo, see [[ann]].\n");
+        assert_eq!(
+            fs::read_to_string(chars.join("bo.md")).unwrap(),
+            "Bo, see [[ann]].\n"
+        );
         // A lone note with nowhere to go is left exactly as it was.
         fs::create_dir_all(d.join("places")).unwrap();
         fs::write(d.join("places/harbour.md"), "Salt.\n").unwrap();
@@ -1861,14 +2183,23 @@ mod tests {
         let order = [Area::Characters, Area::Trash, Area::Manuscript];
         save_section_order(&d, &order).unwrap();
         let toml = fs::read_to_string(d.join("novel.toml")).unwrap();
-        assert!(toml.contains("part_label = \"Page\""), "the rest of novel.toml stays");
+        assert!(
+            toml.contains("part_label = \"Page\""),
+            "the rest of novel.toml stays"
+        );
         let p = Project::load(&d).unwrap();
         let areas: Vec<Area> = p.roots.iter().map(|&r| p.nodes[r].area).collect();
         assert_eq!(&areas[..2], [Area::Characters, Area::Manuscript]);
         assert_eq!(areas.last(), Some(&Area::Trash));
         assert_eq!(areas.len(), Area::ALL.len());
         save_section_order(&d, &Area::ALL).unwrap();
-        assert_eq!(fs::read_to_string(d.join("novel.toml")).unwrap().matches("sections =").count(), 1);
+        assert_eq!(
+            fs::read_to_string(d.join("novel.toml"))
+                .unwrap()
+                .matches("sections =")
+                .count(),
+            1
+        );
         fs::remove_dir_all(&d).unwrap();
     }
 
@@ -1888,10 +2219,19 @@ mod tests {
     fn setting_a_frontmatter_value_touches_only_that_line() {
         let front = "title: \"Gravel\"\n# a comment\npov:\nmood: grey\ntags:\n  - lot\n";
         let out = set_front(Some(front), "pov", "Wren");
-        assert_eq!(out, "title: \"Gravel\"\n# a comment\npov: Wren\nmood: grey\ntags:\n  - lot\n");
+        assert_eq!(
+            out,
+            "title: \"Gravel\"\n# a comment\npov: Wren\nmood: grey\ntags:\n  - lot\n"
+        );
         let out = set_front(Some(&out), "synopsis", "Confronts the caretaker: again");
-        assert!(out.ends_with("synopsis: \"Confronts the caretaker: again\"\n"), "added at the end, quoted for the colon");
-        assert_eq!(front_get(&out, "synopsis").as_deref(), Some("Confronts the caretaker: again"));
+        assert!(
+            out.ends_with("synopsis: \"Confronts the caretaker: again\"\n"),
+            "added at the end, quoted for the colon"
+        );
+        assert_eq!(
+            front_get(&out, "synopsis").as_deref(),
+            Some("Confronts the caretaker: again")
+        );
         let out = set_front(Some(&out), "pov", "");
         assert!(out.contains("\npov:\n"), "clearing leaves the key");
         assert_eq!(set_front(None, "status", "draft"), "status: draft\n");

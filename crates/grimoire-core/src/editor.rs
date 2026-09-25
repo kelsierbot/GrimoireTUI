@@ -97,7 +97,11 @@ impl Editor {
     }
 
     fn snap(&self) -> Snap {
-        Snap { lines: self.lines.clone(), cy: self.cy, cx: self.cx }
+        Snap {
+            lines: self.lines.clone(),
+            cy: self.cy,
+            cx: self.cx,
+        }
     }
 
     fn restore(&mut self, s: Snap) {
@@ -137,7 +141,9 @@ impl Editor {
 
     /// Step back. False when there's nothing left to undo.
     pub fn undo(&mut self) -> bool {
-        let Some(s) = self.hist.undo.pop() else { return false };
+        let Some(s) = self.hist.undo.pop() else {
+            return false;
+        };
         let cur = self.snap();
         self.hist.redo.push(cur);
         self.restore(s);
@@ -146,7 +152,9 @@ impl Editor {
     }
 
     pub fn redo(&mut self) -> bool {
-        let Some(s) = self.hist.redo.pop() else { return false };
+        let Some(s) = self.hist.redo.pop() else {
+            return false;
+        };
         let cur = self.snap();
         self.hist.undo.push(cur);
         self.restore(s);
@@ -335,7 +343,11 @@ impl Editor {
     // ---- editing ----------------------------------------------------------
 
     pub fn insert(&mut self, ch: char) {
-        self.remember(if ch.is_whitespace() { Edit::Space } else { Edit::Letter });
+        self.remember(if ch.is_whitespace() {
+            Edit::Space
+        } else {
+            Edit::Letter
+        });
         let mut chars = self.line_chars(self.cy);
         let at = self.cx.min(chars.len());
         chars.insert(at, ch);
@@ -478,7 +490,11 @@ impl Editor {
         if r.line < l0 || r.line > l1 {
             return None;
         }
-        let from = if r.line == l0 { c0.max(r.start) } else { r.start };
+        let from = if r.line == l0 {
+            c0.max(r.start)
+        } else {
+            r.start
+        };
         let to = if r.line == l1 { c1.min(r.end) } else { r.end };
         (from < to).then_some((from, to))
     }
@@ -613,13 +629,25 @@ mod tests {
         e.begin_select();
         e.cx = 10;
         // A wrapped row covering chars 4..8 is entirely inside the selection.
-        let mid = VisRow { line: 0, start: 4, end: 8 };
+        let mid = VisRow {
+            line: 0,
+            start: 4,
+            end: 8,
+        };
         assert_eq!(e.row_selection(mid), Some((4, 8)));
         // The first row is only selected from char 2.
-        let first = VisRow { line: 0, start: 0, end: 4 };
+        let first = VisRow {
+            line: 0,
+            start: 0,
+            end: 4,
+        };
         assert_eq!(e.row_selection(first), Some((2, 4)));
         // A row past the selection end is untouched.
-        let last = VisRow { line: 0, start: 10, end: 12 };
+        let last = VisRow {
+            line: 0,
+            start: 10,
+            end: 12,
+        };
         assert_eq!(e.row_selection(last), None);
     }
 
@@ -631,9 +659,30 @@ mod tests {
         e.begin_select();
         e.cy = 1;
         e.cx = 3;
-        assert_eq!(e.row_selection(VisRow { line: 0, start: 0, end: 3 }), None);
-        assert_eq!(e.row_selection(VisRow { line: 2, start: 0, end: 5 }), None);
-        assert_eq!(e.row_selection(VisRow { line: 1, start: 0, end: 3 }), Some((0, 3)));
+        assert_eq!(
+            e.row_selection(VisRow {
+                line: 0,
+                start: 0,
+                end: 3
+            }),
+            None
+        );
+        assert_eq!(
+            e.row_selection(VisRow {
+                line: 2,
+                start: 0,
+                end: 5
+            }),
+            None
+        );
+        assert_eq!(
+            e.row_selection(VisRow {
+                line: 1,
+                start: 0,
+                end: 3
+            }),
+            Some((0, 3))
+        );
     }
 
     fn typed(e: &mut Editor, s: &str) {

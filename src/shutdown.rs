@@ -33,7 +33,11 @@ pub fn done() {
 #[cfg(unix)]
 pub fn install() {
     let flag = SIGNALLED.get_or_init(|| std::sync::Arc::new(AtomicBool::new(false)));
-    for sig in [signal_hook::consts::SIGHUP, signal_hook::consts::SIGTERM, signal_hook::consts::SIGINT] {
+    for sig in [
+        signal_hook::consts::SIGHUP,
+        signal_hook::consts::SIGTERM,
+        signal_hook::consts::SIGINT,
+    ] {
         let _ = signal_hook::flag::register(sig, flag.clone());
     }
 }
@@ -47,7 +51,8 @@ pub fn install() {
 
     unsafe extern "system" fn handler(kind: u32) -> windows_sys::core::BOOL {
         match kind {
-            CTRL_C_EVENT | CTRL_BREAK_EVENT | CTRL_CLOSE_EVENT | CTRL_LOGOFF_EVENT | CTRL_SHUTDOWN_EVENT => {
+            CTRL_C_EVENT | CTRL_BREAK_EVENT | CTRL_CLOSE_EVENT | CTRL_LOGOFF_EVENT
+            | CTRL_SHUTDOWN_EVENT => {
                 REQUESTED.store(true, Ordering::SeqCst);
                 if kind != CTRL_C_EVENT && kind != CTRL_BREAK_EVENT {
                     // Returning lets Windows end the process, so hold on until

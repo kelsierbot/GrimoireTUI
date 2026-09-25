@@ -60,7 +60,12 @@ pub struct Entry {
 
 impl Entry {
     fn new(label: impl Into<String>, key: &str, action: Action) -> Entry {
-        Entry { label: label.into(), detail: String::new(), key: key.into(), action }
+        Entry {
+            label: label.into(),
+            detail: String::new(),
+            key: key.into(),
+            action,
+        }
     }
 }
 
@@ -85,19 +90,39 @@ pub fn entries(app: &crate::app::App) -> Vec<Entry> {
         Entry::new("Redo", &format!("{m}Y"), Action::Redo),
         Entry::new("Save now", &format!("{m}S"), Action::Save),
         Entry::new("Corkboard", "b", Action::Corkboard),
-        Entry::new("Open the note for the name under the cursor", &format!("{m}O"), Action::OpenCodex),
-        Entry::new("Check names for near-miss spellings", "", Action::CheckNames),
         Entry::new(
-            if app.spell_on { "Turn spellcheck off" } else { "Turn spellcheck on" },
+            "Open the note for the name under the cursor",
+            &format!("{m}O"),
+            Action::OpenCodex,
+        ),
+        Entry::new(
+            "Check names for near-miss spellings",
+            "",
+            Action::CheckNames,
+        ),
+        Entry::new(
+            if app.spell_on {
+                "Turn spellcheck off"
+            } else {
+                "Turn spellcheck on"
+            },
             "",
             Action::Spellcheck,
         ),
         Entry::new(
-            if app.icons_on { "Turn tree icons off" } else { "Turn tree icons on" },
+            if app.icons_on {
+                "Turn tree icons off"
+            } else {
+                "Turn tree icons on"
+            },
             "",
             Action::Icons,
         ),
-        Entry::new("Spelling suggestions for this word", "F8", Action::SpellingSuggestions),
+        Entry::new(
+            "Spelling suggestions for this word",
+            "F8",
+            Action::SpellingSuggestions,
+        ),
         Entry::new("Export for readers (Word, EPUB)", "", Action::Export),
         Entry::new("Writing sessions", "", Action::Sessions),
         Entry::new("Save this session now", "", Action::SaveSession),
@@ -105,7 +130,11 @@ pub fn entries(app: &crate::app::App) -> Vec<Entry> {
         Entry::new("Compile manuscript (Markdown)", "", Action::Compile),
         Entry::new("Themes", "F9", Action::Themes),
         Entry::new(
-            if app.music.enabled { "Turn music off" } else { "Turn music on" },
+            if app.music.enabled {
+                "Turn music off"
+            } else {
+                "Turn music on"
+            },
             "",
             Action::MusicToggle,
         ),
@@ -143,12 +172,23 @@ pub fn entries(app: &crate::app::App) -> Vec<Entry> {
         trail.reverse();
         let what = match n.area {
             grimoire_core::project::Area::Manuscript => "scene",
-            grimoire_core::project::Area::FrontMatter | grimoire_core::project::Area::Format => "document",
+            grimoire_core::project::Area::FrontMatter | grimoire_core::project::Area::Format => {
+                "document"
+            }
             grimoire_core::project::Area::Templates => "sheet",
             _ => "note",
         };
-        let detail = if trail.is_empty() { what.to_string() } else { format!("{what} · {}", trail.join(" › ")) };
-        v.push(Entry { label: n.title.clone(), detail, key: String::new(), action: Action::Open(n.path.clone()) });
+        let detail = if trail.is_empty() {
+            what.to_string()
+        } else {
+            format!("{what} · {}", trail.join(" › "))
+        };
+        v.push(Entry {
+            label: n.title.clone(),
+            detail,
+            key: String::new(),
+            action: Action::Open(n.path.clone()),
+        });
     }
 
     for t in crate::theme::presets() {
@@ -216,7 +256,11 @@ pub fn score(query: &str, text: &str) -> Option<i32> {
 /// natural order.
 pub fn filter(all: &[Entry], query: &str) -> Vec<Entry> {
     if query.trim().is_empty() {
-        return all.iter().filter(|e| !matches!(e.action, Action::Open(_) | Action::Theme(_))).cloned().collect();
+        return all
+            .iter()
+            .filter(|e| !matches!(e.action, Action::Open(_) | Action::Theme(_)))
+            .cloned()
+            .collect();
     }
     let mut scored: Vec<(i32, usize, &Entry)> = all
         .iter()
@@ -246,7 +290,10 @@ mod tests {
     fn a_few_letters_of_each_word_find_it() {
         assert!(score("new ch", "New chapter").is_some());
         assert!(score("nch", "New chapter").is_some());
-        assert!(score("chapter new", "New chapter").is_none(), "words keep their order");
+        assert!(
+            score("chapter new", "New chapter").is_none(),
+            "words keep their order"
+        );
         assert!(score("xyz", "New chapter").is_none());
     }
 
@@ -275,7 +322,11 @@ mod tests {
 
     #[test]
     fn an_empty_query_lists_actions_not_every_scene() {
-        let all = vec![e("Save now", Action::Save), e("Gravel", Action::Open("a.md".into())), e("Nord", Action::Theme("Nord".into()))];
+        let all = vec![
+            e("Save now", Action::Save),
+            e("Gravel", Action::Open("a.md".into())),
+            e("Nord", Action::Theme("Nord".into())),
+        ];
         let got = filter(&all, "  ");
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].action, Action::Save);

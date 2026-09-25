@@ -43,7 +43,9 @@ pub fn machine_name() -> String {
 }
 
 fn lookup_machine_name() -> String {
-    let from_env = std::env::var("COMPUTERNAME").or_else(|_| std::env::var("HOSTNAME")).ok();
+    let from_env = std::env::var("COMPUTERNAME")
+        .or_else(|_| std::env::var("HOSTNAME"))
+        .ok();
     let name = from_env
         .or_else(|| std::fs::read_to_string("/etc/hostname").ok())
         .or_else(|| {
@@ -55,7 +57,11 @@ fn lookup_machine_name() -> String {
         })
         .unwrap_or_default();
     let name = name.trim().trim_end_matches(".local").to_string();
-    if name.is_empty() { "another computer".into() } else { name }
+    if name.is_empty() {
+        "another computer".into()
+    } else {
+        name
+    }
 }
 
 pub fn read(root: &Path) -> Option<Resume> {
@@ -73,7 +79,9 @@ pub fn read(root: &Path) -> Option<Resume> {
         line: get("line").and_then(|v| v.parse().ok()).unwrap_or(0),
         column: get("column").and_then(|v| v.parse().ok()).unwrap_or(0),
         machine: get("machine").unwrap_or_default(),
-        when: get("when").and_then(|v| DateTime::parse_from_rfc3339(&v).ok()).map(|d| d.with_timezone(&Local))?,
+        when: get("when")
+            .and_then(|v| DateTime::parse_from_rfc3339(&v).ok())
+            .map(|d| d.with_timezone(&Local))?,
     })
 }
 
@@ -82,7 +90,11 @@ pub fn read(root: &Path) -> Option<Resume> {
 pub fn write(root: &Path, r: &Resume, title: &str, place: &str) -> Result<()> {
     let dir = root.join(".grimoire");
     std::fs::create_dir_all(&dir)?;
-    let where_ = if place.is_empty() { title.to_string() } else { format!("{title} ({place})") };
+    let where_ = if place.is_empty() {
+        title.to_string()
+    } else {
+        format!("{title} ({place})")
+    };
     let text = format!(
         "---\nscene: {}\nline: {}\ncolumn: {}\nmachine: {}\nwhen: {}\n---\n\nYou were writing {where_}, paragraph {}, on {} — {}.\n",
         r.scene,
@@ -99,7 +111,11 @@ pub fn write(root: &Path, r: &Resume, title: &str, place: &str) -> Result<()> {
 
 /// A scene's path relative to the book, the way resume.md stores it.
 pub fn relative(root: &Path, scene: &Path) -> String {
-    scene.strip_prefix(root).unwrap_or(scene).to_string_lossy().replace('\\', "/")
+    scene
+        .strip_prefix(root)
+        .unwrap_or(scene)
+        .to_string_lossy()
+        .replace('\\', "/")
 }
 
 #[cfg(test)]

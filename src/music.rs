@@ -120,7 +120,10 @@ impl Default for Config {
 
 impl Config {
     pub fn path() -> PathBuf {
-        grimoire_core::paths::home().join(".config").join("grimoire").join("music.toml")
+        grimoire_core::paths::home()
+            .join(".config")
+            .join("grimoire")
+            .join("music.toml")
     }
 
     /// Missing or unreadable config just means "music off".
@@ -223,7 +226,10 @@ pub enum Cmd {
     /// Play the track at this position in the queue.
     JumpTo(usize),
     /// Queue a track by id straight after this one, and play it if `now`.
-    Enqueue { id: String, now: bool },
+    Enqueue {
+        id: String,
+        now: bool,
+    },
     /// Ask for the queue; answered by a fresh `Music::queue`.
     FetchQueue,
     /// Search; answered by `Music::results`.
@@ -233,7 +239,11 @@ pub enum Cmd {
     Playlists(Option<String>),
     /// Replace the queue with a playlist and play it (`now`), or queue the
     /// whole thing straight after this track. Progress arrives as notes.
-    Playlist { id: String, title: String, now: bool },
+    Playlist {
+        id: String,
+        title: String,
+        now: bool,
+    },
 }
 
 /// A row in the queue or in search results.
@@ -297,7 +307,13 @@ trait Backend: Send {
     }
     /// Start queueing a playlist. That takes a while, so it runs in the
     /// background and reports its progress, and the final queue, on `tell`.
-    fn load_playlist(&mut self, _id: String, _title: String, _now: bool, _tell: Sender<Update>) -> Result<()> {
+    fn load_playlist(
+        &mut self,
+        _id: String,
+        _title: String,
+        _now: bool,
+        _tell: Sender<Update>,
+    ) -> Result<()> {
         Err(anyhow!("playlists work with YouTube Music"))
     }
 }
@@ -308,26 +324,32 @@ impl Music {
     pub fn spawn(cfg: Config) -> Music {
         let source = cfg.source;
         // Switched off means inert: nothing is spawned, nothing is polled.
-        let backend: Option<Box<dyn Backend>> = if !cfg.enabled { None } else { match source {
-            Source::YouTubeMusic => cfg
-                .token
-                .clone()
-                .map(|t| Box::new(Ytm::new(&cfg, t)) as Box<dyn Backend>),
-            Source::Spotify => Some(Box::new(Spotify) as Box<dyn Backend>),
-            Source::Jellyfin => (!cfg.server.is_empty() && !cfg.api_key.is_empty()).then(|| {
-                Box::new(Local::new(Box::new(library::Jellyfin {
-                    server: cfg.server.clone(),
-                    token: cfg.api_key.clone(),
-                    user_id: cfg.user_id.clone(),
-                }))) as Box<dyn Backend>
-            }),
-            Source::Plex => (!cfg.server.is_empty() && !cfg.api_key.is_empty()).then(|| {
-                Box::new(Local::new(Box::new(library::Plex {
-                    server: cfg.server.clone(),
-                    token: cfg.api_key.clone(),
-                }))) as Box<dyn Backend>
-            }),
-        } };
+        let backend: Option<Box<dyn Backend>> = if !cfg.enabled {
+            None
+        } else {
+            match source {
+                Source::YouTubeMusic => cfg
+                    .token
+                    .clone()
+                    .map(|t| Box::new(Ytm::new(&cfg, t)) as Box<dyn Backend>),
+                Source::Spotify => Some(Box::new(Spotify) as Box<dyn Backend>),
+                Source::Jellyfin => {
+                    (!cfg.server.is_empty() && !cfg.api_key.is_empty()).then(|| {
+                        Box::new(Local::new(Box::new(library::Jellyfin {
+                            server: cfg.server.clone(),
+                            token: cfg.api_key.clone(),
+                            user_id: cfg.user_id.clone(),
+                        }))) as Box<dyn Backend>
+                    })
+                }
+                Source::Plex => (!cfg.server.is_empty() && !cfg.api_key.is_empty()).then(|| {
+                    Box::new(Local::new(Box::new(library::Plex {
+                        server: cfg.server.clone(),
+                        token: cfg.api_key.clone(),
+                    }))) as Box<dyn Backend>
+                }),
+            }
+        };
 
         let Some(mut backend) = backend else {
             return Music {
@@ -367,11 +389,14 @@ impl Music {
                     let reply = match c {
                         Cmd::FetchQueue => Some(backend.queue().map(Update::Queue)),
                         Cmd::Search(q) => Some(backend.search(&q).map(Update::Results)),
-                        Cmd::Playlists(q) => Some(backend.playlists(q.as_deref()).map(Update::Playlists)),
-                        // Answers for itself, as it goes; only a refusal comes back here.
-                        Cmd::Playlist { id, title, now } => {
-                            backend.load_playlist(id, title, now, up_tx.clone()).err().map(Err)
+                        Cmd::Playlists(q) => {
+                            Some(backend.playlists(q.as_deref()).map(Update::Playlists))
                         }
+                        // Answers for itself, as it goes; only a refusal comes back here.
+                        Cmd::Playlist { id, title, now } => backend
+                            .load_playlist(id, title, now, up_tx.clone())
+                            .err()
+                            .map(Err),
                         // These reshape the queue, so send the new one along.
                         c @ (Cmd::JumpTo(_) | Cmd::Enqueue { .. }) => Some(
                             backend
@@ -480,7 +505,12 @@ const AFTER_CURRENT: &str = "INSERT_AFTER_CURRENT_VIDEO";
 
 impl Ytm {
     fn new(cfg: &Config, token: String) -> Ytm {
-        let agent = |t| ureq::Agent::config_builder().timeout_global(Some(t)).build().new_agent();
+        let agent = |t| {
+            ureq::Agent::config_builder()
+                .timeout_global(Some(t))
+                .build()
+                .new_agent()
+        };
         Ytm {
             agent: agent(HTTP_TIMEOUT),
             slow: agent(Duration::from_secs(12)),
@@ -492,17 +522,27 @@ impl Ytm {
     }
 
     fn delete(&self, path: &str) -> Result<()> {
-        self.agent.delete(self.url(path)).header("Authorization", &self.bearer).call()?;
+        self.agent
+            .delete(self.url(path))
+            .header("Authorization", &self.bearer)
+            .call()?;
         Ok(())
     }
 
     /// Put a song straight after the one playing.
     fn queue_next(&self, id: &str) -> Result<()> {
-        self.post("/queue", Some(serde_json::json!({ "videoId": id, "insertPosition": AFTER_CURRENT })))
+        self.post(
+            "/queue",
+            Some(serde_json::json!({ "videoId": id, "insertPosition": AFTER_CURRENT })),
+        )
     }
 
     fn fetch_queue(&self) -> Result<serde_json::Value> {
-        let mut res = self.slow.get(self.url("/queue")).header("Authorization", &self.bearer).call()?;
+        let mut res = self
+            .slow
+            .get(self.url("/queue"))
+            .header("Authorization", &self.bearer)
+            .call()?;
         if res.status() == 204 {
             return Ok(serde_json::Value::Null);
         }
@@ -517,7 +557,11 @@ impl Ytm {
         let mut cur = None;
         for (i, it) in v["items"].as_array().into_iter().flatten().enumerate() {
             let r = track_renderer(it);
-            ids.push(r.and_then(|r| r["videoId"].as_str()).unwrap_or_default().to_string());
+            ids.push(
+                r.and_then(|r| r["videoId"].as_str())
+                    .unwrap_or_default()
+                    .to_string(),
+            );
             if r.is_some_and(|r| r["selected"].as_bool() == Some(true)) {
                 cur = Some(i);
             }
@@ -559,12 +603,21 @@ impl Ytm {
     /// first song goes in and plays at once, the rest go in backwards (each
     /// landing in front of the last), and a final pass moves any that landed
     /// out of turn.
-    fn play_list(&self, id: &str, title: &str, now: bool, ticket: u64, note: &dyn Fn(String)) -> Result<Option<Vec<Item>>> {
+    fn play_list(
+        &self,
+        id: &str,
+        title: &str,
+        now: bool,
+        ticket: u64,
+        note: &dyn Fn(String),
+    ) -> Result<Option<Vec<Item>>> {
         use serde_json::json;
         let current = || self.loading.load(Ordering::SeqCst) == ticket;
         let (ids, more) = self.tracks(id)?;
         if ids.is_empty() {
-            return Err(anyhow!("“{title}” is private. Make it unlisted in YouTube Music to play it here"));
+            return Err(anyhow!(
+                "“{title}” is private. Make it unlisted in YouTube Music to play it here"
+            ));
         }
         if !current() {
             return Ok(None);
@@ -637,7 +690,11 @@ impl Ytm {
 
         // The queue first, so the list is right by the time the note says so.
         let items = self.items()?;
-        let cut = if more { format!(", the first {PLAYLIST_MAX}") } else { String::new() };
+        let cut = if more {
+            format!(", the first {PLAYLIST_MAX}")
+        } else {
+            String::new()
+        };
         note(if now {
             format!("playing {title} · {n} songs{cut}")
         } else {
@@ -655,11 +712,18 @@ impl Ytm {
     }
 
     fn get(&self, path: &str) -> Result<ureq::http::Response<ureq::Body>> {
-        Ok(self.agent.get(self.url(path)).header("Authorization", &self.bearer).call()?)
+        Ok(self
+            .agent
+            .get(self.url(path))
+            .header("Authorization", &self.bearer)
+            .call()?)
     }
 
     fn post(&self, path: &str, body: Option<serde_json::Value>) -> Result<()> {
-        let req = self.agent.post(self.url(path)).header("Authorization", &self.bearer);
+        let req = self
+            .agent
+            .post(self.url(path))
+            .header("Authorization", &self.bearer);
         match body {
             Some(b) => req.send_json(b)?,
             None => req.send_empty()?,
@@ -676,7 +740,11 @@ impl Ytm {
     }
 
     fn read(res: &mut ureq::http::Response<ureq::Body>) -> Result<serde_json::Value> {
-        let s = res.body_mut().with_config().limit(BODY_LIMIT).read_to_string()?;
+        let s = res
+            .body_mut()
+            .with_config()
+            .limit(BODY_LIMIT)
+            .read_to_string()?;
         Ok(serde_json::from_str(&s)?)
     }
 }
@@ -720,8 +788,13 @@ impl Backend for Ytm {
             Cmd::Volume(d) => {
                 // The client reports volume on a curved scale but takes it on
                 // a straight one (pear-desktop #4458), so convert before nudging.
-                let heard = Ytm::read(&mut self.get("/volume")?)?["state"].as_f64().unwrap_or(50.0);
-                self.post("/volume", Some(json!({ "volume": (volume_to_set(heard) + d).clamp(0, 100) })))
+                let heard = Ytm::read(&mut self.get("/volume")?)?["state"]
+                    .as_f64()
+                    .unwrap_or(50.0);
+                self.post(
+                    "/volume",
+                    Some(json!({ "volume": (volume_to_set(heard) + d).clamp(0, 100) })),
+                )
             }
             Cmd::Like => self.post("/like", None),
             Cmd::JumpTo(i) => self.patch("/queue", json!({ "index": i })),
@@ -774,7 +847,13 @@ impl Backend for Ytm {
         Ok(parse_playlists(&Ytm::read(&mut res)?))
     }
 
-    fn load_playlist(&mut self, id: String, title: String, now: bool, tell: Sender<Update>) -> Result<()> {
+    fn load_playlist(
+        &mut self,
+        id: String,
+        title: String,
+        now: bool,
+        tell: Sender<Update>,
+    ) -> Result<()> {
         let ticket = self.loading.fetch_add(1, Ordering::SeqCst) + 1;
         let me = self.clone();
         thread::spawn(move || {
@@ -816,8 +895,9 @@ fn first_video_id(v: &serde_json::Value) -> Option<String> {
 
 /// The track in a queue entry, which comes plain or wrapped.
 fn track_renderer(it: &serde_json::Value) -> Option<&serde_json::Value> {
-    it.get("playlistPanelVideoRenderer")
-        .or_else(|| it.pointer("/playlistPanelVideoWrapperRenderer/primaryRenderer/playlistPanelVideoRenderer"))
+    it.get("playlistPanelVideoRenderer").or_else(|| {
+        it.pointer("/playlistPanelVideoWrapperRenderer/primaryRenderer/playlistPanelVideoRenderer")
+    })
 }
 
 /// Playlists from a playlist search, in YouTube's order. `artist` is whose it
@@ -865,7 +945,11 @@ fn parse_playlists(v: &serde_json::Value) -> Vec<Item> {
             out.push(Item {
                 title: cols.first().cloned().unwrap_or_default(),
                 artist: parts.first().copied().unwrap_or_default().to_string(),
-                length: if parts.len() > 1 { parts[parts.len() - 1].to_string() } else { String::new() },
+                length: if parts.len() > 1 {
+                    parts[parts.len() - 1].to_string()
+                } else {
+                    String::new()
+                },
                 id: id.to_string(),
                 pos: out.len(),
                 current: false,
@@ -882,7 +966,10 @@ fn collect_tracks(v: &serde_json::Value, out: &mut Vec<String>) {
     match v {
         serde_json::Value::Object(m) => {
             if let Some(r) = m.get("musicResponsiveListItemRenderer") {
-                if let Some(id) = r.pointer("/playlistItemData/videoId").and_then(|x| x.as_str()) {
+                if let Some(id) = r
+                    .pointer("/playlistItemData/videoId")
+                    .and_then(|x| x.as_str())
+                {
                     out.push(id.to_string());
                 }
                 return;
@@ -982,12 +1069,23 @@ fn parse_search(v: &serde_json::Value) -> Vec<Item> {
             if let (Some(item), Some(id)) = (top, first_video_id(&card["buttons"])) {
                 out.push(Item { id, ..item });
             }
-            out.extend(card["contents"].as_array().into_iter().flatten().filter_map(list_item));
+            out.extend(
+                card["contents"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(list_item),
+            );
         }
         let rows = s
             .pointer("/itemSectionRenderer/contents")
             .or_else(|| s.pointer("/musicShelfRenderer/contents"));
-        out.extend(rows.and_then(|r| r.as_array()).into_iter().flatten().filter_map(list_item));
+        out.extend(
+            rows.and_then(|r| r.as_array())
+                .into_iter()
+                .flatten()
+                .filter_map(list_item),
+        );
     }
     let mut seen = std::collections::HashSet::new();
     out.retain(|it| seen.insert(it.id.clone()));
@@ -999,20 +1097,30 @@ fn parse_search(v: &serde_json::Value) -> Vec<Item> {
 
 fn list_item(it: &serde_json::Value) -> Option<Item> {
     let r = it.get("musicResponsiveListItemRenderer")?;
-    let id = r.pointer("/playlistItemData/videoId")?.as_str()?.to_string();
+    let id = r
+        .pointer("/playlistItemData/videoId")?
+        .as_str()?
+        .to_string();
     let cols: Vec<String> = r["flexColumns"]
         .as_array()?
         .iter()
         .map(|c| runs(&c["musicResponsiveListItemFlexColumnRenderer"]["text"]))
         .collect();
-    let item = playable(cols.first()?.clone(), cols.get(1).map_or("", String::as_str))?;
+    let item = playable(
+        cols.first()?.clone(),
+        cols.get(1).map_or("", String::as_str),
+    )?;
     Some(Item { id, ..item })
 }
 
 /// A title and a byline like "Song • Fleetwood Mac • 4:18", if it names a
 /// song or a video. Untyped rows (on the top-result card) are videos.
 fn playable(title: String, byline: &str) -> Option<Item> {
-    let parts: Vec<&str> = byline.split('•').map(str::trim).filter(|p| !p.is_empty()).collect();
+    let parts: Vec<&str> = byline
+        .split('•')
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .collect();
     let kind = *parts.first()?;
     let (video, artist, rest) = match kind {
         "Song" => (false, parts.get(1).copied(), 2),
@@ -1023,12 +1131,18 @@ fn playable(title: String, byline: &str) -> Option<Item> {
         _ => (true, Some(kind), 1),
     };
     let is_length = |p: &&&str| {
-        p.contains(':') && p.split(':').all(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()))
+        p.contains(':')
+            && p.split(':')
+                .all(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()))
     };
     Some(Item {
         title,
         artist: artist.unwrap_or_default().to_string(),
-        length: parts.iter().skip(rest).find(is_length).map_or(String::new(), |s| s.to_string()),
+        length: parts
+            .iter()
+            .skip(rest)
+            .find(is_length)
+            .map_or(String::new(), |s| s.to_string()),
         id: String::new(),
         pos: 0,
         current: false,
@@ -1069,22 +1183,34 @@ mod ytm_tests {
 
         let r = parse_search(&v);
         let ids: Vec<&str> = r.iter().map(|i| i.id.as_str()).collect();
-        assert_eq!(ids, ["swJOIjjW69U", "Y3ywicffOj4", "m8i5WiWCN-c"], "top result first; no album, episode or repeat");
-        assert_eq!((r[0].artist.as_str(), r[0].length.as_str()), ("Fleetwood Mac", "4:18"));
+        assert_eq!(
+            ids,
+            ["swJOIjjW69U", "Y3ywicffOj4", "m8i5WiWCN-c"],
+            "top result first; no album, episode or repeat"
+        );
+        assert_eq!(
+            (r[0].artist.as_str(), r[0].length.as_str()),
+            ("Fleetwood Mac", "4:18")
+        );
         assert!(!r[0].video && r[1].video, "the untyped card row is a video");
-        assert_eq!((r[1].artist.as_str(), r[1].length.as_str()), ("FLEETWOOD MAC", "4:24"));
+        assert_eq!(
+            (r[1].artist.as_str(), r[1].length.as_str()),
+            ("FLEETWOOD MAC", "4:24")
+        );
         assert_eq!(r[2].pos, 2);
     }
 
     #[test]
     fn queue_reads_both_renderer_shapes_and_marks_the_playing_track() {
-        let track = |t: &str, sel: bool| json!({
-            "title": { "runs": [{ "text": t }] },
-            "shortBylineText": { "runs": [{ "text": "Fleetwood Mac" }] },
-            "lengthText": { "runs": [{ "text": "3:44" }] },
-            "videoId": format!("id-{t}"),
-            "selected": sel,
-        });
+        let track = |t: &str, sel: bool| {
+            json!({
+                "title": { "runs": [{ "text": t }] },
+                "shortBylineText": { "runs": [{ "text": "Fleetwood Mac" }] },
+                "lengthText": { "runs": [{ "text": "3:44" }] },
+                "videoId": format!("id-{t}"),
+                "selected": sel,
+            })
+        };
         let v = json!({ "items": [
             { "playlistPanelVideoRenderer": track("Dreams", false) },
             { "playlistPanelVideoWrapperRenderer": { "primaryRenderer": { "playlistPanelVideoRenderer": track("Go Your Own Way", true) } } },
@@ -1125,12 +1251,26 @@ mod ytm_tests {
         let p = parse_playlists(&v);
         assert_eq!(p.len(), 2, "a row with no playlist id is skipped");
         assert_eq!(
-            (p[0].title.as_str(), p[0].artist.as_str(), p[0].length.as_str(), p[0].id.as_str()),
-            ("Best of Fleetwood", "Espershire", "84 songs", "PLnlwnADdLfE7MRO1KS4tU4WyqviJ-wZLI")
+            (
+                p[0].title.as_str(),
+                p[0].artist.as_str(),
+                p[0].length.as_str(),
+                p[0].id.as_str()
+            ),
+            (
+                "Best of Fleetwood",
+                "Espershire",
+                "84 songs",
+                "PLnlwnADdLfE7MRO1KS4tU4WyqviJ-wZLI"
+            )
         );
         assert_eq!(
             (p[1].artist.as_str(), p[1].length.as_str(), p[1].id.as_str()),
-            ("Pramit Mohanty", "103K views", "PLJyx7idLrmwMu4DOoL1ybLgJr3YWnpiGm"),
+            (
+                "Pramit Mohanty",
+                "103K views",
+                "PLJyx7idLrmwMu4DOoL1ybLgJr3YWnpiGm"
+            ),
             "the id falls back to the browse id, less its VL"
         );
         assert_eq!(p[1].pos, 1);
@@ -1153,7 +1293,11 @@ mod ytm_tests {
         ]}}}}});
         let mut ids = Vec::new();
         collect_tracks(&page, &mut ids);
-        assert_eq!(ids, ["a", "b", "a"], "unavailable songs skipped, repeats kept");
+        assert_eq!(
+            ids,
+            ["a", "b", "a"],
+            "unavailable songs skipped, repeats kept"
+        );
         assert_eq!(continuation(&page).as_deref(), Some("page-2"));
         assert_eq!(continuation(&json!({ "contents": {} })), None);
     }
@@ -1173,14 +1317,21 @@ mod ytm_tests {
         }
         assert_eq!(q, s(&["p", "a", "b", "c", "d", "e", "r", "r"]));
         assert_eq!(end, 6, "the refill starts where the playlist ends");
-        assert!(reorder(&q, 1, &want).0.is_empty(), "an ordered queue needs no moves");
+        assert!(
+            reorder(&q, 1, &want).0.is_empty(),
+            "an ordered queue needs no moves"
+        );
     }
 
     #[test]
     fn volume_converts_from_the_scale_it_reports() {
         assert_eq!(volume_to_set(0.0), 0);
         assert_eq!(volume_to_set(100.0), 100);
-        assert_eq!(volume_to_set(15.0), 43, "#4458: setting 43 reads back as 15");
+        assert_eq!(
+            volume_to_set(15.0),
+            43,
+            "#4458: setting 43 reads back as 15"
+        );
     }
 }
 
@@ -1293,7 +1444,10 @@ impl Spotify {
             Cmd::Prev => vec!["previous".into()],
             Cmd::Seek(s) => vec!["position".into(), format!("{}{}", s.abs(), sign(s))],
             Cmd::Shuffle => vec!["shuffle".into(), "Toggle".into()],
-            Cmd::Volume(d) => vec!["volume".into(), format!("{:.2}{}", d.abs() as f64 / 100.0, sign(d))],
+            Cmd::Volume(d) => vec![
+                "volume".into(),
+                format!("{:.2}{}", d.abs() as f64 / 100.0, sign(d)),
+            ],
             _ => return Ok(()),
         };
         let _ = std::process::Command::new("playerctl")
@@ -1713,7 +1867,10 @@ fn enable_api_plugin(port: u16) -> Result<Plugin> {
     let raw = std::fs::read_to_string(&path)?;
     let mut cfg: serde_json::Value = serde_json::from_str(&raw)?;
 
-    if cfg["plugins"]["api-server"]["enabled"].as_bool().unwrap_or(false) {
+    if cfg["plugins"]["api-server"]["enabled"]
+        .as_bool()
+        .unwrap_or(false)
+    {
         return Ok(Plugin::AlreadyOn);
     }
 
@@ -1772,7 +1929,9 @@ fn quit_client() {
                 return;
             }
         }
-        let _ = Command::new("taskkill").args(["/F", "/T", "/IM", WINDOWS_EXE]).output();
+        let _ = Command::new("taskkill")
+            .args(["/F", "/T", "/IM", WINDOWS_EXE])
+            .output();
         thread::sleep(Duration::from_secs(1));
         return;
     }
@@ -1792,7 +1951,10 @@ fn quit_client() {
             return;
         }
     }
-    let _ = Command::new("kill").arg("-9").args(client_pids(false)).status();
+    let _ = Command::new("kill")
+        .arg("-9")
+        .args(client_pids(false))
+        .status();
 }
 
 /// Windows: whether any YouTube Music process is up. Checked by looking for
@@ -1897,14 +2059,16 @@ fn download_and_install(arch: &str) -> Result<()> {
             .map(str::trim)
             .find(|p| p.starts_with("/Volumes/"))
             .map(str::to_string)
-            .ok_or_else(|| {
-                anyhow!("mounted, but no /Volumes path in hdiutil output:\n{out}")
-            })?;
+            .ok_or_else(|| anyhow!("mounted, but no /Volumes path in hdiutil output:\n{out}"))?;
 
         let src = PathBuf::from(&vol).join("YouTube Music.app");
         println!("  Copying to /Applications…");
         let _ = Command::new("rm").arg("-rf").arg(app_path()).status();
-        Command::new("cp").arg("-R").arg(&src).arg("/Applications/").status()?;
+        Command::new("cp")
+            .arg("-R")
+            .arg(&src)
+            .arg("/Applications/")
+            .status()?;
 
         // The build is ad-hoc signed and unnotarized, so macOS quarantines it
         // and refuses to launch. Clearing the flag and re-signing ad-hoc is
@@ -1917,7 +2081,9 @@ fn download_and_install(arch: &str) -> Result<()> {
             .args(["--force", "--deep", "--sign", "-"])
             .arg(app_path())
             .output();
-        let _ = Command::new("hdiutil").args(["detach", "-quiet", &vol]).status();
+        let _ = Command::new("hdiutil")
+            .args(["detach", "-quiet", &vol])
+            .status();
     } else if cfg!(windows) {
         // The web installer fetches the package for this PC's CPU itself, then
         // installs per-user. /S keeps it silent; it runs to completion before
@@ -2043,11 +2209,26 @@ mod install_tests {
 
     #[test]
     fn each_cpu_gets_its_own_build() {
-        assert_eq!(picked(".AppImage", "x86_64").as_deref(), Some("YouTube-Music-3.12.0.AppImage"));
-        assert_eq!(picked(".AppImage", "aarch64").as_deref(), Some("YouTube-Music-3.12.0-arm64.AppImage"));
-        assert_eq!(picked(".AppImage", "arm").as_deref(), Some("YouTube-Music-3.12.0-armv7l.AppImage"));
-        assert_eq!(picked(".dmg", "x86_64").as_deref(), Some("YouTube-Music-3.12.0.dmg"));
-        assert_eq!(picked(".dmg", "aarch64").as_deref(), Some("YouTube-Music-3.12.0-arm64.dmg"));
+        assert_eq!(
+            picked(".AppImage", "x86_64").as_deref(),
+            Some("YouTube-Music-3.12.0.AppImage")
+        );
+        assert_eq!(
+            picked(".AppImage", "aarch64").as_deref(),
+            Some("YouTube-Music-3.12.0-arm64.AppImage")
+        );
+        assert_eq!(
+            picked(".AppImage", "arm").as_deref(),
+            Some("YouTube-Music-3.12.0-armv7l.AppImage")
+        );
+        assert_eq!(
+            picked(".dmg", "x86_64").as_deref(),
+            Some("YouTube-Music-3.12.0.dmg")
+        );
+        assert_eq!(
+            picked(".dmg", "aarch64").as_deref(),
+            Some("YouTube-Music-3.12.0-arm64.dmg")
+        );
     }
 
     #[test]
@@ -2069,8 +2250,14 @@ mod install_tests {
         let installs = |answer: &str, detected| {
             picked(".AppImage", parse_arch_answer(answer, detected).unwrap())
         };
-        assert_eq!(installs("", "x86_64").as_deref(), Some("YouTube-Music-3.12.0.AppImage"));
-        assert_eq!(installs("2", "x86_64").as_deref(), Some("YouTube-Music-3.12.0-arm64.AppImage"));
+        assert_eq!(
+            installs("", "x86_64").as_deref(),
+            Some("YouTube-Music-3.12.0.AppImage")
+        );
+        assert_eq!(
+            installs("2", "x86_64").as_deref(),
+            Some("YouTube-Music-3.12.0-arm64.AppImage")
+        );
     }
 
     #[test]
@@ -2123,7 +2310,6 @@ mod install_tests {
     }
 }
 
-
 /// Set up whichever source you name. `grimoire music-setup jellyfin`, etc.
 pub fn setup_for(source: Source) -> Result<()> {
     match source {
@@ -2161,7 +2347,14 @@ fn setup_jellyfin() -> Result<()> {
     println!("  Grimoire plays these tracks itself — your files, your server,");
     println!("  nothing else needs to be running.\n");
 
-    let server = prompt("Server URL", if cfg.server.is_empty() { "http://localhost:8096" } else { &cfg.server });
+    let server = prompt(
+        "Server URL",
+        if cfg.server.is_empty() {
+            "http://localhost:8096"
+        } else {
+            &cfg.server
+        },
+    );
     let user = prompt("Username", "");
     let pass = prompt_secret("Password");
 
@@ -2199,7 +2392,14 @@ fn setup_plex() -> Result<()> {
     println!("  item in the Plex web app, choosing Get Info → View XML, and");
     println!("  copying the X-Plex-Token value from the address bar.\n");
 
-    let server = prompt("Server URL", if cfg.server.is_empty() { "http://localhost:32400" } else { &cfg.server });
+    let server = prompt(
+        "Server URL",
+        if cfg.server.is_empty() {
+            "http://localhost:32400"
+        } else {
+            &cfg.server
+        },
+    );
     let token = prompt("X-Plex-Token", "");
 
     cfg.source = Source::Plex;

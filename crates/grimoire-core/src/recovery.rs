@@ -61,12 +61,20 @@ pub fn pending(p: &Project) -> Vec<Pending> {
     files.sort();
     let mut out = Vec::new();
     for file in files {
-        let Ok(rel) = file.strip_prefix(&base) else { continue };
-        let scene = p.root.join(rel);
-        let Some(node) = p.nodes.iter().find(|n| n.kind == Kind::Scene && n.path == scene) else {
+        let Ok(rel) = file.strip_prefix(&base) else {
             continue;
         };
-        let Ok(text) = fs::read_to_string(&file) else { continue };
+        let scene = p.root.join(rel);
+        let Some(node) = p
+            .nodes
+            .iter()
+            .find(|n| n.kind == Kind::Scene && n.path == scene)
+        else {
+            continue;
+        };
+        let Ok(text) = fs::read_to_string(&file) else {
+            continue;
+        };
         if text == node.file_text() {
             let _ = fs::remove_file(&file);
             continue;
@@ -102,10 +110,15 @@ mod tests {
     use super::*;
 
     fn book(tag: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("grimoire-recovery-{tag}-{}", std::process::id()));
+        let d =
+            std::env::temp_dir().join(format!("grimoire-recovery-{tag}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&d);
         fs::create_dir_all(d.join("manuscript/01-Act-One")).unwrap();
-        fs::write(d.join("manuscript/01-Act-One/01-Gravel.md"), "---\ntitle: Gravel\n---\n\nThe lot was empty.\n").unwrap();
+        fs::write(
+            d.join("manuscript/01-Act-One/01-Gravel.md"),
+            "---\ntitle: Gravel\n---\n\nThe lot was empty.\n",
+        )
+        .unwrap();
         d
     }
 
@@ -115,14 +128,28 @@ mod tests {
         let p = Project::load(&d).unwrap();
         let scene = d.join("manuscript/01-Act-One/01-Gravel.md");
 
-        keep(&d, &scene, "---\ntitle: Gravel\n---\n\nThe lot was empty except for the truck.\n").unwrap();
+        keep(
+            &d,
+            &scene,
+            "---\ntitle: Gravel\n---\n\nThe lot was empty except for the truck.\n",
+        )
+        .unwrap();
         let found = pending(&p);
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].title, "Gravel");
         assert_eq!((found[0].saved_words, found[0].recovered_words), (4, 8));
 
         // Saved for real: the kept copy now matches and quietly goes away.
-        keep(&d, &scene, &p.nodes.iter().find(|n| n.path == scene).unwrap().file_text()).unwrap();
+        keep(
+            &d,
+            &scene,
+            &p.nodes
+                .iter()
+                .find(|n| n.path == scene)
+                .unwrap()
+                .file_text(),
+        )
+        .unwrap();
         assert!(pending(&p).is_empty());
         assert!(!file_for(&d, &scene).exists());
         fs::remove_dir_all(&d).unwrap();

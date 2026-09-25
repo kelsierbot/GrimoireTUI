@@ -63,11 +63,16 @@ pub fn section_of(p: &Project, idx: usize) -> Section {
         _ => {}
     }
     let parent = n.path.parent();
-    if p.nodes.iter().any(|m| m.kind == Kind::Container && Some(m.path.as_path()) == parent) {
+    if p.nodes
+        .iter()
+        .any(|m| m.kind == Kind::Container && Some(m.path.as_path()) == parent)
+    {
         return Section::Chapter;
     }
     let neighbours: Vec<usize> = (0..p.nodes.len())
-        .filter(|&i| i != idx && p.nodes[i].kind == Kind::Container && p.nodes[i].path.parent() == parent)
+        .filter(|&i| {
+            i != idx && p.nodes[i].kind == Kind::Container && p.nodes[i].path.parent() == parent
+        })
         .collect();
     if neighbours.iter().any(|&i| holds(i, Kind::Container)) {
         Section::Part
@@ -131,8 +136,25 @@ pub fn rounded_words(n: usize) -> usize {
 }
 
 const ONES: [&str; 20] = [
-    "ZERO", "ONE", "TWO", "THREE", "FOUR", "FIVE", "SIX", "SEVEN", "EIGHT", "NINE", "TEN",
-    "ELEVEN", "TWELVE", "THIRTEEN", "FOURTEEN", "FIFTEEN", "SIXTEEN", "SEVENTEEN", "EIGHTEEN",
+    "ZERO",
+    "ONE",
+    "TWO",
+    "THREE",
+    "FOUR",
+    "FIVE",
+    "SIX",
+    "SEVEN",
+    "EIGHT",
+    "NINE",
+    "TEN",
+    "ELEVEN",
+    "TWELVE",
+    "THIRTEEN",
+    "FOURTEEN",
+    "FIFTEEN",
+    "SIXTEEN",
+    "SEVENTEEN",
+    "EIGHTEEN",
     "NINETEEN",
 ];
 const TENS: [&str; 10] = [
@@ -215,7 +237,10 @@ fn structure_block(p: &Project) -> String {
         p.meta.draft
     );
     if excluded > 0 {
-        let _ = writeln!(s, "\n> {excluded} scene(s) marked `compile: false` — in the tree, out of the manuscript.");
+        let _ = writeln!(
+            s,
+            "\n> {excluded} scene(s) marked `compile: false` — in the tree, out of the manuscript."
+        );
     }
 
     let fm: Vec<usize> = p

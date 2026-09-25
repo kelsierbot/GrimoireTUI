@@ -36,7 +36,9 @@ pub fn aliases(front: &str) -> Vec<String> {
             }
             in_list = false;
         }
-        let Some((k, v)) = line.split_once(':') else { continue };
+        let Some((k, v)) = line.split_once(':') else {
+            continue;
+        };
         if k.trim() != "aliases" && k.trim() != "alias" {
             continue;
         }
@@ -45,7 +47,12 @@ pub fn aliases(front: &str) -> Vec<String> {
             in_list = true;
         } else {
             let inner = v.trim_start_matches('[').trim_end_matches(']');
-            out.extend(inner.split(',').map(|s| s.trim().trim_matches(['"', '\'']).to_string()).filter(|s| !s.is_empty()));
+            out.extend(
+                inner
+                    .split(',')
+                    .map(|s| s.trim().trim_matches(['"', '\'']).to_string())
+                    .filter(|s| !s.is_empty()),
+            );
         }
     }
     out
@@ -54,7 +61,11 @@ pub fn aliases(front: &str) -> Vec<String> {
 /// Every note in the notebook, with the names that mean it. `ordinary` says
 /// whether a word is everyday English, so title words like "Ashen" or "Reach"
 /// aren't treated as names on their own.
-pub fn index(p: &Project, parents: &[Option<usize>], ordinary: &dyn Fn(&str) -> bool) -> Vec<Entry> {
+pub fn index(
+    p: &Project,
+    parents: &[Option<usize>],
+    ordinary: &dyn Fn(&str) -> bool,
+) -> Vec<Entry> {
     let mut out = Vec::new();
     for (i, n) in p.nodes.iter().enumerate() {
         if n.kind != Kind::Scene || !n.area.is_notebook() || p.in_trash(i) {
@@ -76,7 +87,10 @@ pub fn index(p: &Project, parents: &[Option<usize>], ordinary: &dyn Fn(&str) -> 
         if words.len() > 1 {
             for w in words {
                 let w = w.trim_matches(|c: char| !c.is_alphanumeric() && c != '\'' && c != '’');
-                if w.chars().count() >= 4 && w.chars().next().is_some_and(char::is_uppercase) && !ordinary(&w.to_lowercase()) {
+                if w.chars().count() >= 4
+                    && w.chars().next().is_some_and(char::is_uppercase)
+                    && !ordinary(&w.to_lowercase())
+                {
                     names.push(w.to_string());
                 }
             }
@@ -84,7 +98,12 @@ pub fn index(p: &Project, parents: &[Option<usize>], ordinary: &dyn Fn(&str) -> 
         names.retain(|s| s.chars().count() >= 2);
         names.sort_by_key(|s| std::cmp::Reverse(s.chars().count()));
         names.dedup();
-        out.push(Entry { note: n.path.clone(), title: n.title.clone(), section, names });
+        out.push(Entry {
+            note: n.path.clone(),
+            title: n.title.clone(),
+            section,
+            names,
+        });
     }
     out
 }
@@ -111,8 +130,13 @@ pub fn spans(line: &str, entries: &[Entry]) -> Vec<(usize, usize, usize)> {
         while i + needle.len() <= chars.len() {
             let end = i + needle.len();
             let boundary_before = i == 0 || !chars[i - 1].is_alphanumeric();
-            let boundary_after = end == chars.len() || !chars[end].is_alphanumeric() || is_possessive(&chars, end);
-            if chars[i..end] == needle[..] && boundary_before && boundary_after && !taken[i..end].iter().any(|&t| t) {
+            let boundary_after =
+                end == chars.len() || !chars[end].is_alphanumeric() || is_possessive(&chars, end);
+            if chars[i..end] == needle[..]
+                && boundary_before
+                && boundary_after
+                && !taken[i..end].iter().any(|&t| t)
+            {
                 taken[i..end].iter_mut().for_each(|t| *t = true);
                 out.push((i, end, entry));
                 i = end;
@@ -126,7 +150,9 @@ pub fn spans(line: &str, entries: &[Entry]) -> Vec<(usize, usize, usize)> {
 }
 
 fn is_possessive(chars: &[char], at: usize) -> bool {
-    matches!(chars.get(at), Some('\'' | '’')) && chars.get(at + 1) == Some(&'s') && chars.get(at + 2).is_none_or(|c| !c.is_alphanumeric())
+    matches!(chars.get(at), Some('\'' | '’'))
+        && chars.get(at + 1) == Some(&'s')
+        && chars.get(at + 2).is_none_or(|c| !c.is_alphanumeric())
 }
 
 /// The note a `[[link]]` under the cursor points at, by file name or title.
@@ -140,7 +166,11 @@ pub fn link_at(line: &str, cursor: usize, entries: &[Entry]) -> Option<usize> {
     let target = rest[..close].split(['|', '#']).next()?.trim();
     let target_stem = target.rsplit('/').next().unwrap_or(target);
     entries.iter().position(|e| {
-        let stem = e.note.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+        let stem = e
+            .note
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_default();
         stem == target_stem || e.title == target_stem || e.names.iter().any(|n| n == target_stem)
     })
 }
@@ -164,7 +194,13 @@ pub fn appearances(p: &Project, parents: &[Option<usize>], entry: &Entry) -> Vec
     out
 }
 
-fn walk(p: &Project, parents: &[Option<usize>], idx: usize, one: &[Entry], out: &mut Vec<Appearance>) {
+fn walk(
+    p: &Project,
+    parents: &[Option<usize>],
+    idx: usize,
+    one: &[Entry],
+    out: &mut Vec<Appearance>,
+) {
     let n = &p.nodes[idx];
     if p.in_trash(idx) || !n.in_manuscript {
         return;
@@ -172,7 +208,11 @@ fn walk(p: &Project, parents: &[Option<usize>], idx: usize, one: &[Entry], out: 
     if n.kind == Kind::Scene {
         let count: usize = n.body.split('\n').map(|l| spans(l, one).len()).sum();
         if count > 0 {
-            out.push(Appearance { scene: n.path.clone(), place: search::place_of(p, parents, idx), count });
+            out.push(Appearance {
+                scene: n.path.clone(),
+                place: search::place_of(p, parents, idx),
+                count,
+            });
         }
     }
     for &c in &n.children {
@@ -187,22 +227,42 @@ mod tests {
 
     #[test]
     fn aliases_read_both_ways_obsidian_writes_them() {
-        assert_eq!(aliases("title: Kaelen\naliases: [Kae, \"the Ferryman\"]\n"), ["Kae", "the Ferryman"]);
-        assert_eq!(aliases("aliases:\n  - Kae\n  - the Ferryman\nstatus: x\n"), ["Kae", "the Ferryman"]);
+        assert_eq!(
+            aliases("title: Kaelen\naliases: [Kae, \"the Ferryman\"]\n"),
+            ["Kae", "the Ferryman"]
+        );
+        assert_eq!(
+            aliases("aliases:\n  - Kae\n  - the Ferryman\nstatus: x\n"),
+            ["Kae", "the Ferryman"]
+        );
         assert!(aliases("title: Kaelen\n").is_empty());
     }
 
     fn entry(title: &str, names: &[&str]) -> Entry {
-        Entry { note: PathBuf::from(format!("{title}.md")), title: title.into(), section: "Characters".into(), names: names.iter().map(|s| s.to_string()).collect() }
+        Entry {
+            note: PathBuf::from(format!("{title}.md")),
+            title: title.into(),
+            section: "Characters".into(),
+            names: names.iter().map(|s| s.to_string()).collect(),
+        }
     }
 
     #[test]
     fn names_match_whole_words_longest_first_and_keep_their_possessive_out() {
-        let e = vec![entry("Kaelen Voss", &["Kaelen Voss", "Kaelen"]), entry("Wren", &["Wren"])];
+        let e = vec![
+            entry("Kaelen Voss", &["Kaelen Voss", "Kaelen"]),
+            entry("Wren", &["Wren"]),
+        ];
         let line = "Kaelen Voss nodded. Kaelen's hand, then Wren. Wrenna laughed.";
         let found = spans(line, &e);
         let text = |s: usize, e: usize| line.chars().skip(s).take(e - s).collect::<String>();
-        assert_eq!(found.iter().map(|&(s, e, _)| text(s, e)).collect::<Vec<_>>(), ["Kaelen Voss", "Kaelen", "Wren"]);
+        assert_eq!(
+            found
+                .iter()
+                .map(|&(s, e, _)| text(s, e))
+                .collect::<Vec<_>>(),
+            ["Kaelen Voss", "Kaelen", "Wren"]
+        );
         assert_eq!(found[1].2, 0);
         assert_eq!(found[2].2, 1);
     }
@@ -224,19 +284,43 @@ mod tests {
         fs::create_dir_all(d.join("manuscript/01-Act-One/01-Chapter-One")).unwrap();
         fs::create_dir_all(d.join("notes/01-Characters")).unwrap();
         fs::create_dir_all(d.join("notes/03-Regions")).unwrap();
-        fs::write(d.join("manuscript/01-Act-One/01-Chapter-One/01-Gravel.md"), "Kae waited. Kaelen Voss came.\nKaelen left.\n").unwrap();
-        fs::write(d.join("manuscript/01-Act-One/01-Chapter-One/02-Tide.md"), "Nobody here.\n").unwrap();
-        fs::write(d.join("notes/01-Characters/01-Kaelen-Voss.md"), "---\ntitle: Kaelen Voss\naliases: [Kae]\n---\n\nGrey eyes.\n").unwrap();
-        fs::write(d.join("notes/03-Regions/01-Ashen-Reach.md"), "---\ntitle: Ashen Reach\n---\n\nAsh.\n").unwrap();
+        fs::write(
+            d.join("manuscript/01-Act-One/01-Chapter-One/01-Gravel.md"),
+            "Kae waited. Kaelen Voss came.\nKaelen left.\n",
+        )
+        .unwrap();
+        fs::write(
+            d.join("manuscript/01-Act-One/01-Chapter-One/02-Tide.md"),
+            "Nobody here.\n",
+        )
+        .unwrap();
+        fs::write(
+            d.join("notes/01-Characters/01-Kaelen-Voss.md"),
+            "---\ntitle: Kaelen Voss\naliases: [Kae]\n---\n\nGrey eyes.\n",
+        )
+        .unwrap();
+        fs::write(
+            d.join("notes/03-Regions/01-Ashen-Reach.md"),
+            "---\ntitle: Ashen Reach\n---\n\nAsh.\n",
+        )
+        .unwrap();
         let p = Project::load(&d).unwrap();
         let parents = p.parents();
         let ordinary = |w: &str| matches!(w, "ashen" | "reach");
         let idx = index(&p, &parents, &ordinary);
         let kaelen = idx.iter().find(|e| e.title == "Kaelen Voss").unwrap();
-        assert_eq!(kaelen.names, ["Kaelen Voss", "Kaelen", "Voss", "Kae"], "a surname on its own means them too");
+        assert_eq!(
+            kaelen.names,
+            ["Kaelen Voss", "Kaelen", "Voss", "Kae"],
+            "a surname on its own means them too"
+        );
         assert_eq!(kaelen.section, "Characters");
         let reach = idx.iter().find(|e| e.title == "Ashen Reach").unwrap();
-        assert_eq!(reach.names, ["Ashen Reach"], "ordinary words aren't names on their own");
+        assert_eq!(
+            reach.names,
+            ["Ashen Reach"],
+            "ordinary words aren't names on their own"
+        );
         let seen = appearances(&p, &parents, kaelen);
         assert_eq!(seen.len(), 1);
         assert_eq!(seen[0].count, 3);

@@ -29,8 +29,18 @@ pub struct Theme {
 
 /// Field order for the custom editor and for (de)serialisation.
 pub const ROLES: [&str; 12] = [
-    "accent", "text", "dim", "border", "selection", "warning", "sun", "moon", "foliage", "bark",
-    "bloom", "turf",
+    "accent",
+    "text",
+    "dim",
+    "border",
+    "selection",
+    "warning",
+    "sun",
+    "moon",
+    "foliage",
+    "bark",
+    "bloom",
+    "turf",
 ];
 
 impl Theme {
@@ -118,28 +128,73 @@ macro_rules! theme {
 pub fn presets() -> Vec<Theme> {
     let mut v = vec![
         //       accent    text      dim       border    sel       warn      sun       moon      foliage   bark      bloom     turf
-        ("Grimoire",
-         theme!("", 0xd6ad60, 0xdedcd4, 0x6c6c7a, 0x464654, 0x30303c, 0xc87864, 0xe8b65c, 0xacb6d4, 0x5c7860, 0x705c48, 0xc68a9e, 0x465242)),
-        ("Gruvbox Dark",
-         theme!("", 0xd79921, 0xebdbb2, 0x928374, 0x504945, 0x3c3836, 0xcc241d, 0xfabd2f, 0x83a598, 0x98971a, 0xa87c4f, 0xd3869b, 0x4f5340)),
-        ("Nord",
-         theme!("", 0x88c0d0, 0xd8dee9, 0x616e88, 0x3b4252, 0x434c5e, 0xbf616a, 0xebcb8b, 0x81a1c1, 0xa3be8c, 0x8a7660, 0xb48ead, 0x4a5a4a)),
-        ("Dracula",
-         theme!("", 0xbd93f9, 0xf8f8f2, 0x6272a4, 0x44475a, 0x44475a, 0xff5555, 0xf1fa8c, 0x8be9fd, 0x50fa7b, 0x9b6a4a, 0xff79c6, 0x3d5a45)),
-        ("Solarized Dark",
-         theme!("", 0xb58900, 0x93a1a1, 0x586e75, 0x0b3c47, 0x073642, 0xdc322f, 0xcb9b00, 0x268bd2, 0x859900, 0x9c6a3c, 0xd33682, 0x445b3a)),
-        ("Catppuccin Mocha",
-         theme!("", 0xcba6f7, 0xcdd6f4, 0x7f849c, 0x313244, 0x45475a, 0xf38ba8, 0xf9e2af, 0x89b4fa, 0xa6e3a1, 0xb08968, 0xf5c2e7, 0x4c6b52)),
-        ("Tokyo Night",
-         theme!("", 0x7aa2f7, 0xc0caf5, 0x565f89, 0x292e42, 0x33467c, 0xf7768e, 0xe0af68, 0x7dcfff, 0x9ece6a, 0xa07a52, 0xbb9af7, 0x445a3c)),
-        ("Everforest",
-         theme!("", 0xdbbc7f, 0xd3c6aa, 0x859289, 0x3d484d, 0x475258, 0xe67e80, 0xe69875, 0x7fbbb3, 0xa7c080, 0x9c7a5c, 0xd699b6, 0x4a5a48)),
+        (
+            "Grimoire",
+            theme!(
+                "", 0xd6ad60, 0xdedcd4, 0x6c6c7a, 0x464654, 0x30303c, 0xc87864, 0xe8b65c, 0xacb6d4,
+                0x5c7860, 0x705c48, 0xc68a9e, 0x465242
+            ),
+        ),
+        (
+            "Gruvbox Dark",
+            theme!(
+                "", 0xd79921, 0xebdbb2, 0x928374, 0x504945, 0x3c3836, 0xcc241d, 0xfabd2f, 0x83a598,
+                0x98971a, 0xa87c4f, 0xd3869b, 0x4f5340
+            ),
+        ),
+        (
+            "Nord",
+            theme!(
+                "", 0x88c0d0, 0xd8dee9, 0x616e88, 0x3b4252, 0x434c5e, 0xbf616a, 0xebcb8b, 0x81a1c1,
+                0xa3be8c, 0x8a7660, 0xb48ead, 0x4a5a4a
+            ),
+        ),
+        (
+            "Dracula",
+            theme!(
+                "", 0xbd93f9, 0xf8f8f2, 0x6272a4, 0x44475a, 0x44475a, 0xff5555, 0xf1fa8c, 0x8be9fd,
+                0x50fa7b, 0x9b6a4a, 0xff79c6, 0x3d5a45
+            ),
+        ),
+        (
+            "Solarized Dark",
+            theme!(
+                "", 0xb58900, 0x93a1a1, 0x586e75, 0x0b3c47, 0x073642, 0xdc322f, 0xcb9b00, 0x268bd2,
+                0x859900, 0x9c6a3c, 0xd33682, 0x445b3a
+            ),
+        ),
+        (
+            "Catppuccin Mocha",
+            theme!(
+                "", 0xcba6f7, 0xcdd6f4, 0x7f849c, 0x313244, 0x45475a, 0xf38ba8, 0xf9e2af, 0x89b4fa,
+                0xa6e3a1, 0xb08968, 0xf5c2e7, 0x4c6b52
+            ),
+        ),
+        (
+            "Tokyo Night",
+            theme!(
+                "", 0x7aa2f7, 0xc0caf5, 0x565f89, 0x292e42, 0x33467c, 0xf7768e, 0xe0af68, 0x7dcfff,
+                0x9ece6a, 0xa07a52, 0xbb9af7, 0x445a3c
+            ),
+        ),
+        (
+            "Everforest",
+            theme!(
+                "", 0xdbbc7f, 0xd3c6aa, 0x859289, 0x3d484d, 0x475258, 0xe67e80, 0xe69875, 0x7fbbb3,
+                0xa7c080, 0x9c7a5c, 0xd699b6, 0x4a5a48
+            ),
+        ),
         // Deep woods. `accent` drives focused borders, titles, the open-scene
         // marker and the progress bar, so it has to be green or the whole
         // interface reads as whatever colour it is. Cyan is kept for the two
         // places it stays rare — the break-time moon and the flowers.
-        ("Lost Forest",
-         theme!("", 0x7cc47f, 0xcdddc6, 0x5f7a63, 0x24332a, 0x2e4436, 0xd1745e, 0xd9c87e, 0x7fd4c8, 0x4a8250, 0x5f4c3a, 0x68c2b4, 0x2f4a37)),
+        (
+            "Lost Forest",
+            theme!(
+                "", 0x7cc47f, 0xcdddc6, 0x5f7a63, 0x24332a, 0x2e4436, 0xd1745e, 0xd9c87e, 0x7fd4c8,
+                0x4a8250, 0x5f4c3a, 0x68c2b4, 0x2f4a37
+            ),
+        ),
     ];
     v.iter_mut().for_each(|(n, t)| t.name = (*n).to_string());
     v.into_iter().map(|(_, t)| t).collect()
@@ -150,7 +205,10 @@ pub fn default_theme() -> Theme {
 }
 
 pub fn config_path() -> PathBuf {
-    crate::home().join(".config").join("grimoire").join("theme.toml")
+    crate::home()
+        .join(".config")
+        .join("grimoire")
+        .join("theme.toml")
 }
 
 /// Load the saved theme. A named preset is looked up fresh so preset tweaks

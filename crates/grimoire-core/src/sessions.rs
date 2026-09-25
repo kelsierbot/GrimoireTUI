@@ -177,7 +177,10 @@ pub fn has_remote(root: &Path) -> bool {
 /// Whether anything a session is about — scenes, notes, the book's settings —
 /// has changed since the last one, as opposed to only resume.md.
 pub fn has_writing(root: &Path) -> bool {
-    pending_label(root, Local::now()).ok().flatten().is_some_and(|l| l.contains(" · "))
+    pending_label(root, Local::now())
+        .ok()
+        .flatten()
+        .is_some_and(|l| l.contains(" · "))
 }
 
 /// One saved session.
@@ -234,11 +237,28 @@ pub struct Change {
 pub fn changes(root: &Path, hash: &str) -> Result<Vec<Change>> {
     require_repo(root)?;
     let commit = resolve_commit(root, hash)?;
-    let base = match git(root, ["rev-parse", "--verify", "-q", &format!("{commit}^1")]).lookup()? {
+    let base = match git(
+        root,
+        ["rev-parse", "--verify", "-q", &format!("{commit}^1")],
+    )
+    .lookup()?
+    {
         Some(parent) => parent,
         None => empty_tree(root)?,
     };
-    let raw = git(root, ["diff-tree", "-r", "-M", "-z", "--name-status", &base, &commit]).stdout()?;
+    let raw = git(
+        root,
+        [
+            "diff-tree",
+            "-r",
+            "-M",
+            "-z",
+            "--name-status",
+            &base,
+            &commit,
+        ],
+    )
+    .stdout()?;
     let entries: Vec<Entry> = parse_name_status(&raw)
         .into_iter()
         .filter(|e| is_writing(&e.path) || e.from.as_deref().is_some_and(is_writing))
@@ -254,12 +274,25 @@ pub fn changes(root: &Path, hash: &str) -> Result<Vec<Change>> {
         }
     }
     let mut blobs = cat_blobs(root, &specs, None)?.into_iter();
-    let mut words = || blobs.next().flatten().map_or(0, |b| body_words(&String::from_utf8_lossy(&b)));
+    let mut words = || {
+        blobs
+            .next()
+            .flatten()
+            .map_or(0, |b| body_words(&String::from_utf8_lossy(&b)))
+    };
 
     let mut out = Vec::with_capacity(entries.len());
     for e in entries {
-        let words_before = if e.status == Status::Added { 0 } else { words() };
-        let words_after = if e.status == Status::Deleted { 0 } else { words() };
+        let words_before = if e.status == Status::Added {
+            0
+        } else {
+            words()
+        };
+        let words_after = if e.status == Status::Deleted {
+            0
+        } else {
+            words()
+        };
         let kind = match e.status {
             Status::Added => ChangeKind::Added,
             Status::Deleted => ChangeKind::Deleted,
@@ -268,7 +301,12 @@ pub fn changes(root: &Path, hash: &str) -> Result<Vec<Change>> {
                 from: native_path(e.from.as_deref().unwrap_or_default()),
             },
         };
-        out.push(Change { path: native_path(&e.path), kind, words_before, words_after });
+        out.push(Change {
+            path: native_path(&e.path),
+            kind,
+            words_before,
+            words_after,
+        });
     }
     Ok(out)
 }
@@ -378,7 +416,9 @@ fn require_repo(root: &Path) -> Result<()> {
 
 /// A config value, or `None` when it isn't set (or is empty).
 fn config(root: &Path, key: &str) -> Result<Option<String>> {
-    Ok(git(root, ["config", "--get", key]).lookup()?.filter(|v| !v.is_empty()))
+    Ok(git(root, ["config", "--get", key])
+        .lookup()?
+        .filter(|v| !v.is_empty()))
 }
 
 fn head_commit(root: &Path) -> Result<Option<String>> {
@@ -387,7 +427,9 @@ fn head_commit(root: &Path) -> Result<Option<String>> {
 
 /// The id of the empty tree in this repository's hash (SHA-1 or SHA-256).
 fn empty_tree(root: &Path) -> Result<String> {
-    git(root, ["hash-object", "-t", "tree", "--stdin"]).input(Vec::new()).text()
+    git(root, ["hash-object", "-t", "tree", "--stdin"])
+        .input(Vec::new())
+        .text()
 }
 
 fn resolve_commit(root: &Path, hash: &str) -> Result<String> {
@@ -395,13 +437,19 @@ fn resolve_commit(root: &Path, hash: &str) -> Result<String> {
     if hash.is_empty() || hash.starts_with('-') || hash.contains(char::is_whitespace) {
         bail!("{hash:?} isn't a session");
     }
-    git(root, ["rev-parse", "--verify", "-q", &format!("{hash}^{{commit}}")])
-        .lookup()?
-        .ok_or_else(|| anyhow!("no session {hash} in this book's history"))
+    git(
+        root,
+        ["rev-parse", "--verify", "-q", &format!("{hash}^{{commit}}")],
+    )
+    .lookup()?
+    .ok_or_else(|| anyhow!("no session {hash} in this book's history"))
 }
 
 fn stage_all(root: &Path, index: Option<&Path>) -> Result<()> {
-    git(root, ["add", "-A", "--", "."]).index(index).stdout().map(drop)
+    git(root, ["add", "-A", "--", "."])
+        .index(index)
+        .stdout()
+        .map(drop)
 }
 
 /// Commit what's staged. A name and email are supplied only for whichever of
@@ -458,9 +506,12 @@ fn staged_tally(root: &Path, index: Option<&Path>) -> Result<Option<Tally>> {
         Some(h) => h.clone(),
         None => empty_tree(root)?,
     };
-    let raw = git(root, ["diff-index", "--cached", "-M", "-z", "--name-status", &base])
-        .index(index)
-        .stdout()?;
+    let raw = git(
+        root,
+        ["diff-index", "--cached", "-M", "-z", "--name-status", &base],
+    )
+    .index(index)
+    .stdout()?;
     let entries = parse_name_status(&raw);
     if entries.is_empty() {
         return Ok(None);
@@ -508,13 +559,22 @@ fn cat_blobs(root: &Path, specs: &[String], index: Option<&Path>) -> Result<Vec<
             input.extend_from_slice(s.as_bytes());
             input.push(b'\n');
         }
-        let raw = git(root, ["cat-file", "--batch"]).index(index).input(input).stdout()?;
+        let raw = git(root, ["cat-file", "--batch"])
+            .index(index)
+            .input(input)
+            .stdout()?;
         parse_batch(&raw, sendable.len())
     }
     .into_iter();
     Ok(specs
         .iter()
-        .map(|s| if s.contains(['\n', '\r']) { None } else { found.next().flatten() })
+        .map(|s| {
+            if s.contains(['\n', '\r']) {
+                None
+            } else {
+                found.next().flatten()
+            }
+        })
         .collect())
 }
 
@@ -522,7 +582,11 @@ fn part_noun(root: &Path) -> String {
     fs::read_to_string(root.join("novel.toml"))
         .ok()
         .and_then(|s| toml::from_str::<toml::Table>(&s).ok())
-        .and_then(|t| t.get("part_label")?.as_str().map(|s| s.trim().to_lowercase()))
+        .and_then(|t| {
+            t.get("part_label")?
+                .as_str()
+                .map(|s| s.trim().to_lowercase())
+        })
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "page".into())
 }
@@ -549,7 +613,11 @@ fn ensure_gitignore(root: &Path) -> Result<()> {
 /// `.grimoire/` line (which git can't carve an exception out of) becomes the
 /// pair in place; every other line is kept as it was.
 fn gitignore_keeping_resume(existing: &str) -> String {
-    let nl = if existing.contains("\r\n") { "\r\n" } else { "\n" };
+    let nl = if existing.contains("\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    };
     let mut lines: Vec<String> = Vec::new();
     let mut last_star: Option<usize> = None;
     let mut kept = false;
@@ -584,7 +652,10 @@ fn gitignore_keeping_resume(existing: &str) -> String {
     }
     // Exports are made from the manuscript on demand; history keeps the
     // manuscript, not copies of it.
-    if !lines.iter().any(|l| matches!(l.trim(), "exports" | "exports/" | "/exports" | "/exports/")) {
+    if !lines
+        .iter()
+        .any(|l| matches!(l.trim(), "exports" | "exports/" | "/exports" | "/exports/"))
+    {
         lines.push(IGNORE_EXPORTS.into());
     }
     let mut out = lines.join(nl);
@@ -612,7 +683,8 @@ impl Tally {
     fn note_place(&mut self, path: &str) {
         if let Some(rest) = path.strip_prefix("manuscript/") {
             if is_scene(path) {
-                self.acts.insert(rest.split('/').next().unwrap_or(rest).to_string());
+                self.acts
+                    .insert(rest.split('/').next().unwrap_or(rest).to_string());
             }
         } else if NOTEBOOK.iter().any(|d| path.starts_with(d)) {
             self.notes = true;
@@ -632,7 +704,10 @@ fn label(when: NaiveDateTime, tally: &Tally, part_noun: &str) -> String {
         });
         parts.push(match tally.words_after.cmp(&tally.words_before) {
             Ordering::Greater => words(tally.words_after - tally.words_before),
-            Ordering::Less => format!("revised, {} cut", words(tally.words_before - tally.words_after)),
+            Ordering::Less => format!(
+                "revised, {} cut",
+                words(tally.words_before - tally.words_after)
+            ),
             Ordering::Equal => "revised".into(),
         });
     } else if tally.notes {
@@ -677,7 +752,10 @@ fn thousands(n: usize) -> String {
 /// Windows checkout and the stored copy of the same scene count the same.
 fn body_words(raw: &str) -> usize {
     let s = raw.strip_prefix('\u{feff}').unwrap_or(raw);
-    let body = match s.strip_prefix("---\n").or_else(|| s.strip_prefix("---\r\n")) {
+    let body = match s
+        .strip_prefix("---\n")
+        .or_else(|| s.strip_prefix("---\r\n"))
+    {
         Some(rest) => {
             let mut offset = 0;
             let mut body = s; // an unclosed block isn't frontmatter
@@ -723,8 +801,12 @@ fn display_title(name: &str) -> String {
 
 /// "Twenty Seven" -> "Twenty-Seven", as in `project.rs`.
 fn rejoin_numbers(words: &[String]) -> String {
-    const TENS: [&str; 8] = ["twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"];
-    const UNITS: [&str; 9] = ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
+    const TENS: [&str; 8] = [
+        "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety",
+    ];
+    const UNITS: [&str; 9] = [
+        "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
+    ];
     let mut out: Vec<String> = Vec::with_capacity(words.len());
     let mut i = 0;
     while i < words.len() {
@@ -758,7 +840,8 @@ fn is_scene(path: &str) -> bool {
 
 /// A scene or a note.
 fn is_writing(path: &str) -> bool {
-    (path.starts_with("manuscript/") || NOTEBOOK.iter().any(|d| path.starts_with(d))) && path.ends_with(".md")
+    (path.starts_with("manuscript/") || NOTEBOOK.iter().any(|d| path.starts_with(d)))
+        && path.ends_with(".md")
 }
 
 /// git's `a/b/c.md` as a path for this platform.
@@ -808,17 +891,31 @@ impl Entry {
 
 /// `--name-status -z`: `M\0path\0`, `R087\0old\0new\0`.
 fn parse_name_status(raw: &[u8]) -> Vec<Entry> {
-    let mut fields = raw.split(|b| *b == 0).map(|f| String::from_utf8_lossy(f).into_owned());
+    let mut fields = raw
+        .split(|b| *b == 0)
+        .map(|f| String::from_utf8_lossy(f).into_owned());
     let mut out = Vec::new();
     while let Some(code) = fields.next() {
-        let Some(letter) = code.chars().next() else { continue };
+        let Some(letter) = code.chars().next() else {
+            continue;
+        };
         let entry = match letter {
             'R' | 'C' => {
-                let (Some(from), Some(path)) = (fields.next(), fields.next()) else { break };
+                let (Some(from), Some(path)) = (fields.next(), fields.next()) else {
+                    break;
+                };
                 if letter == 'R' {
-                    Entry { status: Status::Renamed, path, from: Some(from) }
+                    Entry {
+                        status: Status::Renamed,
+                        path,
+                        from: Some(from),
+                    }
                 } else {
-                    Entry { status: Status::Added, path, from: None }
+                    Entry {
+                        status: Status::Added,
+                        path,
+                        from: None,
+                    }
                 }
             }
             _ => {
@@ -828,7 +925,11 @@ fn parse_name_status(raw: &[u8]) -> Vec<Entry> {
                     'D' => Status::Deleted,
                     _ => Status::Modified,
                 };
-                Entry { status, path, from: None }
+                Entry {
+                    status,
+                    path,
+                    from: None,
+                }
             }
         };
         out.push(entry);
@@ -842,7 +943,9 @@ fn parse_batch(raw: &[u8], count: usize) -> Vec<Option<Vec<u8>>> {
     let mut out = Vec::with_capacity(count);
     let mut pos = 0;
     while out.len() < count && pos < raw.len() {
-        let Some(nl) = raw[pos..].iter().position(|b| *b == b'\n') else { break };
+        let Some(nl) = raw[pos..].iter().position(|b| *b == b'\n') else {
+            break;
+        };
         let header = String::from_utf8_lossy(&raw[pos..pos + nl]).into_owned();
         pos += nl + 1;
         let mut fields = header.rsplitn(3, ' ');
@@ -878,8 +981,15 @@ fn parse_log(raw: &[u8]) -> Vec<Session> {
 
 /// git's reason for failing, in one line.
 fn summary(stderr: &str) -> String {
-    let lines: Vec<&str> = stderr.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
-    if let Some(l) = lines.iter().find(|l| l.contains("[rejected]") || l.contains("[remote rejected]")) {
+    let lines: Vec<&str> = stderr
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect();
+    if let Some(l) = lines
+        .iter()
+        .find(|l| l.contains("[rejected]") || l.contains("[remote rejected]"))
+    {
         return (*l).to_string();
     }
     for prefix in ["fatal: ", "error: "] {
@@ -887,7 +997,9 @@ fn summary(stderr: &str) -> String {
             return l.to_string();
         }
     }
-    lines.last().map_or_else(|| "git gave no reason".into(), |l| (*l).to_string())
+    lines
+        .last()
+        .map_or_else(|| "git gave no reason".into(), |l| (*l).to_string())
 }
 
 // ---------------------------------------------------------------------------
@@ -1018,7 +1130,9 @@ impl Git {
     fn lookup(self) -> Result<Option<String>> {
         let what = self.subcommand();
         let out = self.run().map_err(|f| anyhow!(f.describe(&what)))?;
-        Ok(out.success.then(|| String::from_utf8_lossy(&out.stdout).trim().to_string()))
+        Ok(out
+            .success
+            .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string()))
     }
 
     fn run(self) -> Result<Output, Failure> {
@@ -1033,7 +1147,11 @@ impl Git {
         let mut cmd = Command::new(git_program());
         cmd.args(&self.args)
             .current_dir(&self.dir)
-            .stdin(if self.input.is_some() { Stdio::piped() } else { Stdio::null() })
+            .stdin(if self.input.is_some() {
+                Stdio::piped()
+            } else {
+                Stdio::null()
+            })
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         for key in FOREIGN_REPO_ENV {
@@ -1089,9 +1207,9 @@ impl Git {
                 let _ = rx.recv_timeout(Duration::from_secs(2));
                 Err(Failure::TimedOut(self.timeout))
             }
-            Err(RecvTimeoutError::Disconnected) => {
-                Err(Failure::Io(io::Error::other("lost track of the git process")))
-            }
+            Err(RecvTimeoutError::Disconnected) => Err(Failure::Io(io::Error::other(
+                "lost track of the git process",
+            ))),
         }
     }
 }
@@ -1138,17 +1256,28 @@ mod tests {
         static CONFIG: OnceLock<PathBuf> = OnceLock::new();
         let path = CONFIG.get_or_init(|| {
             let p = std::env::temp_dir().join("grimoire-sessions-test.gitconfig");
-            let _ = fs::write(&p, "[core]\n\texcludesFile = grimoire-test-no-global-ignore\n");
+            let _ = fs::write(
+                &p,
+                "[core]\n\texcludesFile = grimoire-test-no-global-ignore\n",
+            );
             p
         });
-        cmd.env("GIT_CONFIG_GLOBAL", path).env("GIT_CONFIG_NOSYSTEM", "1");
-        for key in ["GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL", "EMAIL"] {
+        cmd.env("GIT_CONFIG_GLOBAL", path)
+            .env("GIT_CONFIG_NOSYSTEM", "1");
+        for key in [
+            "GIT_AUTHOR_NAME",
+            "GIT_AUTHOR_EMAIL",
+            "GIT_COMMITTER_NAME",
+            "GIT_COMMITTER_EMAIL",
+            "EMAIL",
+        ] {
             cmd.env_remove(key);
         }
     }
 
     fn temp_dir(tag: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("grimoire-sessions-{tag}-{}", std::process::id()));
+        let d =
+            std::env::temp_dir().join(format!("grimoire-sessions-{tag}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&d);
         fs::create_dir_all(&d).unwrap();
         d
@@ -1168,11 +1297,17 @@ mod tests {
 
     /// A scene file: frontmatter the word counts must ignore, then the prose.
     fn scene(words: usize) -> String {
-        format!("---\ntitle: \"A Scene\"\npov: Wren\nstatus: draft\n---\n\n{}\n", prose(words))
+        format!(
+            "---\ntitle: \"A Scene\"\npov: Wren\nstatus: draft\n---\n\n{}\n",
+            prose(words)
+        )
     }
 
     fn prose(words: usize) -> String {
-        (0..words).map(|i| format!("w{i}")).collect::<Vec<_>>().join(" ")
+        (0..words)
+            .map(|i| format!("w{i}"))
+            .collect::<Vec<_>>()
+            .join(" ")
     }
 
     const A1: &str = "manuscript/01-Act-One/01-Chapter-One/01-Scene-One.md";
@@ -1216,12 +1351,18 @@ mod tests {
     /// A fixed local time; the label reads the wall clock, so no time zone
     /// can change what these tests expect.
     fn at(month: u32, day: u32, hour: u32, minute: u32) -> DateTime<Local> {
-        let naive = NaiveDate::from_ymd_opt(2026, month, day).unwrap().and_hms_opt(hour, minute, 0).unwrap();
+        let naive = NaiveDate::from_ymd_opt(2026, month, day)
+            .unwrap()
+            .and_hms_opt(hour, minute, 0)
+            .unwrap();
         Local.from_local_datetime(&naive).earliest().unwrap()
     }
 
     fn naive(day: u32, hour: u32, minute: u32) -> NaiveDateTime {
-        NaiveDate::from_ymd_opt(2026, 9, day).unwrap().and_hms_opt(hour, minute, 0).unwrap()
+        NaiveDate::from_ymd_opt(2026, 9, day)
+            .unwrap()
+            .and_hms_opt(hour, minute, 0)
+            .unwrap()
     }
 
     /// Tuesday 15 September 2026, 7:30 p.m.
@@ -1234,7 +1375,10 @@ mod tests {
     }
 
     fn committed_files(root: &Path) -> Vec<String> {
-        run(root, &["ls-tree", "-r", "--name-only", "HEAD"]).lines().map(String::from).collect()
+        run(root, &["ls-tree", "-r", "--name-only", "HEAD"])
+            .lines()
+            .map(String::from)
+            .collect()
     }
 
     fn tally(acts: &[&str], notes: bool, before: usize, after: usize) -> Tally {
@@ -1250,7 +1394,10 @@ mod tests {
 
     #[test]
     fn parts_of_the_day_turn_over_on_the_hour() {
-        assert_eq!(NaiveDate::from_ymd_opt(2026, 9, 15).unwrap().weekday(), Weekday::Tue);
+        assert_eq!(
+            NaiveDate::from_ymd_opt(2026, 9, 15).unwrap().weekday(),
+            Weekday::Tue
+        );
         let cases = [
             (naive(15, 5, 0), "Tuesday morning"),
             (naive(15, 11, 59), "Tuesday morning"),
@@ -1303,17 +1450,47 @@ mod tests {
             label(eve, &tally(&["02-Act-Two"], false, 500, 500), "act"),
             "Tuesday evening · Act Two · revised"
         );
-        assert_eq!(label(eve, &tally(&[], true, 0, 0), "act"), "Tuesday evening · notes");
         assert_eq!(
-            label(naive(15, 9, 0), &tally(&["01-Act-One", "02-Act-Two"], true, 10, 60), "act"),
+            label(eve, &tally(&[], true, 0, 0), "act"),
+            "Tuesday evening · notes"
+        );
+        assert_eq!(
+            label(
+                naive(15, 9, 0),
+                &tally(&["01-Act-One", "02-Act-Two"], true, 10, 60),
+                "act"
+            ),
             "Tuesday morning · Act One and Act Two · 50 words"
         );
         assert_eq!(
-            label(eve, &tally(&["01-Act-One", "02-Act-Two", "03-Act-Three"], false, 10, 1010), "act"),
+            label(
+                eve,
+                &tally(
+                    &["01-Act-One", "02-Act-Two", "03-Act-Three"],
+                    false,
+                    10,
+                    1010
+                ),
+                "act"
+            ),
             "Tuesday evening · 3 acts · 1,000 words"
         );
         assert_eq!(
-            label(eve, &tally(&["01-part-one", "02-part-two", "03-part-three", "04-part-four"], false, 9, 1), "part"),
+            label(
+                eve,
+                &tally(
+                    &[
+                        "01-part-one",
+                        "02-part-two",
+                        "03-part-three",
+                        "04-part-four"
+                    ],
+                    false,
+                    9,
+                    1
+                ),
+                "part"
+            ),
             "Tuesday evening · 4 parts · revised, 8 words cut"
         );
         // A scene straight under manuscript/ stands for itself.
@@ -1322,17 +1499,30 @@ mod tests {
             "Tuesday evening · Prologue · 200 words"
         );
         assert_eq!(
-            label(eve, &tally(&["27-Chapter-Twenty-Seven"], false, 0, 2), "act"),
+            label(
+                eve,
+                &tally(&["27-Chapter-Twenty-Seven"], false, 0, 2),
+                "act"
+            ),
             "Tuesday evening · Chapter Twenty-Seven · 2 words"
         );
         // Nothing a writer would call writing: just when.
-        assert_eq!(label(eve, &tally(&[], false, 0, 0), "act"), "Tuesday evening");
+        assert_eq!(
+            label(eve, &tally(&[], false, 0, 0), "act"),
+            "Tuesday evening"
+        );
     }
 
     #[test]
     fn frontmatter_is_not_words() {
-        assert_eq!(body_words("---\ntitle: \"Three Word Title\"\npov: Wren\n---\n\nOne two three.\n"), 3);
-        assert_eq!(body_words("---\r\ntitle: \"Three Word Title\"\r\n---\r\n\r\nOne two three.\r\n"), 3);
+        assert_eq!(
+            body_words("---\ntitle: \"Three Word Title\"\npov: Wren\n---\n\nOne two three.\n"),
+            3
+        );
+        assert_eq!(
+            body_words("---\r\ntitle: \"Three Word Title\"\r\n---\r\n\r\nOne two three.\r\n"),
+            3
+        );
         assert_eq!(body_words("\u{feff}---\ntitle: x\n---\nOne two\n"), 2);
         assert_eq!(body_words("No frontmatter here at all\n"), 5);
         // An unclosed block is prose, as the tree treats it.
@@ -1342,13 +1532,22 @@ mod tests {
 
     #[test]
     fn a_bare_grimoire_line_becomes_the_pair_and_everything_else_stays() {
-        assert_eq!(gitignore_keeping_resume(".grimoire/\n"), ".grimoire/*\n!.grimoire/resume.md\nexports/\n");
+        assert_eq!(
+            gitignore_keeping_resume(".grimoire/\n"),
+            ".grimoire/*\n!.grimoire/resume.md\nexports/\n"
+        );
         assert_eq!(
             gitignore_keeping_resume("# mine\n*.docx\n.grimoire/\n.DS_Store\n"),
             "# mine\n*.docx\n.grimoire/*\n!.grimoire/resume.md\n.DS_Store\nexports/\n"
         );
-        assert_eq!(gitignore_keeping_resume(""), ".grimoire/*\n!.grimoire/resume.md\nexports/\n");
-        assert_eq!(gitignore_keeping_resume("*.pdf"), "*.pdf\n.grimoire/*\n!.grimoire/resume.md\nexports/\n");
+        assert_eq!(
+            gitignore_keeping_resume(""),
+            ".grimoire/*\n!.grimoire/resume.md\nexports/\n"
+        );
+        assert_eq!(
+            gitignore_keeping_resume("*.pdf"),
+            "*.pdf\n.grimoire/*\n!.grimoire/resume.md\nexports/\n"
+        );
         assert_eq!(
             gitignore_keeping_resume(".grimoire/*\n*.pdf\n"),
             ".grimoire/*\n!.grimoire/resume.md\n*.pdf\nexports/\n"
@@ -1362,12 +1561,17 @@ mod tests {
             "*.pdf\r\n.grimoire/*\r\n!.grimoire/resume.md\r\nexports/\r\n"
         );
         let done = ".grimoire/*\n!.grimoire/resume.md\nexports/\n";
-        assert_eq!(gitignore_keeping_resume(done), done, "already right: unchanged");
+        assert_eq!(
+            gitignore_keeping_resume(done),
+            done,
+            "already right: unchanged"
+        );
     }
 
     #[test]
     fn git_output_parses() {
-        let raw = b"M\0manuscript/a.md\0R087\0notes/old name.md\0notes/new name.md\0A\0x.md\0D\0y.md\0";
+        let raw =
+            b"M\0manuscript/a.md\0R087\0notes/old name.md\0notes/new name.md\0A\0x.md\0D\0y.md\0";
         let e = parse_name_status(raw);
         assert_eq!(e.len(), 4);
         assert_eq!(e[1].status, Status::Renamed);
@@ -1386,7 +1590,10 @@ mod tests {
         let s = parse_log(log.as_bytes());
         assert_eq!(s.len(), 2);
         assert_eq!(s[0].hash, "1a2b3c4");
-        assert_eq!(s[0].label, "Tuesday evening · Act Two, Act Three · 1,240 words");
+        assert_eq!(
+            s[0].label,
+            "Tuesday evening · Act Two, Act Three · 1,240 words"
+        );
         assert_eq!(s[0].when.timestamp(), 1_789_000_000);
         assert_eq!(s[1].label, "Session history begins");
     }
@@ -1399,7 +1606,10 @@ mod tests {
         assert!(!is_enabled(&d));
         enable(&d).unwrap();
         assert!(is_enabled(&d));
-        assert_eq!(fs::read_to_string(d.join(".gitignore")).unwrap(), ".grimoire/*\n!.grimoire/resume.md\nexports/\n");
+        assert_eq!(
+            fs::read_to_string(d.join(".gitignore")).unwrap(),
+            ".grimoire/*\n!.grimoire/resume.md\nexports/\n"
+        );
         assert_eq!(run(&d, &["symbolic-ref", "--short", "HEAD"]), "main");
 
         let history = sessions(&d, 10).unwrap();
@@ -1408,12 +1618,30 @@ mod tests {
         assert!((Local::now() - history[0].when).num_minutes().abs() < 5);
 
         let files = committed_files(&d);
-        for want in [A1, A2, A3, WREN, "novel.toml", ".gitignore", ".grimoire/resume.md"] {
-            assert!(files.iter().any(|f| f == want), "{want} should be committed: {files:?}");
+        for want in [
+            A1,
+            A2,
+            A3,
+            WREN,
+            "novel.toml",
+            ".gitignore",
+            ".grimoire/resume.md",
+        ] {
+            assert!(
+                files.iter().any(|f| f == want),
+                "{want} should be committed: {files:?}"
+            );
         }
-        assert!(!files.iter().any(|f| f.starts_with(".grimoire/trash") || f == ".grimoire/progress.toml"));
+        assert!(
+            !files
+                .iter()
+                .any(|f| f.starts_with(".grimoire/trash") || f == ".grimoire/progress.toml")
+        );
         // No identity configured anywhere: the fallback signs it.
-        assert_eq!(run(&d, &["log", "-1", "--format=%an <%ae>"]), "Grimoire <grimoire@localhost>");
+        assert_eq!(
+            run(&d, &["log", "-1", "--format=%an <%ae>"]),
+            "Grimoire <grimoire@localhost>"
+        );
 
         // Again changes nothing.
         enable(&d).unwrap();
@@ -1422,11 +1650,19 @@ mod tests {
         // The trash stays out of later sessions; resume.md comes along.
         write(&d, ".grimoire/trash/02-Cut-Chapter.md", "gone");
         write(&d, ".grimoire/resume.md", "Act Two, Scene One\n");
-        assert_eq!(pending_label(&d, tuesday_evening()).unwrap().as_deref(), Some("Tuesday evening"));
+        assert_eq!(
+            pending_label(&d, tuesday_evening()).unwrap().as_deref(),
+            Some("Tuesday evening")
+        );
         commit_session(&d, tuesday_evening()).unwrap().unwrap();
         let files = committed_files(&d);
         assert!(!files.iter().any(|f| f.starts_with(".grimoire/trash")));
-        assert_eq!(file_at(&d, "HEAD", Path::new(".grimoire/resume.md")).unwrap().as_deref(), Some("Act Two, Scene One\n"));
+        assert_eq!(
+            file_at(&d, "HEAD", Path::new(".grimoire/resume.md"))
+                .unwrap()
+                .as_deref(),
+            Some("Act Two, Scene One\n")
+        );
         cleanup(&[&d]);
     }
 
@@ -1454,12 +1690,24 @@ mod tests {
         // Words added in one act.
         write(&d, A2, &scene(1240));
         let want = "Tuesday evening · Act Two · 1,240 words";
-        assert_eq!(pending_label(&d, tuesday_evening()).unwrap().as_deref(), Some(want));
+        assert_eq!(
+            pending_label(&d, tuesday_evening()).unwrap().as_deref(),
+            Some(want)
+        );
         // Looking didn't stage anything.
-        assert!(git(&d, ["diff", "--cached", "--quiet"]).run().ok().unwrap().success);
+        assert!(
+            git(&d, ["diff", "--cached", "--quiet"])
+                .run()
+                .ok()
+                .unwrap()
+                .success
+        );
         let hash = commit_session(&d, tuesday_evening()).unwrap().unwrap();
         let latest = &sessions(&d, 1).unwrap()[0];
-        assert_eq!((latest.hash.as_str(), latest.label.as_str()), (hash.as_str(), want));
+        assert_eq!(
+            (latest.hash.as_str(), latest.label.as_str()),
+            (hash.as_str(), want)
+        );
 
         // Words cut.
         write(&d, A2, &scene(928));
@@ -1470,38 +1718,75 @@ mod tests {
         );
 
         // Only the frontmatter changed: text changed, words didn't.
-        write(&d, A2, &scene(928).replace("status: draft", "status: revised"));
-        assert_eq!(commit_label(&d, at(9, 16, 12, 30)), "Wednesday lunchtime · Act Two · revised");
+        write(
+            &d,
+            A2,
+            &scene(928).replace("status: draft", "status: revised"),
+        );
+        assert_eq!(
+            commit_label(&d, at(9, 16, 12, 30)),
+            "Wednesday lunchtime · Act Two · revised"
+        );
 
         // Only notes.
-        write(&d, WREN, "---\nrole: lead\n---\nWren keeps the archive, and its secrets.\n");
-        assert_eq!(commit_label(&d, at(9, 16, 15, 0)), "Wednesday afternoon · notes");
+        write(
+            &d,
+            WREN,
+            "---\nrole: lead\n---\nWren keeps the archive, and its secrets.\n",
+        );
+        assert_eq!(
+            commit_label(&d, at(9, 16, 15, 0)),
+            "Wednesday afternoon · notes"
+        );
 
         // Two acts, and notes alongside don't change the where.
         write(&d, A1, &scene(30));
         write(&d, A3, &scene(5));
         write(&d, WREN, "Rewritten.\n");
-        assert_eq!(commit_label(&d, at(9, 16, 22, 0)), "Wednesday night · Act One and Act Three · 25 words");
+        assert_eq!(
+            commit_label(&d, at(9, 16, 22, 0)),
+            "Wednesday night · Act One and Act Three · 25 words"
+        );
 
         // Three acts.
         write(&d, A1, &scene(31));
         write(&d, A2, &scene(929));
         write(&d, A3, &scene(6));
-        assert_eq!(commit_label(&d, at(9, 17, 2, 0)), "Wednesday night · 3 acts · 3 words");
+        assert_eq!(
+            commit_label(&d, at(9, 17, 2, 0)),
+            "Wednesday night · 3 acts · 3 words"
+        );
 
         // A scene moved from Act One to Act Two, unchanged.
         let moved = "manuscript/02-Act-Two/05-Chapter-Five/01-Scene-One.md";
         fs::create_dir_all(d.join(native_path(moved)).parent().unwrap()).unwrap();
         fs::rename(d.join(native_path(A1)), d.join(native_path(moved))).unwrap();
-        assert_eq!(commit_label(&d, tuesday_evening()), "Tuesday evening · Act One and Act Two · revised");
+        assert_eq!(
+            commit_label(&d, tuesday_evening()),
+            "Tuesday evening · Act One and Act Two · revised"
+        );
 
         // A scene deleted, and a new one added.
         fs::remove_file(d.join(native_path(A3))).unwrap();
-        assert_eq!(commit_label(&d, tuesday_evening()), "Tuesday evening · Act Three · revised, 6 words cut");
-        write(&d, "manuscript/03-Act-Three/08-Chapter-Eight/01-Scene-One.md", &scene(12));
-        assert_eq!(commit_label(&d, tuesday_evening()), "Tuesday evening · Act Three · 12 words");
+        assert_eq!(
+            commit_label(&d, tuesday_evening()),
+            "Tuesday evening · Act Three · revised, 6 words cut"
+        );
+        write(
+            &d,
+            "manuscript/03-Act-Three/08-Chapter-Eight/01-Scene-One.md",
+            &scene(12),
+        );
+        assert_eq!(
+            commit_label(&d, tuesday_evening()),
+            "Tuesday evening · Act Three · 12 words"
+        );
 
-        let labels: Vec<String> = sessions(&d, 100).unwrap().into_iter().map(|s| s.label).collect();
+        let labels: Vec<String> = sessions(&d, 100)
+            .unwrap()
+            .into_iter()
+            .map(|s| s.label)
+            .collect();
         assert_eq!(labels.len(), 10);
         assert_eq!(labels[0], "Tuesday evening · Act Three · 12 words");
         assert_eq!(labels[9], "Session history begins");
@@ -1522,7 +1807,9 @@ mod tests {
     #[test]
     fn changes_count_words_both_sides_and_follow_renames() {
         let Some(d) = book("changes") else { return };
-        let long: String = (1..=20).map(|i| format!("Line {i} of a scene that moves.\n")).collect();
+        let long: String = (1..=20)
+            .map(|i| format!("Line {i} of a scene that moves.\n"))
+            .collect();
         let d_old = "manuscript/01-Act-One/01-Chapter-One/02-Scene-Two.md";
         let gone = "manuscript/01-Act-One/01-Chapter-One/03-Scene-Three.md";
         write(&d, d_old, &format!("---\ntitle: Two\n---\n{long}"));
@@ -1535,8 +1822,15 @@ mod tests {
         let first = sessions(&d, 1).unwrap().remove(0);
         let root_changes = changes(&d, &first.hash).unwrap();
         assert_eq!(root_changes.len(), 6, "{root_changes:?}");
-        assert!(root_changes.iter().all(|c| c.kind == ChangeKind::Added && c.words_before == 0));
-        let a1 = root_changes.iter().find(|c| c.path == native_path(A1)).unwrap();
+        assert!(
+            root_changes
+                .iter()
+                .all(|c| c.kind == ChangeKind::Added && c.words_before == 0)
+        );
+        let a1 = root_changes
+            .iter()
+            .find(|c| c.path == native_path(A1))
+            .unwrap();
         assert_eq!(a1.words_after, 10);
 
         write(&d, A1, &scene(25));
@@ -1545,18 +1839,43 @@ mod tests {
         fs::remove_file(d.join(native_path(gone))).unwrap();
         let d_new = "manuscript/02-Act-Two/04-Chapter-Four/03-The-Move.md";
         fs::remove_file(d.join(native_path(d_old))).unwrap();
-        write(&d, d_new, &format!("---\ntitle: Two\n---\n{long}One more line.\n"));
-        write(&d, "novel.toml", "title = \"Retitled\"\npart_label = \"Act\"\n");
+        write(
+            &d,
+            d_new,
+            &format!("---\ntitle: Two\n---\n{long}One more line.\n"),
+        );
+        write(
+            &d,
+            "novel.toml",
+            "title = \"Retitled\"\npart_label = \"Act\"\n",
+        );
         let hash = commit_session(&d, tuesday_evening()).unwrap().unwrap();
 
         let got = changes(&d, &hash).unwrap();
         let want = vec![
-            Change { path: native_path(A1), kind: ChangeKind::Modified, words_before: 10, words_after: 25 },
-            Change { path: native_path(gone), kind: ChangeKind::Deleted, words_before: 5, words_after: 0 },
-            Change { path: native_path(added), kind: ChangeKind::Added, words_before: 0, words_after: 7 },
+            Change {
+                path: native_path(A1),
+                kind: ChangeKind::Modified,
+                words_before: 10,
+                words_after: 25,
+            },
+            Change {
+                path: native_path(gone),
+                kind: ChangeKind::Deleted,
+                words_before: 5,
+                words_after: 0,
+            },
+            Change {
+                path: native_path(added),
+                kind: ChangeKind::Added,
+                words_before: 0,
+                words_after: 7,
+            },
             Change {
                 path: native_path(d_new),
-                kind: ChangeKind::Renamed { from: native_path(d_old) },
+                kind: ChangeKind::Renamed {
+                    from: native_path(d_old),
+                },
                 words_before: 140,
                 words_after: 143,
             },
@@ -1581,13 +1900,22 @@ mod tests {
         let second = commit_session(&d, tuesday_evening()).unwrap().unwrap();
 
         // Native separators in, forward slashes to git.
-        let a1 = Path::new("manuscript").join("01-Act-One").join("01-Chapter-One").join("01-Scene-One.md");
+        let a1 = Path::new("manuscript")
+            .join("01-Act-One")
+            .join("01-Chapter-One")
+            .join("01-Scene-One.md");
         assert_eq!(file_at(&d, &first, &a1).unwrap(), Some(scene(10)));
         assert_eq!(file_at(&d, &second, &a1).unwrap(), Some(scene(3)));
         assert_eq!(file_at(&d, &second, &d.join(&a1)).unwrap(), Some(scene(3)));
-        assert_eq!(file_at(&d, &first, &native_path(A3)).unwrap(), Some(scene(0)));
+        assert_eq!(
+            file_at(&d, &first, &native_path(A3)).unwrap(),
+            Some(scene(0))
+        );
         assert_eq!(file_at(&d, &second, &native_path(A3)).unwrap(), None);
-        assert_eq!(file_at(&d, &first, Path::new("manuscript/nowhere.md")).unwrap(), None);
+        assert_eq!(
+            file_at(&d, &first, Path::new("manuscript/nowhere.md")).unwrap(),
+            None
+        );
         // A folder isn't a file.
         assert_eq!(file_at(&d, &first, Path::new("manuscript")).unwrap(), None);
         assert!(file_at(&d, &first, Path::new("../outside.md")).is_err());
@@ -1604,7 +1932,10 @@ mod tests {
 
         let remote = temp_dir("push-remote");
         run(&remote, &["init", "--bare", "-q", "."]);
-        git(&d, ["remote", "add", "origin"]).arg_path(&remote).stdout().unwrap();
+        git(&d, ["remote", "add", "origin"])
+            .arg_path(&remote)
+            .stdout()
+            .unwrap();
         assert_eq!(unpushed(&d), None, "no upstream until the first push");
 
         assert_eq!(push(&d), PushOutcome::Pushed);
@@ -1618,7 +1949,10 @@ mod tests {
 
         assert_eq!(push(&d), PushOutcome::Pushed);
         assert_eq!(unpushed(&d), Some(0));
-        assert_eq!(run(&remote, &["rev-parse", "refs/heads/main"]), run(&d, &["rev-parse", "HEAD"]));
+        assert_eq!(
+            run(&remote, &["rev-parse", "refs/heads/main"]),
+            run(&d, &["rev-parse", "HEAD"])
+        );
         // Nothing new still counts as pushed.
         assert_eq!(push(&d), PushOutcome::Pushed);
         cleanup(&[&d, &remote]);
@@ -1628,11 +1962,21 @@ mod tests {
     fn a_broken_remote_fails_quickly() {
         let Some(d) = book("push-broken") else { return };
         enable(&d).unwrap();
-        let nowhere = std::env::temp_dir().join(format!("grimoire-sessions-no-remote-{}.git", std::process::id()));
-        git(&d, ["remote", "add", "origin"]).arg_path(&nowhere).stdout().unwrap();
+        let nowhere = std::env::temp_dir().join(format!(
+            "grimoire-sessions-no-remote-{}.git",
+            std::process::id()
+        ));
+        git(&d, ["remote", "add", "origin"])
+            .arg_path(&nowhere)
+            .stdout()
+            .unwrap();
         let started = Instant::now();
         let outcome = push(&d);
-        assert!(started.elapsed() < Duration::from_secs(10), "took {:?}", started.elapsed());
+        assert!(
+            started.elapsed() < Duration::from_secs(10),
+            "took {:?}",
+            started.elapsed()
+        );
         match outcome {
             PushOutcome::Failed(why) => assert!(!why.is_empty()),
             other => panic!("expected a failure, got {other:?}"),
@@ -1647,7 +1991,10 @@ mod tests {
         enable(&d).unwrap();
         // Accepts the connection (the OS does that), then says nothing, ever.
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let url = format!("http://127.0.0.1:{}/book.git", listener.local_addr().unwrap().port());
+        let url = format!(
+            "http://127.0.0.1:{}/book.git",
+            listener.local_addr().unwrap().port()
+        );
         run(&d, &["remote", "add", "origin", &url]);
         let started = Instant::now();
         let outcome = push_within(&d, Duration::from_secs(2));
@@ -1666,7 +2013,10 @@ mod tests {
         let conn = loop {
             match listener.accept() {
                 Ok((conn, _)) => break Some(conn),
-                Err(e) if e.kind() == io::ErrorKind::WouldBlock && waiting.elapsed() < Duration::from_secs(3) => {
+                Err(e)
+                    if e.kind() == io::ErrorKind::WouldBlock
+                        && waiting.elapsed() < Duration::from_secs(3) =>
+                {
                     thread::sleep(Duration::from_millis(50));
                 }
                 Err(_) => break None,
@@ -1678,7 +2028,11 @@ mod tests {
             let mut request = Vec::new();
             match conn.read_to_end(&mut request) {
                 Ok(_) => {}
-                Err(e) if matches!(e.kind(), io::ErrorKind::ConnectionReset | io::ErrorKind::ConnectionAborted) => {}
+                Err(e)
+                    if matches!(
+                        e.kind(),
+                        io::ErrorKind::ConnectionReset | io::ErrorKind::ConnectionAborted
+                    ) => {}
                 Err(e) => panic!("git is still holding the connection open ({e})"),
             }
         }
@@ -1693,7 +2047,10 @@ mod tests {
         run(&d, &["config", "user.email", "wren@example.com"]);
         write(&d, A2, &scene(20));
         commit_session(&d, tuesday_evening()).unwrap().unwrap();
-        assert_eq!(run(&d, &["log", "-1", "--format=%an <%ae>"]), "Wren Marsh <wren@example.com>");
+        assert_eq!(
+            run(&d, &["log", "-1", "--format=%an <%ae>"]),
+            "Wren Marsh <wren@example.com>"
+        );
         cleanup(&[&d]);
     }
 
@@ -1711,14 +2068,30 @@ mod tests {
         assert!(commit_session(&d, tuesday_evening()).is_err());
         assert!(pending_label(&d, tuesday_evening()).is_err());
         assert!(sessions(&d, 10).is_err());
-        assert_eq!(push(&d), PushOutcome::Failed(format!("session history isn't turned on for {}", d.display())));
-        assert!(git(&outer, ["rev-parse", "--verify", "-q", "HEAD"]).lookup().unwrap().is_none());
+        assert_eq!(
+            push(&d),
+            PushOutcome::Failed(format!(
+                "session history isn't turned on for {}",
+                d.display()
+            ))
+        );
+        assert!(
+            git(&outer, ["rev-parse", "--verify", "-q", "HEAD"])
+                .lookup()
+                .unwrap()
+                .is_none()
+        );
 
         enable(&d).unwrap();
         assert!(is_enabled(&d));
         assert_eq!(sessions(&d, 10).unwrap().len(), 1);
         // The outer repository still has no commits and nothing staged.
-        assert!(git(&outer, ["rev-parse", "--verify", "-q", "HEAD"]).lookup().unwrap().is_none());
+        assert!(
+            git(&outer, ["rev-parse", "--verify", "-q", "HEAD"])
+                .lookup()
+                .unwrap()
+                .is_none()
+        );
         assert_eq!(run(&outer, &["ls-files"]), "");
         cleanup(&[&outer]);
     }
@@ -1746,7 +2119,10 @@ mod tests {
         }
         // Nothing was written on the way to failing.
         assert!(!d.join(".git").exists());
-        assert_eq!(fs::read_to_string(d.join(".gitignore")).unwrap(), ".grimoire/\n");
+        assert_eq!(
+            fs::read_to_string(d.join(".gitignore")).unwrap(),
+            ".grimoire/\n"
+        );
 
         TEST_GIT_PROGRAM.with(|p| p.set(None));
         cleanup(&[&d]);

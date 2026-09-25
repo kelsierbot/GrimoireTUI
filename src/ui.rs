@@ -7,11 +7,11 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Padding, Paragraph};
 
 use crate::app::{App, Focus, Overlay};
-use grimoire_core::create::{self, New};
 use crate::music::State as MusicState;
-use grimoire_core::project::{Area, Kind};
 use crate::scene::{self, Ink, Mode, Phase};
 use crate::theme::{self, Theme};
+use grimoire_core::create::{self, New};
+use grimoire_core::project::{Area, Kind};
 
 /// Wide enough that the scene's 28 columns fit inside the border.
 pub const LEFT_W: u16 = (scene::W + 2) as u16;
@@ -34,27 +34,28 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     // Give up the ornaments before the tree gets unusable. With music switched
     // off there is no music pane at all, and the tree has that room.
     let music_h = if app.music.enabled { MUSIC_H } else { 0 };
-    let (tree_area, scene_area, music_area) = if !app.music.enabled && left.height >= SCENE_H + MIN_TREE {
-        let [a, b] =
-            Layout::vertical([Constraint::Min(MIN_TREE), Constraint::Length(SCENE_H)]).areas(left);
-        (a, b, Rect::default())
-    } else if !app.music.enabled {
-        (left, Rect::default(), Rect::default())
-    } else if left.height >= SCENE_H + music_h + MIN_TREE {
-        let [a, b, c] = Layout::vertical([
-            Constraint::Min(MIN_TREE),
-            Constraint::Length(SCENE_H),
-            Constraint::Length(MUSIC_H),
-        ])
-        .areas(left);
-        (a, b, c)
-    } else if left.height >= MUSIC_H + MIN_TREE {
-        let [a, c] =
-            Layout::vertical([Constraint::Min(MIN_TREE), Constraint::Length(MUSIC_H)]).areas(left);
-        (a, Rect::default(), c)
-    } else {
-        (left, Rect::default(), Rect::default())
-    };
+    let (tree_area, scene_area, music_area) =
+        if !app.music.enabled && left.height >= SCENE_H + MIN_TREE {
+            let [a, b] = Layout::vertical([Constraint::Min(MIN_TREE), Constraint::Length(SCENE_H)])
+                .areas(left);
+            (a, b, Rect::default())
+        } else if !app.music.enabled {
+            (left, Rect::default(), Rect::default())
+        } else if left.height >= SCENE_H + music_h + MIN_TREE {
+            let [a, b, c] = Layout::vertical([
+                Constraint::Min(MIN_TREE),
+                Constraint::Length(SCENE_H),
+                Constraint::Length(MUSIC_H),
+            ])
+            .areas(left);
+            (a, b, c)
+        } else if left.height >= MUSIC_H + MIN_TREE {
+            let [a, c] = Layout::vertical([Constraint::Min(MIN_TREE), Constraint::Length(MUSIC_H)])
+                .areas(left);
+            (a, Rect::default(), c)
+        } else {
+            (left, Rect::default(), Rect::default())
+        };
 
     app.scene_visible = scene_area.height > 0;
     app.music_visible = music_area.height > 0;
@@ -71,7 +72,8 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     }
     // A note opened from the prose sits beside it, when there's room.
     if app.codex.is_some() && edit_area.width >= 70 {
-        let [ed, cx] = Layout::horizontal([Constraint::Min(34), Constraint::Percentage(38)]).areas(edit_area);
+        let [ed, cx] =
+            Layout::horizontal([Constraint::Min(34), Constraint::Percentage(38)]).areas(edit_area);
         draw_editor(f, app, ed, &t);
         draw_codex(f, app, cx, &t);
     } else {
@@ -121,7 +123,11 @@ fn hint_parts(text: &str) -> Vec<(String, bool)> {
             rest = &rest[gap..];
             continue;
         }
-        let end = [rest.find("  "), rest.find(" · ")].into_iter().flatten().min().unwrap_or(rest.len());
+        let end = [rest.find("  "), rest.find(" · ")]
+            .into_iter()
+            .flatten()
+            .min()
+            .unwrap_or(rest.len());
         let hint = &rest[..end];
         let key = if hint == "type" || hint.starts_with("type ") {
             0
@@ -203,11 +209,23 @@ fn draw_tree(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
         // Counts are for writing: the manuscript and the notebook, not the
         // paperwork or the trash.
         let counted = n.area == Area::Manuscript || n.area.is_notebook();
-        let words = if counted { app.project.subtree_words(idx) } else { 0 };
-        let count = if words > 0 { thousands(words) } else { String::new() };
+        let words = if counted {
+            app.project.subtree_words(idx)
+        } else {
+            0
+        };
+        let count = if words > 0 {
+            thousands(words)
+        } else {
+            String::new()
+        };
 
         let lead = format!("{indent}{fold}");
-        let icon = if app.icons_on { format!("{icon} ") } else { String::new() };
+        let icon = if app.icons_on {
+            format!("{icon} ")
+        } else {
+            String::new()
+        };
         let lead_w = lead.chars().count() + icon.chars().count();
         let room = width.saturating_sub(lead_w + count.chars().count() + 1);
         let title = truncate(&n.title, room.max(1));
@@ -217,13 +235,19 @@ fn draw_tree(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
             .max(1);
 
         let name_style = match n.kind {
-            Kind::Category | Kind::Container => Style::default().fg(t.text).add_modifier(Modifier::BOLD),
+            Kind::Category | Kind::Container => {
+                Style::default().fg(t.text).add_modifier(Modifier::BOLD)
+            }
             _ if open => Style::default().fg(t.accent),
             _ => Style::default().fg(t.text),
         };
-        let dragging_to = app.tree_drag.is_some_and(|(from, to)| from != to && row == to);
+        let dragging_to = app
+            .tree_drag
+            .is_some_and(|(from, to)| from != to && row == to);
         let base = if dragging_to {
-            Style::default().bg(t.sel).add_modifier(Modifier::UNDERLINED)
+            Style::default()
+                .bg(t.sel)
+                .add_modifier(Modifier::UNDERLINED)
         } else if selected && focused {
             Style::default().bg(t.sel)
         } else {
@@ -283,7 +307,15 @@ fn draw_create_keys(f: &mut Frame, app: &mut App, area: Rect, focused: bool, t: 
         spans.push(Span::styled(key.to_string(), key_style));
         spans.push(Span::styled(format!(" {word}"), word_style));
         if let Some(want) = New::from_key(*key) {
-            app.create_hits.push((Rect { x, y: row.y, width, height: 1 }, want));
+            app.create_hits.push((
+                Rect {
+                    x,
+                    y: row.y,
+                    width,
+                    height: 1,
+                },
+                want,
+            ));
         }
         x += width;
     }
@@ -318,7 +350,10 @@ fn draw_scene(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
                 truncate(&title, 22)
             };
             let note = app.viz.note(playing);
-            (head, scene::render_spectrum(&app.viz, frac, note.as_deref()))
+            (
+                head,
+                scene::render_spectrum(&app.viz, frac, note.as_deref()),
+            )
         }
         Mode::Growth => {
             // The garden grows with what's written; a cut doesn't uproot it.
@@ -378,12 +413,16 @@ fn draw_scene(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
                             Ink::Rabbit => t.text,
                             Ink::Flower => t.bloom,
                             Ink::Ground => t.turf,
-                            Ink::Bar { h, glow } => blend(bar_colour(t, h), t.text, lit(glow) * 0.6),
+                            Ink::Bar { h, glow } => {
+                                blend(bar_colour(t, h), t.text, lit(glow) * 0.6)
+                            }
                             Ink::Pond { h, depth } => {
                                 blend(bar_colour(t, h), t.border, 0.45 + 0.2 * depth as f32)
                             }
                             Ink::Cap { heat } => blend(t.dim, t.moon, lit(heat)),
-                            Ink::Spark { life } => blend(t.dim, blend(t.sun, t.text, 0.35), lit(life)),
+                            Ink::Spark { life } => {
+                                blend(t.dim, blend(t.sun, t.text, 0.35), lit(life))
+                            }
                             Ink::Played { glow } => blend(t.accent, t.bloom, lit(glow)),
                         };
                         Span::styled(ch.to_string(), Style::default().fg(col))
@@ -404,7 +443,12 @@ fn draw_view_switch(f: &mut Frame, app: &mut App, area: Rect, focused: bool, t: 
     if area.height < 3 || area.width < 4 {
         return;
     }
-    let row = Rect { x: area.x + 1, y: area.y + area.height - 1, width: area.width - 2, height: 1 };
+    let row = Rect {
+        x: area.x + 1,
+        y: area.y + area.height - 1,
+        width: area.width - 2,
+        height: 1,
+    };
     let (items, spans) = view_switch(app.pane_mode, row.width);
     let arrow = Style::default().fg(if focused { t.accent } else { t.dim });
     let lit = Style::default()
@@ -420,7 +464,15 @@ fn draw_view_switch(f: &mut Frame, app: &mut App, area: Rect, focused: bool, t: 
         })
         .collect();
     for (x, width, mode) in items {
-        app.view_hits.push((Rect { x: row.x + x, y: row.y, width, height: 1 }, mode));
+        app.view_hits.push((
+            Rect {
+                x: row.x + x,
+                y: row.y,
+                width,
+                height: 1,
+            },
+            mode,
+        ));
     }
     f.render_widget(Paragraph::new(Line::from(styled)), row);
 }
@@ -447,7 +499,11 @@ fn view_switch(current: Mode, width: u16) -> (Vec<(u16, u16, Mode)>, Vec<(String
             break;
         }
         spans.push((" ".into(), Piece::Gap));
-        let kind = if mode == current { Piece::Current } else { Piece::Other };
+        let kind = if mode == current {
+            Piece::Current
+        } else {
+            Piece::Other
+        };
         spans.push((mode.name().into(), kind));
         hits.push((x + 1, w, mode));
         x += 1 + w;
@@ -491,7 +547,12 @@ fn blend(a: ratatui::style::Color, b: ratatui::style::Color, f: f32) -> ratatui:
 /// top. Drawn from the theme, so every palette gets its own.
 fn bar_colour(t: &Theme, h: u8) -> ratatui::style::Color {
     let x = h as f32 / 255.0;
-    let stops = [(0.0, t.foliage), (0.4, t.accent), (0.75, t.sun), (1.0, t.bloom)];
+    let stops = [
+        (0.0, t.foliage),
+        (0.4, t.accent),
+        (0.75, t.sun),
+        (1.0, t.bloom),
+    ];
     for w in stops.windows(2) {
         let ((a, from), (b, to)) = (w[0], w[1]);
         if x <= b {
@@ -559,7 +620,10 @@ fn draw_music(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
                         "─".repeat(barw.saturating_sub(filled)),
                         Style::default().fg(t.border),
                     ),
-                    Span::styled(format!(" {}", mins(tr.progress)), Style::default().fg(t.dim)),
+                    Span::styled(
+                        format!(" {}", mins(tr.progress)),
+                        Style::default().fg(t.dim),
+                    ),
                 ]),
             ]
         }
@@ -601,16 +665,23 @@ fn draw_editor(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
         _ => None,
     };
     let match_bg = blend(t.border, t.sun, 0.45);
-    let mut line_matches: std::collections::HashMap<usize, Vec<(usize, usize)>> = std::collections::HashMap::new();
-    let mut line_spelling: std::collections::HashMap<usize, Vec<(usize, usize)>> = std::collections::HashMap::new();
-    let mut line_names: std::collections::HashMap<usize, Vec<(usize, usize, usize)>> = std::collections::HashMap::new();
+    let mut line_matches: std::collections::HashMap<usize, Vec<(usize, usize)>> =
+        std::collections::HashMap::new();
+    let mut line_spelling: std::collections::HashMap<usize, Vec<(usize, usize)>> =
+        std::collections::HashMap::new();
+    let mut line_names: std::collections::HashMap<usize, Vec<(usize, usize, usize)>> =
+        std::collections::HashMap::new();
     let visible: Vec<Line> = rows
         .iter()
         .skip(app.editor.scroll)
         .take(app.edit_height)
         .map(|&r| {
             let plain = Style::default().fg(t.text);
-            let chars: Vec<char> = app.editor.lines[r.line].chars().skip(r.start).take(r.end - r.start).collect();
+            let chars: Vec<char> = app.editor.lines[r.line]
+                .chars()
+                .skip(r.start)
+                .take(r.end - r.start)
+                .collect();
             let mut styles = vec![plain; chars.len()];
             let mut paint = |from: usize, to: usize, f: &dyn Fn(Style) -> Style| {
                 for c in from.max(r.start)..to.min(r.end) {
@@ -618,27 +689,37 @@ fn draw_editor(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
                 }
             };
             // Notebook names in the accent colour.
-            let names = line_names.entry(r.line).or_insert_with(|| grimoire_core::codex::spans(&app.editor.lines[r.line], &app.codex_index));
+            let names = line_names.entry(r.line).or_insert_with(|| {
+                grimoire_core::codex::spans(&app.editor.lines[r.line], &app.codex_index)
+            });
             for &(s, e, _) in names.iter() {
                 paint(s, e, &|st| st.fg(t.accent));
             }
             if let Some(q) = find {
-                let hits = line_matches
-                    .entry(r.line)
-                    .or_insert_with(|| grimoire_core::search::matches(&app.editor.lines[r.line], q));
+                let hits = line_matches.entry(r.line).or_insert_with(|| {
+                    grimoire_core::search::matches(&app.editor.lines[r.line], q)
+                });
                 for &(s, e) in hits.iter() {
                     paint(s, e, &|st| st.bg(match_bg));
                 }
             }
             // Misspellings: a warn-coloured underline, never on the word being typed.
             if app.spell_on {
-                let bad = line_spelling.entry(r.line).or_insert_with(|| app.misspellings(r.line));
+                let bad = line_spelling
+                    .entry(r.line)
+                    .or_insert_with(|| app.misspellings(r.line));
                 for &(s, e) in bad.iter() {
-                    paint(s, e, &|st| st.underline_color(t.warn).add_modifier(Modifier::UNDERLINED));
+                    paint(s, e, &|st| {
+                        st.underline_color(t.warn)
+                            .add_modifier(Modifier::UNDERLINED)
+                    });
                 }
             }
             if let Some((from, to)) = app.editor.row_selection(r) {
-                paint(from, to, &|st| st.bg(t.sel).fg(if find.is_some() { t.accent } else { t.text }));
+                paint(from, to, &|st| {
+                    st.bg(t.sel)
+                        .fg(if find.is_some() { t.accent } else { t.text })
+                });
             }
             let mut spans: Vec<Span> = Vec::new();
             let mut run = String::new();
@@ -683,8 +764,15 @@ fn draw_codex(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
 
     // The appearances list takes the bottom; the note fills the rest.
     let list_h = (pane.appears.len() as u16 + 2).min(inner.height / 2).max(3);
-    let note_area = Rect { height: inner.height.saturating_sub(list_h), ..inner };
-    let list_area = Rect { y: inner.y + note_area.height, height: list_h, ..inner };
+    let note_area = Rect {
+        height: inner.height.saturating_sub(list_h),
+        ..inner
+    };
+    let list_area = Rect {
+        y: inner.y + note_area.height,
+        height: list_h,
+        ..inner
+    };
 
     let body = app
         .project
@@ -704,7 +792,10 @@ fn draw_codex(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
         }
     }
     let scroll = pane.scroll.min(note.len().saturating_sub(1));
-    f.render_widget(Paragraph::new(note.into_iter().skip(scroll).collect::<Vec<_>>()), note_area);
+    f.render_widget(
+        Paragraph::new(note.into_iter().skip(scroll).collect::<Vec<_>>()),
+        note_area,
+    );
 
     let mut list = vec![Line::from(Span::styled(
         match pane.appears.len() {
@@ -724,10 +815,17 @@ fn draw_codex(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
         let place = truncate(&a.place, w.saturating_sub(count.chars().count() + 2));
         let row = Line::from(vec![
             Span::styled(if here { "● " } else { "  " }, Style::default().fg(t.sun)),
-            Span::styled(place, Style::default().fg(if on { t.accent } else { t.text })),
+            Span::styled(
+                place,
+                Style::default().fg(if on { t.accent } else { t.text }),
+            ),
             Span::styled(count, dim),
         ]);
-        list.push(if on { row.style(Style::default().bg(t.sel)) } else { row });
+        list.push(if on {
+            row.style(Style::default().bg(t.sel))
+        } else {
+            row
+        });
     }
     f.render_widget(Paragraph::new(list), list_area);
 }
@@ -738,7 +836,11 @@ fn draw_status(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
     let filled = (total * 10 / target).min(10);
     let bar: String = "▓".repeat(filled) + &"░".repeat(10 - filled);
     let today = app.today_words();
-    let today_text = if today < 0 { format!("−{}", thousands(today.unsigned_abs() as usize)) } else { thousands(today as usize) };
+    let today_text = if today < 0 {
+        format!("−{}", thousands(today.unsigned_abs() as usize))
+    } else {
+        thousands(today as usize)
+    };
 
     let mut spans = vec![
         Span::raw(" "),
@@ -786,7 +888,10 @@ fn draw_status(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
         .saturating_sub(used)
         .saturating_sub(hints.chars().count() + 1);
     spans.push(Span::raw(" ".repeat(pad)));
-    spans.push(Span::styled(format!("{hints} "), Style::default().fg(t.dim)));
+    spans.push(Span::styled(
+        format!("{hints} "),
+        Style::default().fg(t.dim),
+    ));
 
     f.render_widget(Paragraph::new(Line::from(spans)), area);
 }
@@ -808,12 +913,21 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
     match &app.overlay {
         Overlay::None => {}
 
-        Overlay::Palette { query, sel, entries } => {
+        Overlay::Palette {
+            query,
+            sel,
+            entries,
+        } => {
             let hits = crate::palette::filter(entries, query);
             let rows = 14usize;
             let w = area.width.saturating_sub(4).min(84);
             let h = rows as u16 + 5;
-            let box_area = Rect { x: area.x + (area.width - w) / 2, y: area.y + 2.min(area.height.saturating_sub(h)), width: w, height: h.min(area.height) };
+            let box_area = Rect {
+                x: area.x + (area.width - w) / 2,
+                y: area.y + 2.min(area.height.saturating_sub(h)),
+                width: w,
+                height: h.min(area.height),
+            };
             f.render_widget(Clear, box_area);
             let block = pane_block("FIND ANYTHING", true, t);
             let inner = block.inner(box_area);
@@ -836,18 +950,32 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
                 let label_w = e.label.chars().count().min(iw.saturating_sub(key_w + 6));
                 let label = truncate(&e.label, label_w);
                 let detail_room = iw.saturating_sub(label.chars().count() + key_w + 7);
-                let detail = if e.detail.is_empty() || detail_room < 6 { String::new() } else { format!("  {}", truncate(&e.detail, detail_room)) };
+                let detail = if e.detail.is_empty() || detail_room < 6 {
+                    String::new()
+                } else {
+                    format!("  {}", truncate(&e.detail, detail_room))
+                };
                 let used = 3 + label.chars().count() + detail.chars().count();
                 let pad = iw.saturating_sub(used + key_w + 1);
                 let row = Line::from(vec![
-                    Span::styled(if on { " ▸ " } else { "   " }, Style::default().fg(t.accent)),
-                    Span::styled(label, Style::default().fg(if on { t.accent } else { t.text })),
+                    Span::styled(
+                        if on { " ▸ " } else { "   " },
+                        Style::default().fg(t.accent),
+                    ),
+                    Span::styled(
+                        label,
+                        Style::default().fg(if on { t.accent } else { t.text }),
+                    ),
                     Span::styled(detail, dim),
                     Span::raw(" ".repeat(pad)),
                     Span::styled(e.key.clone(), Style::default().fg(t.sun)),
                     Span::raw(" "),
                 ]);
-                lines.push(if on { row.style(Style::default().bg(t.sel)) } else { row });
+                lines.push(if on {
+                    row.style(Style::default().bg(t.sel))
+                } else {
+                    row
+                });
             }
             if hits.is_empty() {
                 lines.push(Line::from(Span::styled("   nothing by that name", dim)));
@@ -855,11 +983,19 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             while lines.len() < rows + 2 {
                 lines.push(Line::from(""));
             }
-            lines.push(hint_line(" type to search   ↑↓ choose   ↵ do it   esc close", t));
+            lines.push(hint_line(
+                " type to search   ↑↓ choose   ↵ do it   esc close",
+                t,
+            ));
             f.render_widget(Paragraph::new(lines), inner);
         }
 
-        Overlay::Find { query, with, on_with, .. } => {
+        Overlay::Find {
+            query,
+            with,
+            on_with,
+            ..
+        } => {
             let editor = app.rect_editor;
             let h = if with.is_some() { 4 } else { 3 };
             let w = editor.width.saturating_add(4).min(area.width);
@@ -870,32 +1006,60 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
                 height: h,
             };
             f.render_widget(Clear, bar);
-            let block = Block::default().borders(Borders::TOP | Borders::BOTTOM).border_style(Style::default().fg(t.accent));
+            let block = Block::default()
+                .borders(Borders::TOP | Borders::BOTTOM)
+                .border_style(Style::default().fg(t.accent));
             let inner = block.inner(bar);
             f.render_widget(block, bar);
             let field = |label: &str, text: &str, active: bool| {
                 vec![
-                    Span::styled(format!(" {label:>7} ▸ "), Style::default().fg(if active { t.accent } else { t.dim })),
+                    Span::styled(
+                        format!(" {label:>7} ▸ "),
+                        Style::default().fg(if active { t.accent } else { t.dim }),
+                    ),
                     Span::styled(text.to_string(), Style::default().fg(t.text)),
-                    Span::styled(if active { "█" } else { " " }, Style::default().fg(t.accent)),
+                    Span::styled(
+                        if active { "█" } else { " " },
+                        Style::default().fg(t.accent),
+                    ),
                 ]
             };
             let m = app.mod_label();
             let mut first = field("find", query, !*on_with);
             let pos = app.find_position(query);
-            first.push(Span::styled(format!("  {pos}"), Style::default().fg(if pos == "no matches" { t.warn } else { t.sun })));
-            first.extend(hint_spans(&format!("   ↵ next  ↑ previous  Tab replace  {m}F whole book  esc close"), t));
+            first.push(Span::styled(
+                format!("  {pos}"),
+                Style::default().fg(if pos == "no matches" { t.warn } else { t.sun }),
+            ));
+            first.extend(hint_spans(
+                &format!("   ↵ next  ↑ previous  Tab replace  {m}F whole book  esc close"),
+                t,
+            ));
             let mut lines = vec![Line::from(first)];
             if let Some(w) = with {
                 let mut second = field("replace", w, *on_with);
-                second.extend(hint_spans(&format!("   ↵ replace this one  {m}R replace all in this scene"), t));
+                second.extend(hint_spans(
+                    &format!("   ↵ replace this one  {m}R replace all in this scene"),
+                    t,
+                ));
                 lines.push(Line::from(second));
             }
             f.render_widget(Paragraph::new(lines), inner);
         }
 
-        Overlay::FindBook { query, with, on_with, hits, sel, confirm } => {
-            let box_area = centred(area, area.width.saturating_sub(4).min(110), area.height.saturating_sub(2).min(38));
+        Overlay::FindBook {
+            query,
+            with,
+            on_with,
+            hits,
+            sel,
+            confirm,
+        } => {
+            let box_area = centred(
+                area,
+                area.width.saturating_sub(4).min(110),
+                area.height.saturating_sub(2).min(38),
+            );
             f.render_widget(Clear, box_area);
             let scenes = {
                 let mut seen: Vec<&std::path::Path> = Vec::new();
@@ -909,7 +1073,13 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             let head = if query.is_empty() {
                 "FIND IN THE BOOK".to_string()
             } else {
-                format!("FIND IN THE BOOK · {} match{} in {} scene{}", hits.len(), if hits.len() == 1 { "" } else { "es" }, scenes, if scenes == 1 { "" } else { "s" })
+                format!(
+                    "FIND IN THE BOOK · {} match{} in {} scene{}",
+                    hits.len(),
+                    if hits.len() == 1 { "" } else { "es" },
+                    scenes,
+                    if scenes == 1 { "" } else { "s" }
+                )
             };
             let block = pane_block(&head, true, t);
             let inner = block.inner(box_area);
@@ -918,16 +1088,25 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             let dim = Style::default().fg(t.dim);
             let field = |label: &str, text: &str, active: bool| {
                 Line::from(vec![
-                    Span::styled(format!(" {label:>7} ▸ "), Style::default().fg(if active { t.accent } else { t.dim })),
+                    Span::styled(
+                        format!(" {label:>7} ▸ "),
+                        Style::default().fg(if active { t.accent } else { t.dim }),
+                    ),
                     Span::styled(text.to_string(), Style::default().fg(t.text)),
-                    Span::styled(if active { "█" } else { " " }, Style::default().fg(t.accent)),
+                    Span::styled(
+                        if active { "█" } else { " " },
+                        Style::default().fg(t.accent),
+                    ),
                 ])
             };
             let mut lines = vec![field("find", query, !*on_with)];
             if let Some(w) = with {
                 lines.push(field("replace", w, *on_with));
             }
-            lines.push(Line::from(Span::styled("─".repeat(iw), Style::default().fg(t.border))));
+            lines.push(Line::from(Span::styled(
+                "─".repeat(iw),
+                Style::default().fg(t.border),
+            )));
 
             // Results, grouped under the scene they're in, scrolled to keep
             // the selection in view.
@@ -938,10 +1117,16 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             for (i, h) in hits.iter().enumerate() {
                 if last != Some(h.path.as_path()) {
                     last = Some(&h.path);
-                    rows.push((None, Line::from(vec![
-                        Span::styled(format!(" {}", truncate(&h.place, iw.saturating_sub(8))), Style::default().fg(t.accent)),
-                        Span::styled(format!("  {}", counts(&h.path)), dim),
-                    ])));
+                    rows.push((
+                        None,
+                        Line::from(vec![
+                            Span::styled(
+                                format!(" {}", truncate(&h.place, iw.saturating_sub(8))),
+                                Style::default().fg(t.accent),
+                            ),
+                            Span::styled(format!("  {}", counts(&h.path)), dim),
+                        ]),
+                    ));
                 }
                 let chars: Vec<char> = h.text.chars().collect();
                 let room = iw.saturating_sub(10);
@@ -952,12 +1137,25 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
                 let after: String = chars[h.end..].iter().take(after_room).collect();
                 let on = i == *sel;
                 let row = Line::from(vec![
-                    Span::styled(if on { "  ▸ " } else { "    " }, Style::default().fg(t.accent)),
-                    Span::styled(format!("{}{before}", if lead > 0 { "…" } else { "" }), Style::default().fg(t.text)),
+                    Span::styled(
+                        if on { "  ▸ " } else { "    " },
+                        Style::default().fg(t.accent),
+                    ),
+                    Span::styled(
+                        format!("{}{before}", if lead > 0 { "…" } else { "" }),
+                        Style::default().fg(t.text),
+                    ),
                     Span::styled(hit, Style::default().fg(t.text).bg(match_bg)),
                     Span::styled(after, Style::default().fg(t.text)),
                 ]);
-                rows.push((Some(i), if on { row.style(Style::default().bg(t.sel)) } else { row }));
+                rows.push((
+                    Some(i),
+                    if on {
+                        row.style(Style::default().bg(t.sel))
+                    } else {
+                        row
+                    },
+                ));
             }
             let room = (inner.height as usize).saturating_sub(lines.len() + 2);
             let sel_row = rows.iter().position(|(i, _)| *i == Some(*sel)).unwrap_or(0);
@@ -1000,15 +1198,33 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             let dim = Style::default().fg(t.dim);
             let text = Style::default().fg(t.text);
             let lines = vec![
-                Line::from(Span::styled(" Keep each writing session as a snapshot of the whole book, labelled", text)),
-                Line::from(Span::styled(" like a diary line — “Tuesday evening · Act Two · 1,240 words” — so you", text)),
-                Line::from(Span::styled(" can see what changed on any evening, and get any of it back.", text)),
+                Line::from(Span::styled(
+                    " Keep each writing session as a snapshot of the whole book, labelled",
+                    text,
+                )),
+                Line::from(Span::styled(
+                    " like a diary line — “Tuesday evening · Act Two · 1,240 words” — so you",
+                    text,
+                )),
+                Line::from(Span::styled(
+                    " can see what changed on any evening, and get any of it back.",
+                    text,
+                )),
                 Line::from(""),
-                Line::from(Span::styled(" It uses Git inside this book's folder: ordinary files any Git tool can", dim)),
-                Line::from(Span::styled(" read. Connect a remote and sessions back themselves up.", dim)),
+                Line::from(Span::styled(
+                    " It uses Git inside this book's folder: ordinary files any Git tool can",
+                    dim,
+                )),
+                Line::from(Span::styled(
+                    " read. Connect a remote and sessions back themselves up.",
+                    dim,
+                )),
                 Line::from(""),
                 Line::from(vec![
-                    Span::styled(" y ", Style::default().fg(t.accent).add_modifier(Modifier::BOLD)),
+                    Span::styled(
+                        " y ",
+                        Style::default().fg(t.accent).add_modifier(Modifier::BOLD),
+                    ),
                     Span::styled("turn it on for this book   ", text),
                     Span::styled("any other key", key_style(t)),
                     Span::styled(": not now", dim),
@@ -1017,8 +1233,18 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             f.render_widget(Paragraph::new(lines), inner);
         }
 
-        Overlay::Sessions { list, sel, pending, backup, changes } => {
-            let box_area = centred(area, area.width.saturating_sub(4).min(96), area.height.saturating_sub(2).min(34));
+        Overlay::Sessions {
+            list,
+            sel,
+            pending,
+            backup,
+            changes,
+        } => {
+            let box_area = centred(
+                area,
+                area.width.saturating_sub(4).min(96),
+                area.height.saturating_sub(2).min(34),
+            );
             f.render_widget(Clear, box_area);
             let block = pane_block("WRITING SESSIONS", true, t);
             let inner = block.inner(box_area);
@@ -1026,8 +1252,22 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             let dim = Style::default().fg(t.dim);
             let iw = inner.width as usize;
             let mut lines = vec![Line::from(vec![
-                Span::styled(format!(" {} session{}", list.len(), if list.len() == 1 { "" } else { "s" }), Style::default().fg(t.text)),
-                Span::styled(format!("   {backup}"), Style::default().fg(if backup.contains('✓') { t.accent } else { t.dim })),
+                Span::styled(
+                    format!(
+                        " {} session{}",
+                        list.len(),
+                        if list.len() == 1 { "" } else { "s" }
+                    ),
+                    Style::default().fg(t.text),
+                ),
+                Span::styled(
+                    format!("   {backup}"),
+                    Style::default().fg(if backup.contains('✓') {
+                        t.accent
+                    } else {
+                        t.dim
+                    }),
+                ),
             ])];
             if let Some(p) = pending {
                 lines.push(Line::from(vec![
@@ -1046,11 +1286,25 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
                         let on = i == *sel;
                         let when = s.when.format("%a %-d %b %-I:%M %P").to_string();
                         let row = Line::from(vec![
-                            Span::styled(if i == 0 { " ● " } else { " ● " }, Style::default().fg(if i == 0 { t.sun } else { t.border })),
-                            Span::styled(format!("{:<width$}", truncate(&s.label, iw.saturating_sub(24)), width = iw.saturating_sub(24)), Style::default().fg(if on { t.accent } else { t.text })),
+                            Span::styled(
+                                if i == 0 { " ● " } else { " ● " },
+                                Style::default().fg(if i == 0 { t.sun } else { t.border }),
+                            ),
+                            Span::styled(
+                                format!(
+                                    "{:<width$}",
+                                    truncate(&s.label, iw.saturating_sub(24)),
+                                    width = iw.saturating_sub(24)
+                                ),
+                                Style::default().fg(if on { t.accent } else { t.text }),
+                            ),
                             Span::styled(format!("{when:>19}"), dim),
                         ]);
-                        lines.push(if on { row.style(Style::default().bg(t.sel)) } else { row });
+                        lines.push(if on {
+                            row.style(Style::default().bg(t.sel))
+                        } else {
+                            row
+                        });
                     }
                     while lines.len() < (inner.height as usize).saturating_sub(1) {
                         lines.push(Line::from(""));
@@ -1071,32 +1325,65 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
                         let on = i == *csel;
                         let delta = c.words_after as i64 - c.words_before as i64;
                         let what = match &c.kind {
-                            grimoire_core::sessions::ChangeKind::Added => format!("new · {} words", thousands(c.words_after)),
-                            grimoire_core::sessions::ChangeKind::Deleted => format!("removed · {} words", thousands(c.words_before)),
-                            grimoire_core::sessions::ChangeKind::Renamed { .. } if delta == 0 => "moved".to_string(),
+                            grimoire_core::sessions::ChangeKind::Added => {
+                                format!("new · {} words", thousands(c.words_after))
+                            }
+                            grimoire_core::sessions::ChangeKind::Deleted => {
+                                format!("removed · {} words", thousands(c.words_before))
+                            }
+                            grimoire_core::sessions::ChangeKind::Renamed { .. } if delta == 0 => {
+                                "moved".to_string()
+                            }
                             _ if delta > 0 => format!("{} words added", thousands(delta as usize)),
                             _ if delta < 0 => format!("{} words cut", thousands((-delta) as usize)),
                             _ => "revised".to_string(),
                         };
                         let name = c.path.to_string_lossy().replace('\\', "/");
                         let row = Line::from(vec![
-                            Span::styled(if on { " ▸ " } else { "   " }, Style::default().fg(t.accent)),
-                            Span::styled(format!("{:<width$}", truncate(&name, iw.saturating_sub(28)), width = iw.saturating_sub(28)), Style::default().fg(if on { t.accent } else { t.text })),
+                            Span::styled(
+                                if on { " ▸ " } else { "   " },
+                                Style::default().fg(t.accent),
+                            ),
+                            Span::styled(
+                                format!(
+                                    "{:<width$}",
+                                    truncate(&name, iw.saturating_sub(28)),
+                                    width = iw.saturating_sub(28)
+                                ),
+                                Style::default().fg(if on { t.accent } else { t.text }),
+                            ),
                             Span::styled(format!("{what:>24}"), dim),
                         ]);
-                        lines.push(if on { row.style(Style::default().bg(t.sel)) } else { row });
+                        lines.push(if on {
+                            row.style(Style::default().bg(t.sel))
+                        } else {
+                            row
+                        });
                     }
                     while lines.len() < (inner.height as usize).saturating_sub(1) {
                         lines.push(Line::from(""));
                     }
-                    lines.push(hint_line(" ↑↓ choose   ↵ see the changes   esc back to sessions", t));
+                    lines.push(hint_line(
+                        " ↑↓ choose   ↵ see the changes   esc back to sessions",
+                        t,
+                    ));
                 }
             }
             f.render_widget(Paragraph::new(lines), inner);
         }
 
-        Overlay::SessionDiff { title, label, before, after, scroll } => {
-            let box_area = centred(area, area.width.saturating_sub(4).min(110), area.height.saturating_sub(2).min(40));
+        Overlay::SessionDiff {
+            title,
+            label,
+            before,
+            after,
+            scroll,
+        } => {
+            let box_area = centred(
+                area,
+                area.width.saturating_sub(4).min(110),
+                area.height.saturating_sub(2).min(40),
+            );
             f.render_widget(Clear, box_area);
             let head = format!("{} · {}", title, label);
             let block = pane_block(&head, true, t);
@@ -1107,15 +1394,29 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             let (body, first) = diff_lines(&pieces, inner.width.saturating_sub(1) as usize, t);
             let mut lines = vec![
                 Line::from(vec![
-                    Span::styled("struck", Style::default().fg(t.warn).add_modifier(Modifier::CROSSED_OUT)),
+                    Span::styled(
+                        "struck",
+                        Style::default()
+                            .fg(t.warn)
+                            .add_modifier(Modifier::CROSSED_OUT),
+                    ),
                     Span::styled(" cut that session · ", dim),
-                    Span::styled("underlined", Style::default().fg(t.accent).add_modifier(Modifier::UNDERLINED)),
+                    Span::styled(
+                        "underlined",
+                        Style::default()
+                            .fg(t.accent)
+                            .add_modifier(Modifier::UNDERLINED),
+                    ),
                     Span::styled(" written that session", dim),
                 ]),
                 Line::from(""),
             ];
             let room = (inner.height as usize).saturating_sub(4);
-            lines.extend(body.into_iter().skip(first.saturating_sub(2) + *scroll).take(room));
+            lines.extend(
+                body.into_iter()
+                    .skip(first.saturating_sub(2) + *scroll)
+                    .take(room),
+            );
             while lines.len() < (inner.height as usize).saturating_sub(1) {
                 lines.push(Line::from(""));
             }
@@ -1123,7 +1424,12 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             f.render_widget(Paragraph::new(lines), inner);
         }
 
-        Overlay::Export { formats, parts, sel, done } => {
+        Overlay::Export {
+            formats,
+            parts,
+            sel,
+            done,
+        } => {
             let h = (3 + parts.len() as u16 + 10).min(area.height);
             let box_area = centred(area, 66, h);
             f.render_widget(Clear, box_area);
@@ -1134,7 +1440,13 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             let mut lines: Vec<Line> = Vec::new();
             if let Some(result) = done {
                 for l in result {
-                    let style = if l.starts_with('✓') { Style::default().fg(t.accent) } else if l.starts_with("couldn't") { Style::default().fg(t.warn) } else { Style::default().fg(t.text) };
+                    let style = if l.starts_with('✓') {
+                        Style::default().fg(t.accent)
+                    } else if l.starts_with("couldn't") {
+                        Style::default().fg(t.warn)
+                    } else {
+                        Style::default().fg(t.text)
+                    };
                     lines.push(Line::from(Span::styled(format!(" {l}"), style)));
                 }
                 while lines.len() < (inner.height as usize).saturating_sub(1) {
@@ -1147,20 +1459,57 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             let row = |i: usize, on: bool, label: String, note: &str, lines: &mut Vec<Line>| {
                 let cursor = i == *sel;
                 let l = Line::from(vec![
-                    Span::styled(if cursor { " ▸ " } else { "   " }, Style::default().fg(t.accent)),
-                    Span::styled(if on { "[x] " } else { "[ ] " }, Style::default().fg(if on { t.accent } else { t.dim })),
-                    Span::styled(format!("{label:<16}"), Style::default().fg(if cursor { t.accent } else { t.text })),
+                    Span::styled(
+                        if cursor { " ▸ " } else { "   " },
+                        Style::default().fg(t.accent),
+                    ),
+                    Span::styled(
+                        if on { "[x] " } else { "[ ] " },
+                        Style::default().fg(if on { t.accent } else { t.dim }),
+                    ),
+                    Span::styled(
+                        format!("{label:<16}"),
+                        Style::default().fg(if cursor { t.accent } else { t.text }),
+                    ),
                     Span::styled(note.to_string(), dim),
                 ]);
-                lines.push(if cursor { l.style(Style::default().bg(t.sel)) } else { l });
+                lines.push(if cursor {
+                    l.style(Style::default().bg(t.sel))
+                } else {
+                    l
+                });
             };
-            lines.push(Line::from(Span::styled(" Formats", Style::default().fg(t.text).add_modifier(Modifier::BOLD))));
-            row(0, formats[0], "Word document".into(), "standard manuscript format, for agents and editors", &mut lines);
-            row(1, formats[1], "EPUB".into(), "for phones and e-readers", &mut lines);
-            row(2, formats[2], "Markdown".into(), "the plain compiled text", &mut lines);
+            lines.push(Line::from(Span::styled(
+                " Formats",
+                Style::default().fg(t.text).add_modifier(Modifier::BOLD),
+            )));
+            row(
+                0,
+                formats[0],
+                "Word document".into(),
+                "standard manuscript format, for agents and editors",
+                &mut lines,
+            );
+            row(
+                1,
+                formats[1],
+                "EPUB".into(),
+                "for phones and e-readers",
+                &mut lines,
+            );
+            row(
+                2,
+                formats[2],
+                "Markdown".into(),
+                "the plain compiled text",
+                &mut lines,
+            );
             if !parts.is_empty() {
                 lines.push(Line::from(""));
-                lines.push(Line::from(Span::styled(" Include", Style::default().fg(t.text).add_modifier(Modifier::BOLD))));
+                lines.push(Line::from(Span::styled(
+                    " Include",
+                    Style::default().fg(t.text).add_modifier(Modifier::BOLD),
+                )));
                 for (i, (_, title, on)) in parts.iter().enumerate() {
                     row(3 + i, *on, title.clone(), "", &mut lines);
                 }
@@ -1169,27 +1518,53 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             let button = 3 + parts.len();
             let on = *sel == button;
             let b = Line::from(vec![
-                Span::styled(if on { " ▸ " } else { "   " }, Style::default().fg(t.accent)),
-                Span::styled(" Export to exports/ ", Style::default().fg(if on { t.sel } else { t.accent }).bg(if on { t.accent } else { t.sel })),
+                Span::styled(
+                    if on { " ▸ " } else { "   " },
+                    Style::default().fg(t.accent),
+                ),
+                Span::styled(
+                    " Export to exports/ ",
+                    Style::default()
+                        .fg(if on { t.sel } else { t.accent })
+                        .bg(if on { t.accent } else { t.sel }),
+                ),
             ]);
             lines.push(b);
             while lines.len() < (inner.height as usize).saturating_sub(1) {
                 lines.push(Line::from(""));
             }
-            lines.push(hint_line(" ↑↓ choose   space/↵ tick   x export   esc close", t));
+            lines.push(hint_line(
+                " ↑↓ choose   space/↵ tick   x export   esc close",
+                t,
+            ));
             f.render_widget(Paragraph::new(lines), inner);
         }
 
-        Overlay::Spelling { word, suggestions, sel, line, end, .. } => {
+        Overlay::Spelling {
+            word,
+            suggestions,
+            sel,
+            line,
+            end,
+            ..
+        } => {
             // Sits just under the word, clamped to the screen.
             let rows = app.editor.layout(app.edit_width);
-            let vis = rows.iter().position(|r| r.line == *line && *end >= r.start && *end <= r.end).unwrap_or(0);
+            let vis = rows
+                .iter()
+                .position(|r| r.line == *line && *end >= r.start && *end <= r.end)
+                .unwrap_or(0);
             let y = app.rect_editor.y + (vis.saturating_sub(app.editor.scroll)) as u16 + 1;
             let h = suggestions.len() as u16 + 6;
             let w = 44u16.min(area.width);
             let y = y.min(area.height.saturating_sub(h));
             let x = app.rect_editor.x.min(area.width.saturating_sub(w));
-            let box_area = Rect { x, y, width: w, height: h };
+            let box_area = Rect {
+                x,
+                y,
+                width: w,
+                height: h,
+            };
             f.render_widget(Clear, box_area);
             let title = format!("“{}”", truncate(word, 30));
             let block = pane_block(&title, true, t);
@@ -1203,23 +1578,57 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             let row = |i: usize, label: String, key: String, lines: &mut Vec<Line>| {
                 let on = i == *sel;
                 let l = Line::from(vec![
-                    Span::styled(if on { " ▸ " } else { "   " }, Style::default().fg(t.accent)),
-                    Span::styled(format!("{label:<30}"), Style::default().fg(if on { t.accent } else { t.text })),
+                    Span::styled(
+                        if on { " ▸ " } else { "   " },
+                        Style::default().fg(t.accent),
+                    ),
+                    Span::styled(
+                        format!("{label:<30}"),
+                        Style::default().fg(if on { t.accent } else { t.text }),
+                    ),
                     Span::styled(key, Style::default().fg(t.sun)),
                 ]);
-                lines.push(if on { l.style(Style::default().bg(t.sel)) } else { l });
+                lines.push(if on {
+                    l.style(Style::default().bg(t.sel))
+                } else {
+                    l
+                });
             };
             for (i, s) in suggestions.iter().enumerate() {
                 row(i, truncate(s, 30), format!("{}", i + 1), &mut lines);
             }
             lines.push(Line::from(""));
-            row(suggestions.len(), "add to this book's dictionary".into(), "a".into(), &mut lines);
-            row(suggestions.len() + 1, "leave it".into(), "esc".into(), &mut lines);
+            row(
+                suggestions.len(),
+                "add to this book's dictionary".into(),
+                "a".into(),
+                &mut lines,
+            );
+            row(
+                suggestions.len() + 1,
+                "leave it".into(),
+                "esc".into(),
+                &mut lines,
+            );
             lines.push(hint_line(" ↵ choose   F8 skip to the next", t));
             f.render_widget(Paragraph::new(lines), inner);
         }
 
-        Overlay::Cork { scope, sel, pov, typing } => draw_cork(f, app, area, t, scope, *sel, pov.as_deref(), typing.as_ref()),
+        Overlay::Cork {
+            scope,
+            sel,
+            pov,
+            typing,
+        } => draw_cork(
+            f,
+            app,
+            area,
+            t,
+            scope,
+            *sel,
+            pov.as_deref(),
+            typing.as_ref(),
+        ),
 
         Overlay::Names { drifts, sel } => {
             let h = (drifts.len() as u16 * 2).min(20) + 6;
@@ -1230,7 +1639,10 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             f.render_widget(block, box_area);
             let dim = Style::default().fg(t.dim);
             let mut lines = vec![
-                Line::from(Span::styled(" Spellings one or two letters away from a name in your notebook:", Style::default().fg(t.text))),
+                Line::from(Span::styled(
+                    " Spellings one or two letters away from a name in your notebook:",
+                    Style::default().fg(t.text),
+                )),
                 Line::from(""),
             ];
             for (i, d) in drifts.iter().enumerate().take(10) {
@@ -1243,7 +1655,10 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
                     }
                 }
                 let row = Line::from(vec![
-                    Span::styled(if on { " ▸ " } else { "   " }, Style::default().fg(t.accent)),
+                    Span::styled(
+                        if on { " ▸ " } else { "   " },
+                        Style::default().fg(t.accent),
+                    ),
                     Span::styled(d.variant.clone(), Style::default().fg(t.warn)),
                     Span::styled(format!(" ×{}", d.hits.len()), dim),
                     Span::styled(" — the ", dim),
@@ -1251,13 +1666,26 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
                     Span::styled(" note says ", dim),
                     Span::styled(d.name.name.clone(), Style::default().fg(t.accent)),
                 ]);
-                lines.push(if on { row.style(Style::default().bg(t.sel)) } else { row });
-                lines.push(Line::from(Span::styled(format!("     {}", truncate(&scenes.join(" · "), inner.width.saturating_sub(6) as usize)), dim)));
+                lines.push(if on {
+                    row.style(Style::default().bg(t.sel))
+                } else {
+                    row
+                });
+                lines.push(Line::from(Span::styled(
+                    format!(
+                        "     {}",
+                        truncate(&scenes.join(" · "), inner.width.saturating_sub(6) as usize)
+                    ),
+                    dim,
+                )));
             }
             while lines.len() < (inner.height as usize).saturating_sub(1) {
                 lines.push(Line::from(""));
             }
-            lines.push(hint_line(" ↑↓ choose   ↵ go to the first one   f fix them all   esc close", t));
+            lines.push(hint_line(
+                " ↑↓ choose   ↵ go to the first one   f fix them all   esc close",
+                t,
+            ));
             f.render_widget(Paragraph::new(lines), inner);
         }
 
@@ -1296,7 +1724,10 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
                 ]));
             }
             if items.len() > 8 {
-                lines.push(Line::from(Span::styled(format!("   and {} more", items.len() - 8), dim)));
+                lines.push(Line::from(Span::styled(
+                    format!("   and {} more", items.len() - 8),
+                    dim,
+                )));
             }
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled(
@@ -1305,9 +1736,15 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             )));
             lines.push(Line::from(""));
             lines.push(Line::from(vec![
-                Span::styled(" y ", Style::default().fg(t.accent).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    " y ",
+                    Style::default().fg(t.accent).add_modifier(Modifier::BOLD),
+                ),
                 Span::styled("restore them   ", Style::default().fg(t.text)),
-                Span::styled("n ", Style::default().fg(t.accent).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "n ",
+                    Style::default().fg(t.accent).add_modifier(Modifier::BOLD),
+                ),
                 Span::styled("keep the saved versions   ", Style::default().fg(t.text)),
                 Span::styled("esc", key_style(t)),
                 Span::styled(" decide later", dim),
@@ -1315,10 +1752,25 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             f.render_widget(Paragraph::new(lines), inner);
         }
 
-        Overlay::History { scene, title, versions, sel, scroll } => {
-            let box_area = centred(area, area.width.saturating_sub(4).min(118), area.height.saturating_sub(2).min(40));
+        Overlay::History {
+            scene,
+            title,
+            versions,
+            sel,
+            scroll,
+        } => {
+            let box_area = centred(
+                area,
+                area.width.saturating_sub(4).min(118),
+                area.height.saturating_sub(2).min(40),
+            );
             f.render_widget(Clear, box_area);
-            let head = format!("HISTORY · {} · {} version{}", title.to_uppercase(), versions.len(), if versions.len() == 1 { "" } else { "s" });
+            let head = format!(
+                "HISTORY · {} · {} version{}",
+                title.to_uppercase(),
+                versions.len(),
+                if versions.len() == 1 { "" } else { "s" }
+            );
             let block = pane_block(&head, true, t);
             let inner = block.inner(box_area);
             f.render_widget(block, box_area);
@@ -1341,7 +1793,10 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             // The versions, newest first.
             let room = list_area.height.saturating_sub(3) as usize;
             let start = sel.saturating_sub(room.saturating_sub(1));
-            let mut left: Vec<Line> = vec![Line::from(Span::styled(" kept versions", dim)), Line::from("")];
+            let mut left: Vec<Line> = vec![
+                Line::from(Span::styled(" kept versions", dim)),
+                Line::from(""),
+            ];
             for (i, v) in versions.iter().enumerate().skip(start).take(room) {
                 let on = i == *sel;
                 let words = v.words() as i64;
@@ -1352,11 +1807,21 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
                     d => format!("{} more", thousands(d as usize)),
                 };
                 let row = Line::from(vec![
-                    Span::styled(if on { " ▸ " } else { "   " }, Style::default().fg(t.accent)),
-                    Span::styled(format!("{:<17}", when_label(v.when)), Style::default().fg(if on { t.accent } else { t.text })),
+                    Span::styled(
+                        if on { " ▸ " } else { "   " },
+                        Style::default().fg(t.accent),
+                    ),
+                    Span::styled(
+                        format!("{:<17}", when_label(v.when)),
+                        Style::default().fg(if on { t.accent } else { t.text }),
+                    ),
                     Span::styled(truncate(&change, 13), dim),
                 ]);
-                left.push(if on { row.style(Style::default().bg(t.sel)) } else { row });
+                left.push(if on {
+                    row.style(Style::default().bg(t.sel))
+                } else {
+                    row
+                });
             }
             f.render_widget(Paragraph::new(left), list_area);
 
@@ -1368,13 +1833,29 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             let (mut body, first_change) = diff_lines(&pieces, width, t);
             let header = vec![
                 Line::from(vec![
-                    Span::styled(format!("{} · {} words", when_label(v.when), thousands(v.words())), Style::default().fg(t.accent)),
-                    Span::styled(format!("  ·  now {} words", thousands(now_words as usize)), dim),
+                    Span::styled(
+                        format!("{} · {} words", when_label(v.when), thousands(v.words())),
+                        Style::default().fg(t.accent),
+                    ),
+                    Span::styled(
+                        format!("  ·  now {} words", thousands(now_words as usize)),
+                        dim,
+                    ),
                 ]),
                 Line::from(vec![
-                    Span::styled("struck", Style::default().fg(t.warn).add_modifier(Modifier::CROSSED_OUT)),
+                    Span::styled(
+                        "struck",
+                        Style::default()
+                            .fg(t.warn)
+                            .add_modifier(Modifier::CROSSED_OUT),
+                    ),
                     Span::styled(" was in this version and is gone now · ", dim),
-                    Span::styled("underlined", Style::default().fg(t.accent).add_modifier(Modifier::UNDERLINED)),
+                    Span::styled(
+                        "underlined",
+                        Style::default()
+                            .fg(t.accent)
+                            .add_modifier(Modifier::UNDERLINED),
+                    ),
                     Span::styled(" is new since", dim),
                 ]),
                 Line::from(""),
@@ -1383,25 +1864,48 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             let top = first_change.saturating_sub(2) + *scroll;
             let top = top.min(body.len().saturating_sub(1));
             let mut lines = header;
-            if pieces.iter().all(|p| matches!(p, grimoire_core::history::Piece::Same(_))) {
-                lines.push(Line::from(Span::styled("identical to the scene as it is now", dim)));
+            if pieces
+                .iter()
+                .all(|p| matches!(p, grimoire_core::history::Piece::Same(_)))
+            {
+                lines.push(Line::from(Span::styled(
+                    "identical to the scene as it is now",
+                    dim,
+                )));
             } else {
                 lines.extend(body.drain(..).skip(top).take(room));
             }
             while lines.len() < (diff_area.height as usize).saturating_sub(1) {
                 lines.push(Line::from(""));
             }
-            lines.push(hint_line("↑↓ pick a version   PgUp PgDn scroll   ↵ restore it   esc close", t));
+            lines.push(hint_line(
+                "↑↓ pick a version   PgUp PgDn scroll   ↵ restore it   esc close",
+                t,
+            ));
             f.render_widget(Paragraph::new(lines), diff_area);
         }
 
         Overlay::Menu { sel } | Overlay::Settings { sel } => {
             let nested = matches!(app.overlay, Overlay::Settings { .. });
-            let items: Vec<String> =
-                if nested { app.settings_menu() } else { app.menu() }.into_iter().map(|(label, _)| label).collect();
+            let items: Vec<String> = if nested {
+                app.settings_menu()
+            } else {
+                app.menu()
+            }
+            .into_iter()
+            .map(|(label, _)| label)
+            .collect();
             let box_area = centred(area, 42, items.len() as u16 + 4);
             f.render_widget(Clear, box_area);
-            let block = pane_block(if nested { "GRIMOIRE › SETTINGS" } else { "GRIMOIRE" }, true, t);
+            let block = pane_block(
+                if nested {
+                    "GRIMOIRE › SETTINGS"
+                } else {
+                    "GRIMOIRE"
+                },
+                true,
+                t,
+            );
             let inner = block.inner(box_area);
             f.render_widget(block, box_area);
 
@@ -1428,12 +1932,30 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
                 })
                 .collect();
             lines.push(Line::from(""));
-            lines.push(hint_line(if nested { " j/k move   ↵ choose   esc back" } else { " j/k move   ↵ choose   esc close" }, t));
+            lines.push(hint_line(
+                if nested {
+                    " j/k move   ↵ choose   esc back"
+                } else {
+                    " j/k move   ↵ choose   esc close"
+                },
+                t,
+            ));
             f.render_widget(Paragraph::new(lines), inner);
         }
 
-        Overlay::Player { tab, sel, query, find, typing, .. } => {
-            let box_area = centred(area, area.width.saturating_sub(4).min(100), area.height.saturating_sub(2).min(30));
+        Overlay::Player {
+            tab,
+            sel,
+            query,
+            find,
+            typing,
+            ..
+        } => {
+            let box_area = centred(
+                area,
+                area.width.saturating_sub(4).min(100),
+                area.height.saturating_sub(2).min(30),
+            );
             f.render_widget(Clear, box_area);
             let title = format!("♪ {}", app.music.source.label().to_uppercase());
             let block = pane_block(&title, true, t);
@@ -1450,12 +1972,19 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
                 MusicState::Playing(tr) => {
                     lines.push(Line::from(vec![
                         Span::styled(if tr.playing { " ▶ " } else { " ❚❚ " }, accent),
-                        Span::styled(truncate(&tr.title, iw.saturating_sub(26).max(8)), Style::default().fg(t.text)),
+                        Span::styled(
+                            truncate(&tr.title, iw.saturating_sub(26).max(8)),
+                            Style::default().fg(t.text),
+                        ),
                         Span::styled(format!("  {}", truncate(&tr.artist, 22)), dim),
                     ]));
                     let times = format!(" {} / {}", mins(tr.progress), mins(tr.duration));
                     let barw = iw.saturating_sub(times.chars().count() + 1).max(4);
-                    let frac = if tr.duration > 0.0 { (tr.progress / tr.duration).clamp(0.0, 1.0) } else { 0.0 };
+                    let frac = if tr.duration > 0.0 {
+                        (tr.progress / tr.duration).clamp(0.0, 1.0)
+                    } else {
+                        0.0
+                    };
                     let filled = ((frac * barw as f64).round() as usize).min(barw);
                     lines.push(Line::from(vec![
                         Span::raw(" "),
@@ -1478,11 +2007,16 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
 
             // Tabs, and what the list below is showing.
             use crate::app::Tab;
-            let on = accent.add_modifier(ratatui::style::Modifier::BOLD | ratatui::style::Modifier::UNDERLINED);
+            let on = accent.add_modifier(
+                ratatui::style::Modifier::BOLD | ratatui::style::Modifier::UNDERLINED,
+            );
             let style = |which: Tab| if *tab == which { on } else { dim };
             lines.push(Line::from(vec![
                 Span::raw(" "),
-                Span::styled(format!("QUEUE · {}", app.music.queue.len()), style(Tab::Queue)),
+                Span::styled(
+                    format!("QUEUE · {}", app.music.queue.len()),
+                    style(Tab::Queue),
+                ),
                 Span::raw("    "),
                 Span::styled("PLAYLISTS", style(Tab::Playlists)),
                 Span::raw("    "),
@@ -1504,14 +2038,23 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
                 } else if query.is_empty() {
                     Line::from(Span::styled(" press / and type a song or an artist", dim))
                 } else {
-                    Line::from(Span::styled(format!(" results for “{query}” · / to search again"), dim))
+                    Line::from(Span::styled(
+                        format!(" results for “{query}” · / to search again"),
+                        dim,
+                    ))
                 }),
                 Tab::Playlists => lines.push(if *typing {
                     prompt("playlists", find)
                 } else if find.is_empty() {
-                    Line::from(Span::styled(" your library · / searches every playlist on YouTube Music", dim))
+                    Line::from(Span::styled(
+                        " your library · / searches every playlist on YouTube Music",
+                        dim,
+                    ))
                 } else {
-                    Line::from(Span::styled(format!(" playlists matching “{find}” · esc for yours"), dim))
+                    Line::from(Span::styled(
+                        format!(" playlists matching “{find}” · esc for yours"),
+                        dim,
+                    ))
                 }),
                 Tab::Queue => {}
             }
@@ -1519,7 +2062,9 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
 
             // The list, scrolled to keep the selection in view.
             let footer = 3;
-            let room = (inner.height as usize).saturating_sub(lines.len() + footer).max(1);
+            let room = (inner.height as usize)
+                .saturating_sub(lines.len() + footer)
+                .max(1);
             let items = match tab {
                 Tab::Queue => &app.music.queue,
                 Tab::Playlists => &app.music.playlists,
@@ -1531,15 +2076,24 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
                     dim,
                 )));
             }
-            let start = sel.saturating_sub(room / 2).min(items.len().saturating_sub(room));
+            let start = sel
+                .saturating_sub(room / 2)
+                .min(items.len().saturating_sub(room));
             // Playlists show a song count where tracks show a length.
             let len_w = if *tab == Tab::Playlists { 11 } else { 6 };
             let artist_w = (iw / 4).clamp(8, 28);
             let title_w = iw.saturating_sub(artist_w + 8 + len_w);
             for (i, it) in items.iter().enumerate().skip(start).take(room) {
-                let who = if it.video { format!("{} · video", it.artist) } else { it.artist.clone() };
+                let who = if it.video {
+                    format!("{} · video", it.artist)
+                } else {
+                    it.artist.clone()
+                };
                 let row = Line::from(vec![
-                    Span::styled(format!(" {}{:>3} ", if it.current { "▶" } else { " " }, i + 1), if it.current { accent } else { dim }),
+                    Span::styled(
+                        format!(" {}{:>3} ", if it.current { "▶" } else { " " }, i + 1),
+                        if it.current { accent } else { dim },
+                    ),
                     Span::styled(
                         format!("{:<title_w$}", truncate(&it.title, title_w)),
                         Style::default().fg(if it.current { t.accent } else { t.text }),
@@ -1547,17 +2101,26 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
                     Span::styled(format!(" {:<artist_w$}", truncate(&who, artist_w)), dim),
                     Span::styled(format!("{:>len_w$}", it.length), dim),
                 ]);
-                lines.push(if i == *sel { row.style(Style::default().bg(t.sel)) } else { row });
+                lines.push(if i == *sel {
+                    row.style(Style::default().bg(t.sel))
+                } else {
+                    row
+                });
             }
 
             while lines.len() < (inner.height as usize).saturating_sub(footer) {
                 lines.push(Line::from(""));
             }
-            lines.push(Line::from(Span::styled(format!(" {}", app.music.note.clone().unwrap_or_default()), accent)));
+            lines.push(Line::from(Span::styled(
+                format!(" {}", app.music.note.clone().unwrap_or_default()),
+                accent,
+            )));
             let controls = " space pause  ←→ seek 10s  [ ] prev/next  s shuffle  r repeat  +/- volume  l like  esc close";
             let keys = match tab {
                 Tab::Queue => " ↵ play this one   ↑↓ choose   / search   tab playlists",
-                Tab::Playlists => " ↵ play playlist   a play it next   / find playlists   ↑↓ choose   tab search",
+                Tab::Playlists => {
+                    " ↵ play playlist   a play it next   / find playlists   ↑↓ choose   tab search"
+                }
                 Tab::Search => " / search   ↵ play now   a play next   ↑↓ choose   tab queue",
             };
             lines.extend([keys, controls].map(|k| hint_line(k, t)));
@@ -1578,10 +2141,16 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
                     " ↵ create   type to rename   esc cancel",
                 )
             } else {
-                (Style::default().fg(t.text), " type a name   ↵ create   esc cancel")
+                (
+                    Style::default().fg(t.text),
+                    " type a name   ↵ create   esc cancel",
+                )
             };
             let lines = vec![
-                Line::from(Span::styled(format!(" {}", plan.place), Style::default().fg(t.dim))),
+                Line::from(Span::styled(
+                    format!(" {}", plan.place),
+                    Style::default().fg(t.dim),
+                )),
                 Line::from(""),
                 Line::from(vec![
                     Span::styled(" ▸ ", Style::default().fg(t.accent)),
@@ -1594,7 +2163,9 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             f.render_widget(Paragraph::new(lines), inner);
         }
 
-        Overlay::Rename { buf, fresh, noun, .. } => {
+        Overlay::Rename {
+            buf, fresh, noun, ..
+        } => {
             let box_area = centred(area, 56, 7);
             f.render_widget(Clear, box_area);
             let title = format!("RENAME {}", noun.to_uppercase());
@@ -1627,7 +2198,13 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             f.render_widget(Paragraph::new(lines), inner);
         }
 
-        Overlay::Confirm { name, noun, words, permanent, .. } => {
+        Overlay::Confirm {
+            name,
+            noun,
+            words,
+            permanent,
+            ..
+        } => {
             let box_area = centred(area, 58, 8);
             f.render_widget(Clear, box_area);
             let title = format!("DELETE {}", noun.to_uppercase());
@@ -1646,7 +2223,10 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
                     Span::styled("?", Style::default().fg(t.text)),
                 ]),
                 Line::from(""),
-                Line::from(Span::styled(format!(" {toll}"), Style::default().fg(t.warn))),
+                Line::from(Span::styled(
+                    format!(" {toll}"),
+                    Style::default().fg(t.warn),
+                )),
                 Line::from(Span::styled(
                     if *permanent {
                         " it's already in the trash — this is for good"
@@ -1792,11 +2372,18 @@ fn draw_cork(
     typing: Option<&(crate::app::CardField, String)>,
 ) {
     use grimoire_core::cork;
-    let box_area = Rect { x: area.x, y: area.y, width: area.width, height: area.height.saturating_sub(1) };
+    let box_area = Rect {
+        x: area.x,
+        y: area.y,
+        width: area.width,
+        height: area.height.saturating_sub(1),
+    };
     f.render_widget(Clear, box_area);
     let part = app.cork_scope(scope);
     let groups = cork::board(&app.project, part);
-    let where_ = part.map(|i| app.project.nodes[i].title.to_uppercase()).unwrap_or_else(|| "THE BOOK".into());
+    let where_ = part
+        .map(|i| app.project.nodes[i].title.to_uppercase())
+        .unwrap_or_else(|| "THE BOOK".into());
     let head = match pov {
         Some(p) => format!("CORKBOARD · {where_} · POV: {p}"),
         None => format!("CORKBOARD · {where_}"),
@@ -1817,12 +2404,27 @@ fn draw_cork(
     let mut legend = vec![Span::styled(" POV  ", dim)];
     for p in &povs {
         legend.push(Span::styled("■ ", Style::default().fg(colour_of(Some(p)))));
-        legend.push(Span::styled(format!("{p}   "), Style::default().fg(if pov.is_none_or(|x| x == p) { t.text } else { t.dim })));
+        legend.push(Span::styled(
+            format!("{p}   "),
+            Style::default().fg(if pov.is_none_or(|x| x == p) {
+                t.text
+            } else {
+                t.dim
+            }),
+        ));
     }
     if povs.is_empty() {
         legend.push(Span::styled("none set yet — v on a card sets one", dim));
     }
-    f.render_widget(Paragraph::new(Line::from(legend)), Rect { x: inner.x, y: inner.y, width: inner.width, height: 1 });
+    f.render_widget(
+        Paragraph::new(Line::from(legend)),
+        Rect {
+            x: inner.x,
+            y: inner.y,
+            width: inner.width,
+            height: 1,
+        },
+    );
 
     let cols = app.cork_cols();
     const CARD_H: u16 = 6;
@@ -1832,7 +2434,12 @@ fn draw_cork(
     let sel = sel.min(cards.len().saturating_sub(1));
 
     // Rows of the board, with a heading line before each chapter's first row.
-    let body = Rect { x: inner.x, y: inner.y + 2, width: inner.width, height: inner.height.saturating_sub(4) };
+    let body = Rect {
+        x: inner.x,
+        y: inner.y + 2,
+        width: inner.width,
+        height: inner.height.saturating_sub(4),
+    };
     let mut y_of_row: Vec<u16> = Vec::new();
     let mut y = 0u16;
     let mut group_first_row = Vec::new();
@@ -1855,13 +2462,33 @@ fn draw_cork(
         let (_, gy) = group_first_row[gi];
         if gy >= offset && gy - offset < body.height {
             let words: usize = g.cards.iter().map(|c| c.words).sum();
-            let title = if g.title.is_empty() { "scenes".to_string() } else { g.title.clone() };
+            let title = if g.title.is_empty() {
+                "scenes".to_string()
+            } else {
+                g.title.clone()
+            };
             f.render_widget(
                 Paragraph::new(Line::from(vec![
-                    Span::styled(format!(" {title}"), Style::default().fg(t.accent).add_modifier(Modifier::BOLD)),
-                    Span::styled(format!("  {} scene{} · {} words", g.cards.len(), if g.cards.len() == 1 { "" } else { "s" }, thousands(words)), dim),
+                    Span::styled(
+                        format!(" {title}"),
+                        Style::default().fg(t.accent).add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        format!(
+                            "  {} scene{} · {} words",
+                            g.cards.len(),
+                            if g.cards.len() == 1 { "" } else { "s" },
+                            thousands(words)
+                        ),
+                        dim,
+                    ),
                 ])),
-                Rect { x: body.x, y: body.y + gy - offset, width: body.width, height: 1 },
+                Rect {
+                    x: body.x,
+                    y: body.y + gy - offset,
+                    width: body.width,
+                    height: 1,
+                },
             );
         }
     }
@@ -1872,15 +2499,37 @@ fn draw_cork(
             continue;
         }
         let card = cards[n];
-        let rect = Rect { x: body.x + 1 + c as u16 * CARD_W, y: body.y + top - offset, width: CARD_W - 1, height: CARD_H };
-        let lit = pov.is_none_or(|p| card.pov.as_deref().is_some_and(|cp| cp.eq_ignore_ascii_case(p)));
+        let rect = Rect {
+            x: body.x + 1 + c as u16 * CARD_W,
+            y: body.y + top - offset,
+            width: CARD_W - 1,
+            height: CARD_H,
+        };
+        let lit = pov.is_none_or(|p| {
+            card.pov
+                .as_deref()
+                .is_some_and(|cp| cp.eq_ignore_ascii_case(p))
+        });
         let on = n == sel;
-        let edge = if on { t.accent } else if lit { colour_of(card.pov.as_deref()) } else { t.border };
+        let edge = if on {
+            t.accent
+        } else if lit {
+            colour_of(card.pov.as_deref())
+        } else {
+            t.border
+        };
         let text = if lit { t.text } else { t.border };
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(edge).add_modifier(if on { Modifier::BOLD } else { Modifier::empty() }))
-            .title(Span::styled(format!(" {} ", truncate(&card.title, (CARD_W - 5) as usize)), Style::default().fg(if on { t.accent } else { text })));
+            .border_style(Style::default().fg(edge).add_modifier(if on {
+                Modifier::BOLD
+            } else {
+                Modifier::empty()
+            }))
+            .title(Span::styled(
+                format!(" {} ", truncate(&card.title, (CARD_W - 5) as usize)),
+                Style::default().fg(if on { t.accent } else { text }),
+            ));
         let cin = block.inner(rect);
         f.render_widget(block, rect);
         let w = cin.width as usize;
@@ -1895,9 +2544,19 @@ fn draw_cork(
         let pad = w.saturating_sub(who.chars().count() + status.chars().count());
         let editing_here = on && typing.is_some();
         let mut lines = vec![Line::from(vec![
-            Span::styled(truncate(&who, w.saturating_sub(status.chars().count() + 1)), Style::default().fg(if lit { colour_of(card.pov.as_deref()) } else { t.border })),
+            Span::styled(
+                truncate(&who, w.saturating_sub(status.chars().count() + 1)),
+                Style::default().fg(if lit {
+                    colour_of(card.pov.as_deref())
+                } else {
+                    t.border
+                }),
+            ),
             Span::raw(" ".repeat(pad)),
-            Span::styled(status, Style::default().fg(if lit { status_col } else { t.border })),
+            Span::styled(
+                status,
+                Style::default().fg(if lit { status_col } else { t.border }),
+            ),
         ])];
         let synopsis = match typing {
             Some((crate::app::CardField::Synopsis, buf)) if editing_here => format!("{buf}█"),
@@ -1905,10 +2564,16 @@ fn draw_cork(
         };
         let wrapped = wrap_words(&synopsis, w);
         for i in 0..2 {
-            lines.push(Line::from(Span::styled(wrapped.get(i).cloned().unwrap_or_default(), Style::default().fg(if lit { t.text } else { t.border }))));
+            lines.push(Line::from(Span::styled(
+                wrapped.get(i).cloned().unwrap_or_default(),
+                Style::default().fg(if lit { t.text } else { t.border }),
+            )));
         }
         if let Some((crate::app::CardField::Pov, buf)) = typing.filter(|_| editing_here) {
-            lines[0] = Line::from(vec![Span::styled("POV ▸ ", Style::default().fg(t.accent)), Span::styled(format!("{buf}█"), Style::default().fg(t.text))]);
+            lines[0] = Line::from(vec![
+                Span::styled("POV ▸ ", Style::default().fg(t.accent)),
+                Span::styled(format!("{buf}█"), Style::default().fg(t.text)),
+            ]);
         }
         let bar_w = w.saturating_sub(6).max(4);
         let words = thousands(card.words);
@@ -1916,7 +2581,10 @@ fn draw_cork(
             Some(target) => {
                 let filled = ((card.words * bar_w) / target.max(1)).min(bar_w);
                 vec![
-                    Span::styled("█".repeat(filled), Style::default().fg(if lit { t.accent } else { t.border })),
+                    Span::styled(
+                        "█".repeat(filled),
+                        Style::default().fg(if lit { t.accent } else { t.border }),
+                    ),
                     Span::styled("░".repeat(bar_w - filled), Style::default().fg(t.border)),
                     Span::styled(format!("{words:>6}"), dim),
                 ]
@@ -1932,10 +2600,22 @@ fn draw_cork(
     } else {
         format!(
             " ←→↑↓ move   ↵ open   s status   e synopsis   v POV   p filter by POV{}   esc close",
-            if cork::parts(&app.project).len() > 1 { "   [ ] other acts" } else { "" }
+            if cork::parts(&app.project).len() > 1 {
+                "   [ ] other acts"
+            } else {
+                ""
+            }
         )
     };
-    f.render_widget(Paragraph::new(hint_line(&keys, t)), Rect { x: inner.x, y: inner.y + inner.height.saturating_sub(1), width: inner.width, height: 1 });
+    f.render_widget(
+        Paragraph::new(hint_line(&keys, t)),
+        Rect {
+            x: inner.x,
+            y: inner.y + inner.height.saturating_sub(1),
+            width: inner.width,
+            height: 1,
+        },
+    );
 }
 
 /// Greedy word wrap for short card text.
@@ -1943,7 +2623,11 @@ fn wrap_words(s: &str, width: usize) -> Vec<String> {
     let mut out = Vec::new();
     let mut cur = String::new();
     for word in s.split_whitespace() {
-        let need = if cur.is_empty() { word.chars().count() } else { cur.chars().count() + 1 + word.chars().count() };
+        let need = if cur.is_empty() {
+            word.chars().count()
+        } else {
+            cur.chars().count() + 1 + word.chars().count()
+        };
         if need > width && !cur.is_empty() {
             out.push(std::mem::take(&mut cur));
         }
@@ -1974,7 +2658,11 @@ fn when_label(dt: chrono::DateTime<chrono::Local>) -> String {
 
 /// Lay a word diff out as wrapped lines. Returns the lines and the index of
 /// the first line with a change, so the view can open where it matters.
-fn diff_lines(pieces: &[grimoire_core::history::Piece], width: usize, t: &Theme) -> (Vec<Line<'static>>, usize) {
+fn diff_lines(
+    pieces: &[grimoire_core::history::Piece],
+    width: usize,
+    t: &Theme,
+) -> (Vec<Line<'static>>, usize) {
     use grimoire_core::history::Piece;
 
     struct Wrap {
@@ -2009,10 +2697,21 @@ fn diff_lines(pieces: &[grimoire_core::history::Piece], width: usize, t: &Theme)
         }
     }
 
-    let mut wrap = Wrap { width: width.max(10), lines: Vec::new(), cur: Vec::new(), used: 0, changed: false, first_change: None };
+    let mut wrap = Wrap {
+        width: width.max(10),
+        lines: Vec::new(),
+        cur: Vec::new(),
+        used: 0,
+        changed: false,
+        first_change: None,
+    };
     let plain = Style::default().fg(t.text);
-    let gone = Style::default().fg(t.warn).add_modifier(Modifier::CROSSED_OUT);
-    let new = Style::default().fg(t.accent).add_modifier(Modifier::UNDERLINED);
+    let gone = Style::default()
+        .fg(t.warn)
+        .add_modifier(Modifier::CROSSED_OUT);
+    let new = Style::default()
+        .fg(t.accent)
+        .add_modifier(Modifier::UNDERLINED);
 
     for p in pieces {
         let (text, style, changed) = match p {
@@ -2031,7 +2730,10 @@ fn diff_lines(pieces: &[grimoire_core::history::Piece], width: usize, t: &Theme)
                 wrap.end_line();
                 continue;
             }
-            let boundary = token.chars().last().is_some_and(|c| c.is_whitespace() != ch.is_whitespace());
+            let boundary = token
+                .chars()
+                .last()
+                .is_some_and(|c| c.is_whitespace() != ch.is_whitespace());
             if boundary {
                 wrap.push(&token, style, changed);
                 token.clear();
@@ -2048,7 +2750,6 @@ fn diff_lines(pieces: &[grimoire_core::history::Piece], width: usize, t: &Theme)
     let first = wrap.first_change.unwrap_or(0);
     (wrap.lines, first)
 }
-
 
 /// As many whole hints as fit in `room`, from the left. Hints are separated
 /// by two spaces; cutting one mid-word reads as a glitch.
@@ -2095,7 +2796,10 @@ mod tests {
     #[test]
     fn hints_that_do_not_fit_drop_whole_from_the_right() {
         let hints = "Tab pane  ↵ fold  n scene  c chapter  F1 menu ";
-        assert_eq!(fit_hints(hints, 100), "Tab pane  ↵ fold  n scene  c chapter  F1 menu");
+        assert_eq!(
+            fit_hints(hints, 100),
+            "Tab pane  ↵ fold  n scene  c chapter  F1 menu"
+        );
         assert_eq!(fit_hints(hints, 30), "Tab pane  ↵ fold  n scene");
         assert_eq!(fit_hints(hints, 5), "");
     }
@@ -2104,16 +2808,35 @@ mod tests {
     fn popup_footers_light_their_keys() {
         let keys = |text: &str| -> Vec<String> {
             let parts = hint_parts(text);
-            assert_eq!(parts.iter().map(|(p, _)| p.as_str()).collect::<String>(), text);
-            parts.into_iter().filter(|(_, k)| *k).map(|(p, _)| p).collect()
+            assert_eq!(
+                parts.iter().map(|(p, _)| p.as_str()).collect::<String>(),
+                text
+            );
+            parts
+                .into_iter()
+                .filter(|(_, k)| *k)
+                .map(|(p, _)| p)
+                .collect()
         };
         assert_eq!(keys(" y delete   esc keep it"), ["y", "esc"]);
         assert_eq!(keys(" type a name   ↵ create   esc cancel"), ["↵", "esc"]);
-        assert_eq!(keys("↑↓ pick a version   PgUp PgDn scroll   ↵ restore it"), ["↑↓", "PgUp PgDn", "↵"]);
-        assert_eq!(keys("↑↓ scroll   any other key: back to sessions"), ["↑↓", "any other key"]);
+        assert_eq!(
+            keys("↑↓ pick a version   PgUp PgDn scroll   ↵ restore it"),
+            ["↑↓", "PgUp PgDn", "↵"]
+        );
+        assert_eq!(
+            keys("↑↓ scroll   any other key: back to sessions"),
+            ["↑↓", "any other key"]
+        );
         assert_eq!(keys(" type hex · ↵ next · esc save & close"), ["↵", "esc"]);
-        assert_eq!(keys(" space pause  ←→ seek 10s  [ ] prev/next  +/- volume"), ["space", "←→", "[ ]", "+/-"]);
-        assert_eq!(keys("   ↵ next  ↑ previous  Tab replace  ⌘F whole book"), ["↵", "↑", "Tab", "⌘F"]);
+        assert_eq!(
+            keys(" space pause  ←→ seek 10s  [ ] prev/next  +/- volume"),
+            ["space", "←→", "[ ]", "+/-"]
+        );
+        assert_eq!(
+            keys("   ↵ next  ↑ previous  Tab replace  ⌘F whole book"),
+            ["↵", "↑", "Tab", "⌘F"]
+        );
     }
 
     #[test]
@@ -2123,11 +2846,18 @@ mod tests {
         let text: String = spans.iter().map(|(s, _)| s.as_str()).collect();
         assert_eq!(text, "◂ clearing spectrum garden ▸");
         assert!(text.chars().count() as u16 <= inner);
-        let lit: Vec<&str> =
-            spans.iter().filter(|(_, k)| *k == Piece::Current).map(|(s, _)| s.as_str()).collect();
+        let lit: Vec<&str> = spans
+            .iter()
+            .filter(|(_, k)| *k == Piece::Current)
+            .map(|(s, _)| s.as_str())
+            .collect();
         assert_eq!(lit, ["garden"]);
         // Arrows step from the current view; each name goes to itself.
-        let at = |x: u16| hits.iter().find(|(o, w, _)| x >= *o && x < o + w).map(|h| h.2);
+        let at = |x: u16| {
+            hits.iter()
+                .find(|(o, w, _)| x >= *o && x < o + w)
+                .map(|h| h.2)
+        };
         assert_eq!(at(0), Some(Mode::Spectrum));
         assert_eq!(at(2), Some(Mode::Clearing));
         assert_eq!(at(11), Some(Mode::Spectrum));

@@ -29,7 +29,11 @@ pub struct Group {
 pub const STATUSES: [&str; 5] = ["idea", "outline", "draft", "revised", "done"];
 
 pub fn next_status(current: Option<&str>) -> &'static str {
-    match current.and_then(|c| STATUSES.iter().position(|s| s.eq_ignore_ascii_case(c.trim()))) {
+    match current.and_then(|c| {
+        STATUSES
+            .iter()
+            .position(|s| s.eq_ignore_ascii_case(c.trim()))
+    }) {
         Some(i) => STATUSES[(i + 1) % STATUSES.len()],
         None => STATUSES[0],
     }
@@ -40,7 +44,9 @@ pub fn next_status(current: Option<&str>) -> &'static str {
 pub fn parts(p: &Project) -> Vec<usize> {
     p.manuscript()
         .into_iter()
-        .filter(|&r| p.nodes[r].kind == Kind::Container && manuscript::section_of(p, r) == Section::Part)
+        .filter(|&r| {
+            p.nodes[r].kind == Kind::Container && manuscript::section_of(p, r) == Section::Part
+        })
         .collect()
 }
 
@@ -77,7 +83,10 @@ fn walk(p: &Project, idx: usize, chapter: &str, groups: &mut Vec<Group>) {
     match n.kind {
         Kind::Scene => {
             if groups.last().is_none_or(|g| g.title != chapter) {
-                groups.push(Group { title: chapter.to_string(), cards: Vec::new() });
+                groups.push(Group {
+                    title: chapter.to_string(),
+                    cards: Vec::new(),
+                });
             }
             groups.last_mut().unwrap().cards.push(Card {
                 idx,
@@ -86,11 +95,18 @@ fn walk(p: &Project, idx: usize, chapter: &str, groups: &mut Vec<Group>) {
                 status: n.status.clone(),
                 synopsis: n.meta("synopsis"),
                 words: n.words(),
-                target: n.meta("target").and_then(|t| t.parse().ok()).filter(|&t: &usize| t > 0),
+                target: n
+                    .meta("target")
+                    .and_then(|t| t.parse().ok())
+                    .filter(|&t: &usize| t > 0),
             });
         }
         Kind::Container => {
-            let title = if manuscript::section_of(p, idx) == Section::Chapter { n.title.as_str() } else { chapter };
+            let title = if manuscript::section_of(p, idx) == Section::Chapter {
+                n.title.as_str()
+            } else {
+                chapter
+            };
             for &c in &n.children {
                 walk(p, c, title, groups);
             }
@@ -132,8 +148,14 @@ pub fn step(groups: &[Group], cols: usize, sel: usize, dx: isize, dy: isize) -> 
     if want < 0 {
         return sel;
     }
-    let in_row: Vec<&(usize, usize, usize)> = pos.iter().filter(|(_, r, _)| *r as isize == want).collect();
-    match in_row.iter().rev().find(|(_, _, c)| *c <= col).or(in_row.first()) {
+    let in_row: Vec<&(usize, usize, usize)> =
+        pos.iter().filter(|(_, r, _)| *r as isize == want).collect();
+    match in_row
+        .iter()
+        .rev()
+        .find(|(_, _, c)| *c <= col)
+        .or(in_row.first())
+    {
         Some((i, _, _)) => *i,
         None => sel,
     }
@@ -163,13 +185,32 @@ mod tests {
         let d = std::env::temp_dir().join(format!("grimoire-cork-{}", std::process::id()));
         let _ = fs::remove_dir_all(&d);
         for (ch, scenes) in [
-            ("manuscript/01-Act-One/01-Chapter-One", vec![("01-Gravel", "pov: Wren\nstatus: draft\nsynopsis: Confronts the caretaker.\ntarget: 1200"), ("02-Lantern", "pov: Kaelen\nstatus: revised")]),
-            ("manuscript/01-Act-One/02-Chapter-Two", vec![("01-Ashfall", "pov: Wren\nstatus: idea")]),
-            ("manuscript/02-Act-Two/03-Chapter-Three", vec![("01-Tide", "pov: Oren")]),
+            (
+                "manuscript/01-Act-One/01-Chapter-One",
+                vec![
+                    (
+                        "01-Gravel",
+                        "pov: Wren\nstatus: draft\nsynopsis: Confronts the caretaker.\ntarget: 1200",
+                    ),
+                    ("02-Lantern", "pov: Kaelen\nstatus: revised"),
+                ],
+            ),
+            (
+                "manuscript/01-Act-One/02-Chapter-Two",
+                vec![("01-Ashfall", "pov: Wren\nstatus: idea")],
+            ),
+            (
+                "manuscript/02-Act-Two/03-Chapter-Three",
+                vec![("01-Tide", "pov: Oren")],
+            ),
         ] {
             fs::create_dir_all(d.join(ch)).unwrap();
             for (name, front) in scenes {
-                fs::write(d.join(ch).join(format!("{name}.md")), format!("---\n{front}\n---\n\none two three\n")).unwrap();
+                fs::write(
+                    d.join(ch).join(format!("{name}.md")),
+                    format!("---\n{front}\n---\n\none two three\n"),
+                )
+                .unwrap();
             }
         }
         let p = Project::load(&d).unwrap();
@@ -182,25 +223,45 @@ mod tests {
         let acts = parts(&p);
         assert_eq!(acts.len(), 2);
         let g = board(&p, Some(acts[0]));
-        assert_eq!(g.iter().map(|g| g.title.as_str()).collect::<Vec<_>>(), ["Chapter One", "Chapter Two"]);
+        assert_eq!(
+            g.iter().map(|g| g.title.as_str()).collect::<Vec<_>>(),
+            ["Chapter One", "Chapter Two"]
+        );
         let gravel = &g[0].cards[0];
         assert_eq!(gravel.pov.as_deref(), Some("Wren"));
         assert_eq!(gravel.synopsis.as_deref(), Some("Confronts the caretaker."));
         assert_eq!((gravel.words, gravel.target), (3, Some(1200)));
         assert_eq!(povs(&g), ["Wren", "Kaelen"]);
-        assert_eq!(board(&p, None).iter().map(|g| g.cards.len()).sum::<usize>(), 4);
+        assert_eq!(
+            board(&p, None).iter().map(|g| g.cards.len()).sum::<usize>(),
+            4
+        );
         fs::remove_dir_all(&d).unwrap();
     }
 
     #[test]
     fn arrows_move_along_rows_and_between_chapters_by_column() {
         let g = vec![
-            Group { title: "A".into(), cards: (0..5).map(card).collect() },
-            Group { title: "B".into(), cards: (5..7).map(card).collect() },
+            Group {
+                title: "A".into(),
+                cards: (0..5).map(card).collect(),
+            },
+            Group {
+                title: "B".into(),
+                cards: (5..7).map(card).collect(),
+            },
         ];
         // cols 3: A = rows 0 [0,1,2], 1 [3,4]; B = row 2 [5,6]
-        assert_eq!(step(&g, 3, 1, 0, 1), 4, "down from column 1 lands in column 1");
-        assert_eq!(step(&g, 3, 2, 0, 1), 4, "column 2 has nothing below; nearest to the left");
+        assert_eq!(
+            step(&g, 3, 1, 0, 1),
+            4,
+            "down from column 1 lands in column 1"
+        );
+        assert_eq!(
+            step(&g, 3, 2, 0, 1),
+            4,
+            "column 2 has nothing below; nearest to the left"
+        );
         assert_eq!(step(&g, 3, 4, 0, 1), 6);
         assert_eq!(step(&g, 3, 5, 0, -1), 3);
         assert_eq!(step(&g, 3, 0, 0, -1), 0, "stays at the top");
@@ -208,7 +269,15 @@ mod tests {
     }
 
     fn card(i: usize) -> Card {
-        Card { idx: i, title: format!("{i}"), pov: None, status: None, synopsis: None, words: 0, target: None }
+        Card {
+            idx: i,
+            title: format!("{i}"),
+            pov: None,
+            status: None,
+            synopsis: None,
+            words: 0,
+            target: None,
+        }
     }
 
     #[test]

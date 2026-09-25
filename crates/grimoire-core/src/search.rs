@@ -16,14 +16,24 @@ pub fn matches(line: &str, query: &str) -> Vec<(usize, usize)> {
     }
     let exact = query.chars().any(char::is_uppercase);
     let fold = |s: &str| -> Vec<char> {
-        if exact { s.chars().collect() } else { s.chars().flat_map(char::to_lowercase).collect() }
+        if exact {
+            s.chars().collect()
+        } else {
+            s.chars().flat_map(char::to_lowercase).collect()
+        }
     };
     // Lowercasing can change length for a few characters; map back through
     // per-char lowercasing so indices stay aligned with the original.
     let hay: Vec<char> = line.chars().collect();
     let hay_folded: Vec<Vec<char>> = hay
         .iter()
-        .map(|c| if exact { vec![*c] } else { c.to_lowercase().collect() })
+        .map(|c| {
+            if exact {
+                vec![*c]
+            } else {
+                c.to_lowercase().collect()
+            }
+        })
         .collect();
     let needle = fold(query);
     let mut out = Vec::new();
@@ -129,7 +139,14 @@ fn walk(p: &Project, parents: &[Option<usize>], idx: usize, query: &str, out: &m
         let place = place_of(p, parents, idx);
         for (li, line) in n.body.split('\n').enumerate() {
             for (s, e) in matches(line, query) {
-                out.push(Hit { path: n.path.clone(), place: place.clone(), line: li, start: s, end: e, text: line.to_string() });
+                out.push(Hit {
+                    path: n.path.clone(),
+                    place: place.clone(),
+                    line: li,
+                    start: s,
+                    end: e,
+                    text: line.to_string(),
+                });
             }
         }
     }
@@ -166,7 +183,10 @@ pub fn names(p: &Project, parents: &[Option<usize>]) -> Vec<Name> {
         }
         let mut add = |name: &str| {
             if !out.iter().any(|x| x.name == name) {
-                out.push(Name { name: name.to_string(), section: section.clone() });
+                out.push(Name {
+                    name: name.to_string(),
+                    section: section.clone(),
+                });
             }
         };
         add(n.title.trim());
@@ -195,8 +215,16 @@ pub struct Drift {
 /// a notebook name but aren't that name. `known` says whether a word is an
 /// ordinary word (from the spellchecker's dictionary), so "Reach" and "Peach"
 /// never get flagged against each other.
-pub fn drift(p: &Project, parents: &[Option<usize>], names: &[Name], known: &dyn Fn(&str) -> bool) -> Vec<Drift> {
-    let single: Vec<&Name> = names.iter().filter(|n| !n.name.contains(' ') && n.name.chars().count() >= 4).collect();
+pub fn drift(
+    p: &Project,
+    parents: &[Option<usize>],
+    names: &[Name],
+    known: &dyn Fn(&str) -> bool,
+) -> Vec<Drift> {
+    let single: Vec<&Name> = names
+        .iter()
+        .filter(|n| !n.name.contains(' ') && n.name.chars().count() >= 4)
+        .collect();
     let mut out: Vec<Drift> = Vec::new();
     for (i, n) in p.nodes.iter().enumerate() {
         if n.kind != Kind::Scene || !n.in_manuscript || p.in_trash(i) {
@@ -205,7 +233,8 @@ pub fn drift(p: &Project, parents: &[Option<usize>], names: &[Name], known: &dyn
         let place = place_of(p, parents, i);
         for (li, line) in n.body.split('\n').enumerate() {
             for (s, e, word) in capitalised_words(line) {
-                if word.chars().count() < 4 || single.iter().any(|x| x.name == word) || known(&word) {
+                if word.chars().count() < 4 || single.iter().any(|x| x.name == word) || known(&word)
+                {
                     continue;
                 }
                 let Some(name) = single
@@ -215,10 +244,24 @@ pub fn drift(p: &Project, parents: &[Option<usize>], names: &[Name], known: &dyn
                 else {
                     continue;
                 };
-                let hit = Hit { path: n.path.clone(), place: place.clone(), line: li, start: s, end: e, text: line.to_string() };
-                match out.iter_mut().find(|d| d.variant == word && d.name.name == name.name) {
+                let hit = Hit {
+                    path: n.path.clone(),
+                    place: place.clone(),
+                    line: li,
+                    start: s,
+                    end: e,
+                    text: line.to_string(),
+                };
+                match out
+                    .iter_mut()
+                    .find(|d| d.variant == word && d.name.name == name.name)
+                {
                     Some(d) => d.hits.push(hit),
-                    None => out.push(Drift { variant: word, name: (*name).clone(), hits: vec![hit] }),
+                    None => out.push(Drift {
+                        variant: word,
+                        name: (*name).clone(),
+                        hits: vec![hit],
+                    }),
                 }
             }
         }
@@ -250,7 +293,11 @@ fn capitalised_words(line: &str) -> Vec<(usize, usize, String)> {
             continue;
         }
         let start = i;
-        while i < chars.len() && (chars[i].is_alphabetic() || ((chars[i] == '\'' || chars[i] == '’') && chars.get(i + 1).is_some_and(|c| c.is_alphabetic()))) {
+        while i < chars.len()
+            && (chars[i].is_alphabetic()
+                || ((chars[i] == '\'' || chars[i] == '’')
+                    && chars.get(i + 1).is_some_and(|c| c.is_alphabetic())))
+        {
             i += 1;
         }
         let mut end = i;
@@ -284,7 +331,9 @@ pub fn distance(a: &str, b: &str) -> usize {
     for i in 1..=n {
         for j in 1..=m {
             let cost = usize::from(a[i - 1] != b[j - 1]);
-            d[i][j] = (d[i - 1][j] + 1).min(d[i][j - 1] + 1).min(d[i - 1][j - 1] + cost);
+            d[i][j] = (d[i - 1][j] + 1)
+                .min(d[i][j - 1] + 1)
+                .min(d[i - 1][j - 1] + cost);
             if i > 1 && j > 1 && a[i - 1] == b[j - 2] && a[i - 2] == b[j - 1] {
                 d[i][j] = d[i][j].min(d[i - 2][j - 2] + 1);
             }
@@ -305,7 +354,11 @@ pub fn replace_word(text: &str, from: &str, to: &str) -> (String, usize) {
                 .map(|(s, e, _)| (s, e))
                 .collect();
             count += hits.len();
-            if hits.is_empty() { line.to_string() } else { splice(line, &hits, to) }
+            if hits.is_empty() {
+                line.to_string()
+            } else {
+                splice(line, &hits, to)
+            }
         })
         .collect();
     (lines.join("\n"), count)
@@ -318,8 +371,14 @@ mod tests {
 
     #[test]
     fn lowercase_finds_any_case_and_a_capital_means_exactly() {
-        assert_eq!(matches("The lantern, the Lantern", "lantern"), vec![(4, 11), (17, 24)]);
-        assert_eq!(matches("The lantern, the Lantern", "Lantern"), vec![(17, 24)]);
+        assert_eq!(
+            matches("The lantern, the Lantern", "lantern"),
+            vec![(4, 11), (17, 24)]
+        );
+        assert_eq!(
+            matches("The lantern, the Lantern", "Lantern"),
+            vec![(17, 24)]
+        );
         assert_eq!(matches("aaa", "aa"), vec![(0, 2)], "matches don't overlap");
         assert!(matches("anything", "").is_empty());
     }
@@ -354,15 +413,30 @@ mod tests {
         let _ = fs::remove_dir_all(&d);
         fs::create_dir_all(d.join("manuscript/01-Act-One/01-Chapter-One")).unwrap();
         fs::create_dir_all(d.join("notes/01-Characters")).unwrap();
-        fs::write(d.join("manuscript/01-Act-One/01-Chapter-One/01-Ashfall.md"), scene).unwrap();
-        fs::write(d.join(format!("notes/01-Characters/01-{}.md", note_title.replace(' ', "-"))), format!("---\ntitle: {note_title}\n---\n\nFerryman's son.\n")).unwrap();
+        fs::write(
+            d.join("manuscript/01-Act-One/01-Chapter-One/01-Ashfall.md"),
+            scene,
+        )
+        .unwrap();
+        fs::write(
+            d.join(format!(
+                "notes/01-Characters/01-{}.md",
+                note_title.replace(' ', "-")
+            )),
+            format!("---\ntitle: {note_title}\n---\n\nFerryman's son.\n"),
+        )
+        .unwrap();
         let p = Project::load(&d).unwrap();
         (d, p)
     }
 
     #[test]
     fn drift_finds_a_misspelt_name_and_where_it_is() {
-        let (d, p) = book_with("drift", "Kaelen lifted it.\nThen Kaelan's hand shook. Kaelan ran.\nDarren watched.", "Kaelen");
+        let (d, p) = book_with(
+            "drift",
+            "Kaelen lifted it.\nThen Kaelan's hand shook. Kaelan ran.\nDarren watched.",
+            "Kaelen",
+        );
         let parents = p.parents();
         let names = names(&p, &parents);
         let found = drift(&p, &parents, &names, &|_| false);

@@ -64,7 +64,14 @@ impl Spark {
     /// A spark placed by hand, for drawing tests.
     #[cfg(test)]
     pub fn at(x: f32, y: f32) -> Spark {
-        Spark { x, y, life: 1.0, vx: 0.0, vy: 0.0, ttl: 1.0 }
+        Spark {
+            x,
+            y,
+            life: 1.0,
+            vx: 0.0,
+            vy: 0.0,
+            ttl: 1.0,
+        }
     }
 }
 
@@ -228,7 +235,11 @@ impl Analyzer {
 
         let pad = FFT_LEN - n;
         for i in 0..FFT_LEN {
-            self.re[i] = if i < pad { 0.0 } else { tail[i - pad] * self.window[i] };
+            self.re[i] = if i < pad {
+                0.0
+            } else {
+                tail[i - pad] * self.window[i]
+            };
             self.im[i] = 0.0;
         }
         fft(&mut self.re, &mut self.im);
@@ -426,7 +437,10 @@ mod capture {
                 .default_output_config()
                 .map_err(|e| format!("can't read the output format: {e}"))?;
             if cfg.sample_format() != cpal::SampleFormat::F32 {
-                return Err(format!("output format {:?} isn't supported yet", cfg.sample_format()));
+                return Err(format!(
+                    "output format {:?} isn't supported yet",
+                    cfg.sample_format()
+                ));
             }
             let channels = (cfg.channels() as usize).max(1);
             let ring = Arc::new(Mutex::new(Ring {
@@ -500,7 +514,9 @@ mod tests {
     const DT: f32 = 1.0 / 30.0;
 
     fn tone(hz: f32, amp: f32, len: usize) -> Vec<f32> {
-        (0..len).map(|i| amp * (2.0 * PI * hz * i as f32 / RATE).sin()).collect()
+        (0..len)
+            .map(|i| amp * (2.0 * PI * hz * i as f32 / RATE).sin())
+            .collect()
     }
 
     fn loudest_bar(a: &Analyzer) -> usize {
@@ -511,7 +527,9 @@ mod tests {
 
     #[test]
     fn fft_puts_a_sine_in_its_bin() {
-        let mut re: Vec<f32> = (0..64).map(|i| (2.0 * PI * 5.0 * i as f32 / 64.0).sin()).collect();
+        let mut re: Vec<f32> = (0..64)
+            .map(|i| (2.0 * PI * 5.0 * i as f32 / 64.0).sin())
+            .collect();
         let mut im = vec![0.0; 64];
         fft(&mut re, &mut im);
         let mag: Vec<f32> = (0..32).map(|k| re[k].hypot(im[k])).collect();
@@ -523,11 +541,19 @@ mod tests {
     fn bass_lights_the_left_and_treble_the_right() {
         let mut low = Analyzer::new(BARS);
         low.update(&tone(80.0, 0.5, FFT_LEN), RATE, DT);
-        assert!(loudest_bar(&low) < BARS / 4, "80 Hz landed on bar {}", loudest_bar(&low));
+        assert!(
+            loudest_bar(&low) < BARS / 4,
+            "80 Hz landed on bar {}",
+            loudest_bar(&low)
+        );
 
         let mut high = Analyzer::new(BARS);
         high.update(&tone(6000.0, 0.5, FFT_LEN), RATE, DT);
-        assert!(loudest_bar(&high) > BARS * 3 / 4, "6 kHz landed on bar {}", loudest_bar(&high));
+        assert!(
+            loudest_bar(&high) > BARS * 3 / 4,
+            "6 kHz landed on bar {}",
+            loudest_bar(&high)
+        );
     }
 
     #[test]
@@ -537,11 +563,17 @@ mod tests {
         let bar = loudest_bar(&a);
         let before = a.levels[bar];
         a.update(&vec![0.0; FFT_LEN], RATE, DT);
-        assert!(a.levels[bar] > 0.0 && a.levels[bar] < before, "one frame of silence should dip, not drop");
+        assert!(
+            a.levels[bar] > 0.0 && a.levels[bar] < before,
+            "one frame of silence should dip, not drop"
+        );
         for _ in 0..30 {
             a.update(&vec![0.0; FFT_LEN], RATE, DT);
         }
-        assert_eq!(a.levels[bar], 0.0, "a second of silence should empty the bar");
+        assert_eq!(
+            a.levels[bar], 0.0,
+            "a second of silence should empty the bar"
+        );
         assert!(a.silent_for > 0.9);
     }
 
@@ -553,7 +585,10 @@ mod tests {
         for _ in 0..8 {
             a.update(&vec![0.0; FFT_LEN], RATE, DT);
         }
-        assert!(a.peaks[bar] > a.levels[bar] + 0.2, "the cap should hang above the falling bar");
+        assert!(
+            a.peaks[bar] > a.levels[bar] + 0.2,
+            "the cap should hang above the falling bar"
+        );
     }
 
     #[test]
@@ -563,7 +598,11 @@ mod tests {
         let signal: Vec<f32> = (0..len)
             .map(|i| {
                 let t = i as f32 / RATE;
-                if t % 0.5 < 0.08 { 0.8 * (2.0 * PI * 60.0 * t).sin() } else { 0.0 }
+                if t % 0.5 < 0.08 {
+                    0.8 * (2.0 * PI * 60.0 * t).sin()
+                } else {
+                    0.0
+                }
             })
             .collect();
         let hop = (RATE * DT) as usize;
@@ -579,7 +618,10 @@ mod tests {
             was = a.beat;
             end += hop;
         }
-        assert!((6..=9).contains(&beats), "8 kicks should give about 8 beats, got {beats}");
+        assert!(
+            (6..=9).contains(&beats),
+            "8 kicks should give about 8 beats, got {beats}"
+        );
     }
 
     #[test]
@@ -588,7 +630,11 @@ mod tests {
         let signal: Vec<f32> = (0..len)
             .map(|i| {
                 let t = i as f32 / RATE;
-                if t % 0.5 < 0.08 { 0.8 * (2.0 * PI * 60.0 * t).sin() } else { 0.0 }
+                if t % 0.5 < 0.08 {
+                    0.8 * (2.0 * PI * 60.0 * t).sin()
+                } else {
+                    0.0
+                }
             })
             .collect();
         let hop = (RATE * DT) as usize;
@@ -598,13 +644,20 @@ mod tests {
         while end <= len {
             a.update(&signal[end - FFT_LEN..end], RATE, DT);
             most = most.max(a.sparks.len());
-            assert!(a.sparks.iter().all(|s| (0.0..1.0).contains(&s.x) && s.life > 0.0));
+            assert!(
+                a.sparks
+                    .iter()
+                    .all(|s| (0.0..1.0).contains(&s.x) && s.life > 0.0)
+            );
             end += hop;
         }
         assert!(most >= 3, "kicks should throw sparks, saw at most {most}");
         for _ in 0..90 {
             a.update(&vec![0.0; FFT_LEN], RATE, DT);
         }
-        assert!(a.sparks.is_empty(), "three seconds of silence should leave none");
+        assert!(
+            a.sparks.is_empty(),
+            "three seconds of silence should leave none"
+        );
     }
 }

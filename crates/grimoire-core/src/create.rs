@@ -124,7 +124,7 @@ pub fn plan(
                 Some(f) => parent_dir(&p.nodes[f].path, &ms),
                 None => last_in(p, &ms, Section::Part).map_or(ms, |i| p.nodes[i].path.clone()),
             };
-                (
+            (
                 "chapter".to_string(),
                 true,
                 dir,
@@ -241,10 +241,18 @@ mod tests {
         let _ = fs::remove_dir_all(&d);
         let ch = d.join("manuscript/01-part-one/01-chapter-one");
         fs::create_dir_all(&ch).unwrap();
-        fs::write(ch.join("01-opening.md"), "---\ntitle: Opening\n---\n\nWords.\n").unwrap();
+        fs::write(
+            ch.join("01-opening.md"),
+            "---\ntitle: Opening\n---\n\nWords.\n",
+        )
+        .unwrap();
         let notes = d.join("notes/01-characters");
         fs::create_dir_all(&notes).unwrap();
-        fs::write(notes.join("01-example.md"), "---\ntitle: Example\n---\n\nA note.\n").unwrap();
+        fs::write(
+            notes.join("01-example.md"),
+            "---\ntitle: Example\n---\n\nA note.\n",
+        )
+        .unwrap();
         fs::write(d.join("novel.toml"), "title = \"Test\"\n").unwrap();
         d
     }

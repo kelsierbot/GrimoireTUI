@@ -155,7 +155,11 @@ fn edition_of(p: &Project, n: &Node) -> Option<Edition> {
     if folder == n.path {
         return None;
     }
-    let name = p.nodes.iter().find(|m| m.path == folder).map(|m| m.title.to_lowercase())?;
+    let name = p
+        .nodes
+        .iter()
+        .find(|m| m.path == folder)
+        .map(|m| m.title.to_lowercase())?;
     match name.as_str() {
         "manuscript format" | "manuscript" => Some(Edition::Manuscript),
         "paperback" | "print" => Some(Edition::Paperback),
@@ -290,7 +294,11 @@ fn gather<'a>(p: &'a Project, idx: usize, keep: bool, number: &mut usize, b: &mu
 
 fn pages(b: &Book) -> usize {
     let opening = b.front.len().max(1);
-    let parts = b.pieces.iter().filter(|p| matches!(p, Piece::Part { .. })).count();
+    let parts = b
+        .pieces
+        .iter()
+        .filter(|p| matches!(p, Piece::Part { .. }))
+        .count();
     opening + b.words.div_ceil(WORDS_PER_PAGE) + b.chapters + parts
 }
 
@@ -305,7 +313,11 @@ pub(crate) fn slug(title: &str) -> String {
         }
     }
     let slug = slug.trim_end_matches('-');
-    if slug.is_empty() { "book".into() } else { slug.to_string() }
+    if slug.is_empty() {
+        "book".into()
+    } else {
+        slug.to_string()
+    }
 }
 
 /// What a chapter heading adds under "Chapter One": the folder's own title —
@@ -317,7 +329,10 @@ fn chapter_name(title: &str) -> Option<&str> {
     let word = "chapter";
     let is_chapter = t.len() >= word.len()
         && t.as_bytes()[..word.len()].eq_ignore_ascii_case(word.as_bytes())
-        && t[word.len()..].chars().next().is_none_or(char::is_whitespace);
+        && t[word.len()..]
+            .chars()
+            .next()
+            .is_none_or(char::is_whitespace);
     if !is_chapter {
         return (!t.is_empty()).then_some(t);
     }
@@ -361,7 +376,10 @@ fn number_len(s: &str) -> usize {
     }
 
     let roman = s.bytes().take_while(|b| b"ivxlcIVXLC".contains(b)).count();
-    if roman > 0 && ends_word(roman) && (1..400).any(|k| to_roman(k).eq_ignore_ascii_case(&s[..roman])) {
+    if roman > 0
+        && ends_word(roman)
+        && (1..400).any(|k| to_roman(k).eq_ignore_ascii_case(&s[..roman]))
+    {
         return roman;
     }
     0
@@ -369,7 +387,15 @@ fn number_len(s: &str) -> usize {
 
 fn to_roman(mut n: usize) -> String {
     const NUMERALS: [(usize, &str); 9] = [
-        (100, "C"), (90, "XC"), (50, "L"), (40, "XL"), (10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I"),
+        (100, "C"),
+        (90, "XC"),
+        (50, "L"),
+        (40, "XL"),
+        (10, "X"),
+        (9, "IX"),
+        (5, "V"),
+        (4, "IV"),
+        (1, "I"),
     ];
     let mut out = String::new();
     for (value, numeral) in NUMERALS {
@@ -422,7 +448,11 @@ fn keyword(title: &str) -> String {
 fn header_text(b: &Book) -> String {
     let name = surname(b.author);
     let key = keyword(b.title);
-    if name.is_empty() { format!("{key} / ") } else { format!("{name} / {key} / ") }
+    if name.is_empty() {
+        format!("{key} / ")
+    } else {
+        format!("{name} / {key} / ")
+    }
 }
 
 // ── Markdown, the text inside every format ───────────────────────────
@@ -584,7 +614,10 @@ fn is_break(line: &str) -> bool {
         return true;
     }
     let marks: Vec<char> = line.chars().filter(|c| !c.is_whitespace()).collect();
-    marks.len() >= 3 && ['*', '-', '_'].iter().any(|&m| marks.iter().all(|&c| c == m))
+    marks.len() >= 3
+        && ['*', '-', '_']
+            .iter()
+            .any(|&m| marks.iter().all(|&c| c == m))
 }
 
 /// Escape text for XML. Also drops the control characters XML 1.0 forbids
@@ -747,7 +780,10 @@ fn docx_text(text: &str) -> String {
     if text.is_empty() {
         return String::new();
     }
-    format!("<w:r><w:t xml:space=\"preserve\">{}</w:t></w:r>", xml_escape(text))
+    format!(
+        "<w:r><w:t xml:space=\"preserve\">{}</w:t></w:r>",
+        xml_escape(text)
+    )
 }
 
 fn docx_runs(text: &str) -> String {
@@ -764,7 +800,11 @@ fn docx_runs(text: &str) -> String {
             }
             out.push_str("</w:rPr>");
         }
-        let _ = write!(out, "<w:t xml:space=\"preserve\">{}</w:t></w:r>", xml_escape(&r.text));
+        let _ = write!(
+            out,
+            "<w:t xml:space=\"preserve\">{}</w:t></w:r>",
+            xml_escape(&r.text)
+        );
     }
     out
 }
@@ -787,13 +827,22 @@ fn docx(b: &Book) -> Result<Vec<u8>> {
     let tab = "<w:r><w:tab/></w:r>";
     let mut opening: Vec<Para> = Vec::new();
     if b.front.is_empty() {
-        opening.push(Para::new("TitlePageLine", format!("{}{tab}{}", docx_text(b.author), docx_text(&count))));
+        opening.push(Para::new(
+            "TitlePageLine",
+            format!("{}{tab}{}", docx_text(b.author), docx_text(&count)),
+        ));
         opening.push(Para::new("Title", docx_text(&b.title.to_uppercase())));
         if !b.author.is_empty() {
-            opening.push(Para::new("Centered", docx_text(&format!("by {}", b.author))));
+            opening.push(Para::new(
+                "Centered",
+                docx_text(&format!("by {}", b.author)),
+            ));
         }
     } else {
-        opening.push(Para::new("TitlePageLine", format!("{tab}{}", docx_text(&count))));
+        opening.push(Para::new(
+            "TitlePageLine",
+            format!("{tab}{}", docx_text(&count)),
+        ));
         for (i, f) in b.front.iter().enumerate() {
             let start = opening.len();
             docx_blocks(f, true, &mut opening);
@@ -828,7 +877,10 @@ fn docx(b: &Book) -> Result<Vec<u8>> {
                 scenes,
                 ..
             } => {
-                body.push(Para::new("Heading2", docx_text(&numbered("Chapter", *number))));
+                body.push(Para::new(
+                    "Heading2",
+                    docx_text(&numbered("Chapter", *number)),
+                ));
                 if let Some(name) = chapter_name(title) {
                     body.push(Para::new("ChapterTitle", docx_runs(name)));
                 }
@@ -894,12 +946,16 @@ fn docx(b: &Book) -> Result<Vec<u8>> {
         ("docProps/core.xml", core),
         ("docProps/app.xml", DOCX_APP.to_string()),
         ("word/document.xml", doc),
-        ("word/_rels/document.xml.rels", DOCX_DOCUMENT_RELS.to_string()),
+        (
+            "word/_rels/document.xml.rels",
+            DOCX_DOCUMENT_RELS.to_string(),
+        ),
         ("word/styles.xml", docx_styles()),
         ("word/settings.xml", DOCX_SETTINGS.to_string()),
         ("word/header1.xml", header),
     ];
-    let entries: Vec<(String, String)> = files.into_iter().map(|(n, t)| (n.to_string(), t)).collect();
+    let entries: Vec<(String, String)> =
+        files.into_iter().map(|(n, t)| (n.to_string(), t)).collect();
     pack(&entries)
 }
 
@@ -966,18 +1022,38 @@ fn docx_styles() -> String {
             "<w:keepNext/><w:keepLines/><w:ind w:firstLine=\"0\"/><w:jc w:val=\"center\"/><w:outlineLvl w:val=\"1\"/>",
         ),
         // The empty lines that bring a chapter heading down the page.
-        ("Blank", "Blank Line", "<w:keepNext/><w:ind w:firstLine=\"0\"/>"),
+        (
+            "Blank",
+            "Blank Line",
+            "<w:keepNext/><w:ind w:firstLine=\"0\"/>",
+        ),
         // The title sits about halfway down its page.
         (
             "Title",
             "Title",
             "<w:keepNext/><w:spacing w:before=\"5760\"/><w:ind w:firstLine=\"0\"/><w:jc w:val=\"center\"/>",
         ),
-        ("ChapterTitle", "Chapter Title", "<w:keepNext/><w:ind w:firstLine=\"0\"/><w:jc w:val=\"center\"/>"),
-        ("SceneBreak", "Scene Break", "<w:keepNext/><w:ind w:firstLine=\"0\"/><w:jc w:val=\"center\"/>"),
-        ("Centered", "Centered", "<w:ind w:firstLine=\"0\"/><w:jc w:val=\"center\"/>"),
+        (
+            "ChapterTitle",
+            "Chapter Title",
+            "<w:keepNext/><w:ind w:firstLine=\"0\"/><w:jc w:val=\"center\"/>",
+        ),
+        (
+            "SceneBreak",
+            "Scene Break",
+            "<w:keepNext/><w:ind w:firstLine=\"0\"/><w:jc w:val=\"center\"/>",
+        ),
+        (
+            "Centered",
+            "Centered",
+            "<w:ind w:firstLine=\"0\"/><w:jc w:val=\"center\"/>",
+        ),
         ("Unindented", "Unindented", "<w:ind w:firstLine=\"0\"/>"),
-        ("Quote", "Quote", "<w:ind w:left=\"720\" w:right=\"720\" w:firstLine=\"0\"/>"),
+        (
+            "Quote",
+            "Quote",
+            "<w:ind w:left=\"720\" w:right=\"720\" w:firstLine=\"0\"/>",
+        ),
         // Name top left, word count top right, single-spaced.
         (
             "TitlePageLine",
@@ -1033,13 +1109,21 @@ fn toc_insert(list: &mut Vec<Toc>, level: usize, entry: Toc) {
 }
 
 fn toc_depth(list: &[Toc]) -> usize {
-    list.iter().map(|t| 1 + toc_depth(&t.kids)).max().unwrap_or(0)
+    list.iter()
+        .map(|t| 1 + toc_depth(&t.kids))
+        .max()
+        .unwrap_or(0)
 }
 
 fn nav_list(list: &[Toc], out: &mut String) {
     out.push_str("<ol>\n");
     for t in list {
-        let _ = write!(out, "<li><a href=\"{}\">{}</a>", xml_escape(&t.href), xml_escape(&t.label));
+        let _ = write!(
+            out,
+            "<li><a href=\"{}\">{}</a>",
+            xml_escape(&t.href),
+            xml_escape(&t.label)
+        );
         if !t.kids.is_empty() {
             out.push('\n');
             nav_list(&t.kids, out);
@@ -1128,7 +1212,12 @@ fn xhtml(title: &str, body: &str) -> String {
 fn book_id(title: &str, author: &str) -> String {
     let fnv = |seed: u64| {
         let mut h = 0xcbf2_9ce4_8422_2325u64 ^ seed;
-        for &byte in title.as_bytes().iter().chain(b"\x00").chain(author.as_bytes()) {
+        for &byte in title
+            .as_bytes()
+            .iter()
+            .chain(b"\x00")
+            .chain(author.as_bytes())
+        {
             h ^= u64::from(byte);
             h = h.wrapping_mul(0x0100_0000_01b3);
         }
@@ -1182,7 +1271,11 @@ fn epub(b: &Book) -> Result<Vec<u8>> {
     } else {
         for (i, f) in b.front.iter().enumerate() {
             let body = format!("<div class=\"front\">\n{}</div>", html_blocks(f));
-            docs.push((format!("front-{}.xhtml", i + 1), format!("front-{}", i + 1), xhtml(b.title, &body)));
+            docs.push((
+                format!("front-{}.xhtml", i + 1),
+                format!("front-{}", i + 1),
+                xhtml(b.title, &body),
+            ));
         }
     }
     let opening = docs.len();
@@ -1203,11 +1296,15 @@ fn epub(b: &Book) -> Result<Vec<u8>> {
                     html_inline(title)
                 );
                 let file = format!("{id}.xhtml");
-                toc_insert(&mut toc, *depth, Toc {
-                    label: plain(title),
-                    href: file.clone(),
-                    kids: Vec::new(),
-                });
+                toc_insert(
+                    &mut toc,
+                    *depth,
+                    Toc {
+                        label: plain(title),
+                        href: file.clone(),
+                        kids: Vec::new(),
+                    },
+                );
                 docs.push((file, id, xhtml(&plain(title), &body)));
             }
             Piece::Chapter {
@@ -1219,9 +1316,17 @@ fn epub(b: &Book) -> Result<Vec<u8>> {
                 let heading = numbered("Chapter", *number);
                 let name = chapter_name(title);
                 let mut body = String::from("<div class=\"chapter\" epub:type=\"chapter\">\n");
-                let _ = write!(body, "<h2><span class=\"number\">{}</span>", xml_escape(&heading));
+                let _ = write!(
+                    body,
+                    "<h2><span class=\"number\">{}</span>",
+                    xml_escape(&heading)
+                );
                 if let Some(name) = name {
-                    let _ = write!(body, "<br/><span class=\"name\">{}</span>", html_inline(name));
+                    let _ = write!(
+                        body,
+                        "<br/><span class=\"name\">{}</span>",
+                        html_inline(name)
+                    );
                 }
                 body.push_str("</h2>\n");
                 for (i, s) in scenes.iter().enumerate() {
@@ -1238,11 +1343,15 @@ fn epub(b: &Book) -> Result<Vec<u8>> {
                 };
                 let id = format!("chapter-{number:02}");
                 let file = format!("{id}.xhtml");
-                toc_insert(&mut toc, *depth, Toc {
-                    label: label.clone(),
-                    href: file.clone(),
-                    kids: Vec::new(),
-                });
+                toc_insert(
+                    &mut toc,
+                    *depth,
+                    Toc {
+                        label: label.clone(),
+                        href: file.clone(),
+                        kids: Vec::new(),
+                    },
+                );
                 docs.push((file, id, xhtml(&label, &body)));
             }
             Piece::Scene(s) => {
@@ -1266,8 +1375,14 @@ fn epub(b: &Book) -> Result<Vec<u8>> {
     let _ = writeln!(opf, "<dc:identifier id=\"book-id\">{id}</dc:identifier>");
     let _ = writeln!(opf, "<dc:title>{title}</dc:title>");
     if !b.author.is_empty() {
-        let _ = writeln!(opf, "<dc:creator id=\"author\">{}</dc:creator>", xml_escape(b.author));
-        opf.push_str("<meta refines=\"#author\" property=\"role\" scheme=\"marc:relators\">aut</meta>\n");
+        let _ = writeln!(
+            opf,
+            "<dc:creator id=\"author\">{}</dc:creator>",
+            xml_escape(b.author)
+        );
+        opf.push_str(
+            "<meta refines=\"#author\" property=\"role\" scheme=\"marc:relators\">aut</meta>\n",
+        );
     }
     opf.push_str("<dc:language>en</dc:language>\n");
     let _ = writeln!(opf, "<meta property=\"dcterms:modified\">{modified}</meta>");
@@ -1276,7 +1391,10 @@ fn epub(b: &Book) -> Result<Vec<u8>> {
     opf.push_str("<item id=\"ncx\" href=\"toc.ncx\" media-type=\"application/x-dtbncx+xml\"/>\n");
     opf.push_str("<item id=\"css\" href=\"style.css\" media-type=\"text/css\"/>\n");
     for (file, id, _) in &docs {
-        let _ = writeln!(opf, "<item id=\"{id}\" href=\"{file}\" media-type=\"application/xhtml+xml\"/>");
+        let _ = writeln!(
+            opf,
+            "<item id=\"{id}\" href=\"{file}\" media-type=\"application/xhtml+xml\"/>"
+        );
     }
     opf.push_str("</manifest>\n<spine toc=\"ncx\">\n");
     for (_, id, _) in &docs {
@@ -1287,9 +1405,16 @@ fn epub(b: &Book) -> Result<Vec<u8>> {
     let mut nav = String::from("<nav epub:type=\"toc\" id=\"toc\">\n<h1>Contents</h1>\n");
     nav_list(&toc, &mut nav);
     nav.push_str("</nav>\n<nav epub:type=\"landmarks\" id=\"landmarks\" hidden=\"hidden\">\n<h2>Landmarks</h2>\n<ol>\n");
-    let _ = writeln!(nav, "<li><a epub:type=\"titlepage\" href=\"{}\">Title Page</a></li>", docs[0].0);
+    let _ = writeln!(
+        nav,
+        "<li><a epub:type=\"titlepage\" href=\"{}\">Title Page</a></li>",
+        docs[0].0
+    );
     if let Some((file, _, _)) = docs.get(opening) {
-        let _ = writeln!(nav, "<li><a epub:type=\"bodymatter\" href=\"{file}\">Start of the book</a></li>");
+        let _ = writeln!(
+            nav,
+            "<li><a epub:type=\"bodymatter\" href=\"{file}\">Start of the book</a></li>"
+        );
     }
     nav.push_str("</ol>\n</nav>");
 
@@ -1302,7 +1427,11 @@ fn epub(b: &Book) -> Result<Vec<u8>> {
         toc_depth(&toc)
     );
     if !b.author.is_empty() {
-        let _ = writeln!(ncx, "<docAuthor><text>{}</text></docAuthor>", xml_escape(b.author));
+        let _ = writeln!(
+            ncx,
+            "<docAuthor><text>{}</text></docAuthor>",
+            xml_escape(b.author)
+        );
     }
     ncx.push_str("<navMap>\n");
     ncx_points(&toc, &mut 0, &mut ncx);
@@ -1323,7 +1452,10 @@ fn epub(b: &Book) -> Result<Vec<u8>> {
         ("OEBPS/toc.ncx".into(), ncx),
         ("OEBPS/style.css".into(), EPUB_CSS.into()),
     ];
-    entries.extend(docs.into_iter().map(|(file, _, text)| (format!("OEBPS/{file}"), text)));
+    entries.extend(
+        docs.into_iter()
+            .map(|(file, _, text)| (format!("OEBPS/{file}"), text)),
+    );
     pack(&entries)
 }
 
@@ -1346,7 +1478,11 @@ mod tests {
     fn book_dir(tag: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("grimoire-export-{tag}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&d);
-        put(&d, "novel.toml", "title = \"The Archive\"\nauthor = \"Josh King\"\npart_label = \"Act\"\n");
+        put(
+            &d,
+            "novel.toml",
+            "title = \"The Archive\"\nauthor = \"Josh King\"\npart_label = \"Act\"\n",
+        );
         put(
             &d,
             "manuscript/01-Act-One/01-Chapter-One/01-Scene-One.md",
@@ -1354,14 +1490,26 @@ mod tests {
              The building had *no* windows on the north face.\n\n\
              “Wait — **now**,” she said, & meant <it>.\n",
         );
-        put(&d, "manuscript/01-Act-One/01-Chapter-One/02-Scene-Two.md", "Gravel under her boots.\n");
-        put(&d, "manuscript/01-Act-One/02-Chapter-Two/01-Scene-One.md", "A lamp at the far end.\n");
+        put(
+            &d,
+            "manuscript/01-Act-One/01-Chapter-One/02-Scene-Two.md",
+            "Gravel under her boots.\n",
+        );
+        put(
+            &d,
+            "manuscript/01-Act-One/02-Chapter-Two/01-Scene-One.md",
+            "A lamp at the far end.\n",
+        );
         put(
             &d,
             "manuscript/01-Act-One/02-Chapter-Two/02-Cut.md",
             "---\ncompile: false\n---\n\nCUT MATERIAL that must not ship.\n",
         );
-        put(&d, "manuscript/02-Act-Two/01-The-Long-Road/01-Road.md", "The road ran _on_ and on.\n");
+        put(
+            &d,
+            "manuscript/02-Act-Two/01-The-Long-Road/01-Road.md",
+            "The road ran _on_ and on.\n",
+        );
         put(&d, "notes/01-Characters/wren.md", "NOTES never ship.\n");
         d
     }
@@ -1453,18 +1601,35 @@ mod tests {
         assert_eq!(inline("***both***"), vec![run("both", true, true)]);
         assert_eq!(
             inline("**bold *and italic* too**"),
-            vec![run("bold ", false, true), run("and italic", true, true), run(" too", false, true)]
+            vec![
+                run("bold ", false, true),
+                run("and italic", true, true),
+                run(" too", false, true)
+            ]
         );
         // Nothing to pair with, a lone multiplication sign, a snake_case
         // name, and escapes all stay as typed.
         assert_eq!(inline("5 * 3 = 15"), vec![run("5 * 3 = 15", false, false)]);
-        assert_eq!(inline("an *unclosed star"), vec![run("an *unclosed star", false, false)]);
-        assert_eq!(inline("snake_case_name"), vec![run("snake_case_name", false, false)]);
-        assert_eq!(inline(r"\*not\* italic"), vec![run("*not* italic", false, false)]);
+        assert_eq!(
+            inline("an *unclosed star"),
+            vec![run("an *unclosed star", false, false)]
+        );
+        assert_eq!(
+            inline("snake_case_name"),
+            vec![run("snake_case_name", false, false)]
+        );
+        assert_eq!(
+            inline(r"\*not\* italic"),
+            vec![run("*not* italic", false, false)]
+        );
         // Smart quotes and dashes are just text.
         assert_eq!(
             inline("“Wait — *now*,” she said."),
-            vec![run("“Wait — ", false, false), run("now", true, false), run(",” she said.", false, false)]
+            vec![
+                run("“Wait — ", false, false),
+                run("now", true, false),
+                run(",” she said.", false, false)
+            ]
         );
     }
 
@@ -1491,7 +1656,11 @@ mod tests {
             xml_escape("Tom & \"Jerry\" <b>’s</b>"),
             "Tom &amp; &quot;Jerry&quot; &lt;b&gt;’s&lt;/b&gt;"
         );
-        assert_eq!(xml_escape("bell\u{7} form\u{c}feed"), "bell formfeed", "XML 1.0 forbids these");
+        assert_eq!(
+            xml_escape("bell\u{7} form\u{c}feed"),
+            "bell formfeed",
+            "XML 1.0 forbids these"
+        );
         assert!(docx_runs("<w:p> & *it*").contains("&lt;w:p&gt; &amp; </w:t>"));
         assert_eq!(html_inline("a < b & *c*"), "a &lt; b &amp; <em>c</em>");
     }
@@ -1537,7 +1706,10 @@ mod tests {
         assert_eq!(a, book_id("The Archive", "Josh King"));
         assert_ne!(a, book_id("The Archive", "Someone Else"));
         assert_ne!(book_id("ab", "c"), book_id("a", "bc"));
-        assert!(a.starts_with("urn:uuid:") && a.len() == "urn:uuid:".len() + 36, "{a}");
+        assert!(
+            a.starts_with("urn:uuid:") && a.len() == "urn:uuid:".len() + 36,
+            "{a}"
+        );
     }
 
     #[test]
@@ -1568,15 +1740,33 @@ mod tests {
         let doc = entry(&files, "word/document.xml");
         let paras = docx_paragraphs(doc);
         let has = |style: &str, text: &str| paras.iter().any(|(s, t)| s == style && t == text);
-        assert!(paras[0].1.starts_with("Josh King") && paras[0].1.ends_with("about 0 words"), "{:?}", paras[0]);
+        assert!(
+            paras[0].1.starts_with("Josh King") && paras[0].1.ends_with("about 0 words"),
+            "{:?}",
+            paras[0]
+        );
         assert!(has("Title", "THE ARCHIVE"));
         assert!(has("Centered", "by Josh King"));
         assert!(has("Heading1", "Act One") && has("Heading1", "Act Two"));
-        assert!(has("Heading2", "Chapter One") && has("Heading2", "Chapter Two") && has("Heading2", "Chapter Three"));
-        assert!(has("ChapterTitle", "The Long Road"), "a chapter's own title shows");
-        assert_eq!(paras.iter().filter(|(s, _)| s == "ChapterTitle").count(), 1, "\"Chapter One\" isn't said twice");
+        assert!(
+            has("Heading2", "Chapter One")
+                && has("Heading2", "Chapter Two")
+                && has("Heading2", "Chapter Three")
+        );
+        assert!(
+            has("ChapterTitle", "The Long Road"),
+            "a chapter's own title shows"
+        );
+        assert_eq!(
+            paras.iter().filter(|(s, _)| s == "ChapterTitle").count(),
+            1,
+            "\"Chapter One\" isn't said twice"
+        );
         assert!(has("SceneBreak", "#"));
-        assert_eq!(paras.last().unwrap(), &("Centered".to_string(), "END".to_string()));
+        assert_eq!(
+            paras.last().unwrap(),
+            &("Centered".to_string(), "END".to_string())
+        );
         assert!(has("Normal", "“Wait — now,” she said, & meant <it>."));
         assert!(doc.contains("<w:rPr><w:i/></w:rPr><w:t xml:space=\"preserve\">no</w:t>"));
         assert!(doc.contains("<w:rPr><w:b/></w:rPr><w:t xml:space=\"preserve\">now</w:t>"));
@@ -1586,9 +1776,14 @@ mod tests {
         // it needs no break); the title page is a section of its own, and the
         // book's section carries the header and numbers from 1.
         assert_eq!(doc.matches("<w:pageBreakBefore/>").count(), 4);
-        let ch1 = paras.iter().position(|(s, t)| s == "Heading2" && t == "Chapter One").unwrap();
+        let ch1 = paras
+            .iter()
+            .position(|(s, t)| s == "Heading2" && t == "Chapter One")
+            .unwrap();
         assert!(
-            paras[ch1 - OPENER_BLANK_LINES..ch1].iter().all(|(s, t)| s == "Blank" && t.is_empty()),
+            paras[ch1 - OPENER_BLANK_LINES..ch1]
+                .iter()
+                .all(|(s, t)| s == "Blank" && t.is_empty()),
             "a chapter heading sits a third of the way down its page"
         );
         assert_eq!(doc.matches("<w:sectPr>").count(), 2);
@@ -1610,7 +1805,15 @@ mod tests {
     fn epub_mimetype_comes_first_and_uncompressed() {
         let d = book_dir("epub");
         let p = Project::load(&d).unwrap();
-        export(&p, &ExportOptions { docx: false, markdown: false, ..all_options() }).unwrap();
+        export(
+            &p,
+            &ExportOptions {
+                docx: false,
+                markdown: false,
+                ..all_options()
+            },
+        )
+        .unwrap();
         let raw = fs::read(d.join("exports/the-archive.epub")).unwrap();
         // A reader sniffs the type at a fixed offset: "mimetype" at byte 30,
         // its content straight after, no extra field in between.
@@ -1621,16 +1824,25 @@ mod tests {
         assert_eq!(files[0].0, "mimetype");
         assert_eq!(files[0].1, zip::CompressionMethod::Stored);
         assert_eq!(files[0].2, "application/epub+zip");
-        assert!(files[1..].iter().all(|(_, m, _)| *m == zip::CompressionMethod::Deflated));
+        assert!(
+            files[1..]
+                .iter()
+                .all(|(_, m, _)| *m == zip::CompressionMethod::Deflated)
+        );
 
         for (name, _, text) in &files {
-            if [".xml", ".opf", ".ncx", ".xhtml"].iter().any(|ext| name.ends_with(ext)) {
+            if [".xml", ".opf", ".ncx", ".xhtml"]
+                .iter()
+                .any(|ext| name.ends_with(ext))
+            {
                 xml_doc(text).unwrap_or_else(|e| panic!("{name} is not well-formed: {e}"));
             }
         }
         let opf = entry(&files, "OEBPS/content.opf");
         let id = book_id("The Archive", "Josh King");
-        assert!(opf.contains(&format!("<dc:identifier id=\"book-id\">{id}</dc:identifier>")));
+        assert!(opf.contains(&format!(
+            "<dc:identifier id=\"book-id\">{id}</dc:identifier>"
+        )));
         assert!(opf.contains("<dc:language>en</dc:language>"));
         assert!(opf.contains("property=\"dcterms:modified\""));
         assert!(entry(&files, "OEBPS/toc.ncx").contains(&format!("content=\"{id}\"")));
@@ -1648,7 +1860,11 @@ mod tests {
         // The contents nest chapters under their acts.
         let nav = entry(&files, "OEBPS/nav.xhtml");
         let act_two = nav.find(">Act Two<").unwrap();
-        assert!(nav[act_two..].contains("<ol>\n<li><a href=\"chapter-03.xhtml\">Chapter Three: The Long Road</a>"));
+        assert!(
+            nav[act_two..].contains(
+                "<ol>\n<li><a href=\"chapter-03.xhtml\">Chapter Three: The Long Road</a>"
+            )
+        );
         fs::remove_dir_all(&d).unwrap();
     }
 
@@ -1665,7 +1881,11 @@ mod tests {
 
         // A chapter whose every scene is cut isn't in the book and takes no
         // number: Chapter Three becomes Chapter Two.
-        put(&d, "manuscript/01-Act-One/02-Chapter-Two/01-Scene-One.md", "---\ncompile: false\n---\n\nGone.\n");
+        put(
+            &d,
+            "manuscript/01-Act-One/02-Chapter-Two/01-Scene-One.md",
+            "---\ncompile: false\n---\n\nGone.\n",
+        );
         let p = Project::load(&d).unwrap();
         let b = book(&p, None).unwrap();
         assert_eq!(b.chapters, 2);
@@ -1678,7 +1898,10 @@ mod tests {
         let d = book_dir("parts");
         let p = Project::load(&d).unwrap();
         let acts = parts(&p);
-        assert_eq!(acts.iter().map(|(_, t)| t.as_str()).collect::<Vec<_>>(), ["Act One", "Act Two"]);
+        assert_eq!(
+            acts.iter().map(|(_, t)| t.as_str()).collect::<Vec<_>>(),
+            ["Act One", "Act Two"]
+        );
 
         let only_two = ExportOptions {
             parts: Some(vec![acts[1].0]),
@@ -1709,16 +1932,42 @@ mod tests {
         assert!(!files.iter().any(|(n, _, _)| n == "OEBPS/chapter-01.xhtml"));
 
         // Something that isn't a part, or nothing at all, is refused.
-        let chapter = p.nodes.iter().position(|n| n.title == "Chapter One").unwrap();
-        assert!(export(&p, &ExportOptions { parts: Some(vec![chapter]), ..all_options() }).is_err());
-        assert!(export(&p, &ExportOptions { parts: Some(vec![]), ..all_options() }).is_err());
+        let chapter = p
+            .nodes
+            .iter()
+            .position(|n| n.title == "Chapter One")
+            .unwrap();
+        assert!(
+            export(
+                &p,
+                &ExportOptions {
+                    parts: Some(vec![chapter]),
+                    ..all_options()
+                }
+            )
+            .is_err()
+        );
+        assert!(
+            export(
+                &p,
+                &ExportOptions {
+                    parts: Some(vec![]),
+                    ..all_options()
+                }
+            )
+            .is_err()
+        );
         fs::remove_dir_all(&d).unwrap();
     }
 
     #[test]
     fn front_matter_replaces_the_generated_title_page() {
         let d = book_dir("front");
-        put(&d, "front-matter/01-title.md", "Josh King\n\n# The Archive\n\nA *novel*\n");
+        put(
+            &d,
+            "front-matter/01-title.md",
+            "Josh King\n\n# The Archive\n\nA *novel*\n",
+        );
         put(&d, "front-matter/02-dedication.md", "For Wren.\n");
         let p = Project::load(&d).unwrap();
         let b = book(&p, None).unwrap();
@@ -1726,10 +1975,21 @@ mod tests {
 
         let files = unzip(&docx(&b).unwrap());
         let paras = docx_paragraphs(entry(&files, "word/document.xml"));
-        assert!(!paras.iter().any(|(s, _)| s == "Title"), "no generated title");
+        assert!(
+            !paras.iter().any(|(s, _)| s == "Title"),
+            "no generated title"
+        );
         assert_eq!(paras[0].1, "about 0 words");
-        assert!(paras.iter().any(|(s, t)| s == "Centered" && t == "The Archive"));
-        assert!(paras.iter().any(|(s, t)| s == "Unindented" && t == "For Wren."));
+        assert!(
+            paras
+                .iter()
+                .any(|(s, t)| s == "Centered" && t == "The Archive")
+        );
+        assert!(
+            paras
+                .iter()
+                .any(|(s, t)| s == "Unindented" && t == "For Wren.")
+        );
 
         let files = unzip(&epub(&b).unwrap());
         assert!(entry(&files, "OEBPS/front-1.xhtml").contains("<h3>The Archive</h3>"));
@@ -1740,7 +2000,8 @@ mod tests {
 
     #[test]
     fn a_new_template_book_exports() {
-        let d = std::env::temp_dir().join(format!("grimoire-export-template-{}", std::process::id()));
+        let d =
+            std::env::temp_dir().join(format!("grimoire-export-template-{}", std::process::id()));
         let _ = fs::remove_dir_all(&d);
         fs::create_dir_all(&d).unwrap();
         crate::project::scaffold(&d).unwrap();

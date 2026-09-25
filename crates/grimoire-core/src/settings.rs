@@ -13,23 +13,33 @@ pub struct Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { spellcheck: true, icons: false }
+        Settings {
+            spellcheck: true,
+            icons: false,
+        }
     }
 }
 
 fn path() -> PathBuf {
-    crate::paths::home().join(".config").join("grimoire").join("settings.toml")
+    crate::paths::home()
+        .join(".config")
+        .join("grimoire")
+        .join("settings.toml")
 }
 
 impl Settings {
     pub fn load() -> Settings {
-        std::fs::read_to_string(path()).map(|s| Settings::parse(&s)).unwrap_or_default()
+        std::fs::read_to_string(path())
+            .map(|s| Settings::parse(&s))
+            .unwrap_or_default()
     }
 
     fn parse(s: &str) -> Settings {
         let mut out = Settings::default();
         for line in s.lines() {
-            let Some((k, v)) = line.split_once('=') else { continue };
+            let Some((k, v)) = line.split_once('=') else {
+                continue;
+            };
             match k.trim() {
                 "spellcheck" => out.spellcheck = v.trim() != "false",
                 "icons" => out.icons = v.trim() == "true",
@@ -44,7 +54,10 @@ impl Settings {
         if let Some(d) = p.parent() {
             std::fs::create_dir_all(d)?;
         }
-        std::fs::write(p, format!("spellcheck = {}\nicons = {}\n", self.spellcheck, self.icons))
+        std::fs::write(
+            p,
+            format!("spellcheck = {}\nicons = {}\n", self.spellcheck, self.icons),
+        )
     }
 }
 

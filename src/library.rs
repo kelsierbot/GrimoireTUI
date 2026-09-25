@@ -125,7 +125,10 @@ impl Plex {
     fn music_section(&self) -> Result<String> {
         let server = self.server.trim_end_matches('/');
         let mut res = agent()
-            .get(format!("{server}/library/sections?X-Plex-Token={}", self.token))
+            .get(format!(
+                "{server}/library/sections?X-Plex-Token={}",
+                self.token
+            ))
             .header("Accept", "application/json")
             .call()
             .context("asking Plex for its libraries")?;
@@ -165,9 +168,7 @@ impl Catalog for Plex {
         Ok(items
             .iter()
             .filter_map(|it| {
-                let part = it["Media"]
-                    .as_array()?
-                    .first()?["Part"]
+                let part = it["Media"].as_array()?.first()?["Part"]
                     .as_array()?
                     .first()?["key"]
                     .as_str()?;
@@ -276,7 +277,10 @@ impl Jukebox {
         let Some(track) = self.queue.get(i).cloned() else {
             return Ok(());
         };
-        let mut res = agent().get(&track.url).call().context("fetching the track")?;
+        let mut res = agent()
+            .get(&track.url)
+            .call()
+            .context("fetching the track")?;
         let tmp = std::env::temp_dir().join("grimoire-now-playing.audio");
         let mut out = std::fs::File::create(&tmp)?;
         std::io::copy(&mut res.body_mut().as_reader(), &mut out)?;
@@ -401,7 +405,10 @@ mod tests {
         p.ensure_queue().unwrap();
         // load() fails without a real device or URL; index movement is what matters.
         let _ = p.step(-1);
-        assert_eq!(p.idx, 2, "stepping back from the first track wraps to the last");
+        assert_eq!(
+            p.idx, 2,
+            "stepping back from the first track wraps to the last"
+        );
         let _ = p.step(1);
         assert_eq!(p.idx, 0, "and forward from the last wraps to the first");
     }

@@ -72,14 +72,23 @@ pub fn snapshot(root: &Path, scene: &Path, text: &str, gap: Option<Duration>) ->
     snapshot_at(root, scene, text, gap, Local::now())
 }
 
-fn snapshot_at(root: &Path, scene: &Path, text: &str, gap: Option<Duration>, now: DateTime<Local>) -> Result<bool> {
+fn snapshot_at(
+    root: &Path,
+    scene: &Path,
+    text: &str,
+    gap: Option<Duration>,
+    now: DateTime<Local>,
+) -> Result<bool> {
     let newest = versions(root, scene).into_iter().next();
     if let Some(v) = &newest {
         if v.text == text {
             return Ok(false);
         }
         if let Some(gap) = gap {
-            let age = now.signed_duration_since(v.when).to_std().unwrap_or_default();
+            let age = now
+                .signed_duration_since(v.when)
+                .to_std()
+                .unwrap_or_default();
             if age < gap {
                 return Ok(false);
             }
@@ -178,15 +187,37 @@ mod tests {
         let d = root("gap");
         let scene = d.join("manuscript/01-Act-One/01-Gravel.md");
         let t0 = Local.with_ymd_and_hms(2026, 9, 16, 21, 0, 0).unwrap();
-        assert!(snapshot_at(&d, &scene, "one", Some(GAP), t0).unwrap(), "the first copy is always kept");
-        assert!(!snapshot_at(&d, &scene, "one two", Some(GAP), t0 + Span::seconds(30)).unwrap(), "too soon");
-        assert!(snapshot_at(&d, &scene, "one two", Some(GAP), t0 + Span::minutes(6)).unwrap(), "after the gap");
-        assert!(!snapshot_at(&d, &scene, "one two", None, t0 + Span::minutes(7)).unwrap(), "identical text is never kept twice");
-        assert!(snapshot_at(&d, &scene, "one two three", None, t0 + Span::minutes(7)).unwrap(), "no gap: kept straight away");
+        assert!(
+            snapshot_at(&d, &scene, "one", Some(GAP), t0).unwrap(),
+            "the first copy is always kept"
+        );
+        assert!(
+            !snapshot_at(&d, &scene, "one two", Some(GAP), t0 + Span::seconds(30)).unwrap(),
+            "too soon"
+        );
+        assert!(
+            snapshot_at(&d, &scene, "one two", Some(GAP), t0 + Span::minutes(6)).unwrap(),
+            "after the gap"
+        );
+        assert!(
+            !snapshot_at(&d, &scene, "one two", None, t0 + Span::minutes(7)).unwrap(),
+            "identical text is never kept twice"
+        );
+        assert!(
+            snapshot_at(&d, &scene, "one two three", None, t0 + Span::minutes(7)).unwrap(),
+            "no gap: kept straight away"
+        );
 
         let v = versions(&d, &scene);
-        assert_eq!(v.iter().map(|v| v.text.as_str()).collect::<Vec<_>>(), ["one two three", "one two", "one"], "newest first");
-        assert!(v[0].file.starts_with(d.join(".grimoire/history/manuscript/01-Act-One/01-Gravel")));
+        assert_eq!(
+            v.iter().map(|v| v.text.as_str()).collect::<Vec<_>>(),
+            ["one two three", "one two", "one"],
+            "newest first"
+        );
+        assert!(
+            v[0].file
+                .starts_with(d.join(".grimoire/history/manuscript/01-Act-One/01-Gravel"))
+        );
         fs::remove_dir_all(&d).unwrap();
     }
 
@@ -209,7 +240,10 @@ mod tests {
         snapshot(&d, &from, "kept", None).unwrap();
         snapshot(&d, &to, "other", None).unwrap();
         // A swap: each takes the other's name, and neither history is lost.
-        follow_all(&d, &[(from.clone(), to.clone()), (to.clone(), from.clone())]);
+        follow_all(
+            &d,
+            &[(from.clone(), to.clone()), (to.clone(), from.clone())],
+        );
         assert_eq!(versions(&d, &to)[0].text, "kept");
         assert_eq!(versions(&d, &from)[0].text, "other");
         fs::remove_dir_all(&d).unwrap();
@@ -218,8 +252,17 @@ mod tests {
     #[test]
     fn the_diff_marks_what_went_and_what_came() {
         let pieces = diff("Wren ran across the lot.", "Wren crossed the lot slowly.");
-        assert!(pieces.contains(&Piece::Removed("ran across".into())) || pieces.iter().any(|p| matches!(p, Piece::Removed(s) if s.contains("ran"))));
-        assert!(pieces.iter().any(|p| matches!(p, Piece::Added(s) if s.contains("crossed"))));
+        assert!(
+            pieces.contains(&Piece::Removed("ran across".into()))
+                || pieces
+                    .iter()
+                    .any(|p| matches!(p, Piece::Removed(s) if s.contains("ran")))
+        );
+        assert!(
+            pieces
+                .iter()
+                .any(|p| matches!(p, Piece::Added(s) if s.contains("crossed")))
+        );
         let rebuilt_new: String = pieces
             .iter()
             .filter_map(|p| match p {

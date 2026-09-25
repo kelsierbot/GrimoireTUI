@@ -27,7 +27,10 @@ pub struct Fingerprint {
 
 impl Fingerprint {
     pub fn of(text: &str) -> Fingerprint {
-        Fingerprint { len: text.len() as u64, hash: fnv1a(text.as_bytes()) }
+        Fingerprint {
+            len: text.len() as u64,
+            hash: fnv1a(text.as_bytes()),
+        }
     }
 
     /// The file as it is on disk right now, or `None` if it isn't there —
@@ -75,8 +78,14 @@ pub fn save_guarded(path: &Path, text: &str, seen: Option<Fingerprint>) -> Resul
 /// open both in Grimoire and merge by hand — nothing is ever thrown away for
 /// them.
 pub fn write_conflict_copy(path: &Path, text: &str) -> Result<PathBuf> {
-    let stem = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "scene".into());
-    let ext = path.extension().map(|e| e.to_string_lossy().to_string()).unwrap_or_else(|| "md".into());
+    let stem = path
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "scene".into());
+    let ext = path
+        .extension()
+        .map(|e| e.to_string_lossy().to_string())
+        .unwrap_or_else(|| "md".into());
     let when = chrono::Local::now().format("%Y-%m-%d %H-%M");
     let machine = crate::resume::machine_name();
     let copy = path.with_file_name(format!("{stem} (from {machine}, {when}).{ext}"));
@@ -101,7 +110,10 @@ mod tests {
         let f = d.join("scene.md");
         fs::write(&f, "morning version\n").unwrap();
         let seen = Fingerprint::read(&f);
-        assert_eq!(save_guarded(&f, "evening version\n", seen).unwrap(), SaveOutcome::Written);
+        assert_eq!(
+            save_guarded(&f, "evening version\n", seen).unwrap(),
+            SaveOutcome::Written
+        );
         assert_eq!(fs::read_to_string(&f).unwrap(), "evening version\n");
         fs::remove_dir_all(&d).unwrap();
     }
@@ -117,9 +129,17 @@ mod tests {
         fs::write(&f, "the paragraph written on the sofa\n").unwrap();
 
         let out = save_guarded(&f, "evening version\n", seen).unwrap();
-        assert_eq!(out, SaveOutcome::Conflict { on_disk: "the paragraph written on the sofa\n".into() });
+        assert_eq!(
+            out,
+            SaveOutcome::Conflict {
+                on_disk: "the paragraph written on the sofa\n".into()
+            }
+        );
         // the sofa's words are still there, untouched
-        assert_eq!(fs::read_to_string(&f).unwrap(), "the paragraph written on the sofa\n");
+        assert_eq!(
+            fs::read_to_string(&f).unwrap(),
+            "the paragraph written on the sofa\n"
+        );
         fs::remove_dir_all(&d).unwrap();
     }
 
@@ -130,7 +150,10 @@ mod tests {
         fs::write(&f, "cat\n").unwrap();
         let seen = Fingerprint::read(&f);
         fs::write(&f, "dog\n").unwrap(); // same byte count, different words
-        assert!(matches!(save_guarded(&f, "owl\n", seen).unwrap(), SaveOutcome::Conflict { .. }));
+        assert!(matches!(
+            save_guarded(&f, "owl\n", seen).unwrap(),
+            SaveOutcome::Conflict { .. }
+        ));
         fs::remove_dir_all(&d).unwrap();
     }
 
@@ -138,11 +161,17 @@ mod tests {
     fn a_scene_that_is_new_on_disk_writes_and_a_surprise_file_does_not() {
         let d = scratch("new");
         let f = d.join("new-scene.md");
-        assert_eq!(save_guarded(&f, "first words\n", None).unwrap(), SaveOutcome::Written);
+        assert_eq!(
+            save_guarded(&f, "first words\n", None).unwrap(),
+            SaveOutcome::Written
+        );
 
         let g = d.join("already-there.md");
         fs::write(&g, "someone else got here first\n").unwrap();
-        assert!(matches!(save_guarded(&g, "first words\n", None).unwrap(), SaveOutcome::Conflict { .. }));
+        assert!(matches!(
+            save_guarded(&g, "first words\n", None).unwrap(),
+            SaveOutcome::Conflict { .. }
+        ));
         fs::remove_dir_all(&d).unwrap();
     }
 
@@ -152,7 +181,10 @@ mod tests {
         let f = d.join("The Crossing.md");
         fs::write(&f, "what the phone wrote\n").unwrap();
         let copy = write_conflict_copy(&f, "what this machine had\n").unwrap();
-        assert_eq!(fs::read_to_string(&copy).unwrap(), "what this machine had\n");
+        assert_eq!(
+            fs::read_to_string(&copy).unwrap(),
+            "what this machine had\n"
+        );
         assert_eq!(fs::read_to_string(&f).unwrap(), "what the phone wrote\n");
         let name = copy.file_name().unwrap().to_string_lossy().to_string();
         assert!(name.starts_with("The Crossing (from "), "{name}");

@@ -85,8 +85,16 @@ pub struct Stamp {
 impl Stamp {
     fn of(fp: Option<Fingerprint>) -> Stamp {
         match fp {
-            Some(f) => Stamp { len: f.len, hash: format!("{:016x}", f.hash), existed: true },
-            None => Stamp { len: 0, hash: String::new(), existed: false },
+            Some(f) => Stamp {
+                len: f.len,
+                hash: format!("{:016x}", f.hash),
+                existed: true,
+            },
+            None => Stamp {
+                len: 0,
+                hash: String::new(),
+                existed: false,
+            },
         }
     }
 
@@ -94,7 +102,12 @@ impl Stamp {
         if !self.existed {
             return None;
         }
-        u64::from_str_radix(&self.hash, 16).ok().map(|hash| Fingerprint { len: self.len, hash })
+        u64::from_str_radix(&self.hash, 16)
+            .ok()
+            .map(|hash| Fingerprint {
+                len: self.len,
+                hash,
+            })
     }
 }
 
@@ -114,7 +127,9 @@ pub enum Saved {
 /// `novel.toml` that `Project::scaffold` writes.
 pub fn books(base: &Path) -> Vec<Book> {
     let mut out = Vec::new();
-    let Ok(entries) = fs::read_dir(base) else { return out };
+    let Ok(entries) = fs::read_dir(base) else {
+        return out;
+    };
     for entry in entries.flatten() {
         let dir = entry.path();
         if !dir.join("novel.toml").is_file() {
@@ -125,17 +140,28 @@ pub fn books(base: &Path) -> Vec<Book> {
             .as_ref()
             .map(|p| p.meta.title.clone())
             .filter(|t| !t.is_empty())
-            .unwrap_or_else(|| dir.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default());
+            .unwrap_or_else(|| {
+                dir.file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_default()
+            });
         let (words, scenes) = match loaded {
             Some(p) => {
                 let live: Vec<_> = (0..p.nodes.len())
-                    .filter(|&i| p.nodes[i].kind == Kind::Scene && p.nodes[i].in_manuscript && !p.in_trash(i))
+                    .filter(|&i| {
+                        p.nodes[i].kind == Kind::Scene && p.nodes[i].in_manuscript && !p.in_trash(i)
+                    })
                     .collect();
                 (live.iter().map(|&i| p.nodes[i].words()).sum(), live.len())
             }
             None => (0, 0),
         };
-        out.push(Book { title, path: dir, words, scenes });
+        out.push(Book {
+            title,
+            path: dir,
+            words,
+            scenes,
+        });
     }
     out.sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase()));
     out
@@ -147,7 +173,12 @@ pub fn create_book(base: &Path, name: &str) -> Result<Book> {
     fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
     grimoire_core::project::scaffold(&dir)?;
     let made = books(base).into_iter().find(|b| b.path == dir);
-    Ok(made.unwrap_or(Book { title: name.to_string(), path: dir, words: 0, scenes: 0 }))
+    Ok(made.unwrap_or(Book {
+        title: name.to_string(),
+        path: dir,
+        words: 0,
+        scenes: 0,
+    }))
 }
 
 /// Every manuscript scene in book order, with where it sits and how long it is.
@@ -169,7 +200,11 @@ pub fn outline(book: &Path) -> Result<Outline> {
             conflict_copy: is_conflict_copy(&n.path),
         });
     }
-    Ok(Outline { title: p.meta.title.clone(), words, scenes })
+    Ok(Outline {
+        title: p.meta.title.clone(),
+        words,
+        scenes,
+    })
 }
 
 /// The shape `write_conflict_copy` gives a parked version: "<scene> (from
@@ -197,17 +232,30 @@ pub fn read_scene(path: &Path) -> Result<Scene> {
     let title = front
         .as_deref()
         .and_then(|f| front_title(f))
-        .unwrap_or_else(|| path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default());
-    Ok(Scene { path: path.to_path_buf(), title, text: body, front, seen: Stamp::of(Fingerprint::read(path)) })
+        .unwrap_or_else(|| {
+            path.file_stem()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_default()
+        });
+    Ok(Scene {
+        path: path.to_path_buf(),
+        title,
+        text: body,
+        front,
+        seen: Stamp::of(Fingerprint::read(path)),
+    })
 }
 
 /// `title: "Scene One"` out of the frontmatter, so the bar shows the scene's
 /// name rather than its file name.
 fn front_title(front: &str) -> Option<String> {
-    front.lines().find_map(|l| {
-        let (k, v) = l.split_once(':')?;
-        (k.trim() == "title").then(|| v.trim().trim_matches('"').to_string())
-    }).filter(|t| !t.is_empty())
+    front
+        .lines()
+        .find_map(|l| {
+            let (k, v) = l.split_once(':')?;
+            (k.trim() == "title").then(|| v.trim().trim_matches('"').to_string())
+        })
+        .filter(|t| !t.is_empty())
 }
 
 /// Prose plus the frontmatter it came with, in the same shape the terminal app
@@ -290,16 +338,23 @@ pub struct Resuming {
 pub fn resuming(base: &Path) -> Option<Resuming> {
     let mut best: Option<(chrono::DateTime<chrono::Local>, Resuming)> = None;
     for book in books(base) {
-        let Some(r) = grimoire_core::resume::read(&book.path) else { continue };
+        let Some(r) = grimoire_core::resume::read(&book.path) else {
+            continue;
+        };
         let scene = book.path.join(&r.scene);
         if !scene.is_file() {
             continue;
         }
-        let row = outline(&book.path).ok().and_then(|o| o.scenes.into_iter().find(|s| s.path == scene));
+        let row = outline(&book.path)
+            .ok()
+            .and_then(|o| o.scenes.into_iter().find(|s| s.path == scene));
         let here = Resuming {
             book: book.path.clone(),
             book_title: book.title.clone(),
-            title: row.as_ref().map(|s| s.title.clone()).unwrap_or_else(|| scene_title(&scene)),
+            title: row
+                .as_ref()
+                .map(|s| s.title.clone())
+                .unwrap_or_else(|| scene_title(&scene)),
             place: row.map(|s| s.place).unwrap_or_default(),
             path: scene,
             paragraph: r.line + 1,
@@ -319,7 +374,12 @@ pub fn mark_place(book: &Path, scene: &Path, line: usize) -> Result<()> {
     let p = Project::load(book)?;
     let place = outline(book)
         .ok()
-        .and_then(|o| o.scenes.into_iter().find(|s| s.path == scene).map(|s| s.place))
+        .and_then(|o| {
+            o.scenes
+                .into_iter()
+                .find(|s| s.path == scene)
+                .map(|s| s.place)
+        })
         .unwrap_or_default();
     let r = grimoire_core::resume::Resume {
         scene: grimoire_core::resume::relative(book, scene),
@@ -333,7 +393,9 @@ pub fn mark_place(book: &Path, scene: &Path, line: usize) -> Result<()> {
 
 /// A scene's name when the outline cannot supply one: its file name, tidied.
 fn scene_title(path: &Path) -> String {
-    path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default()
+    path.file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_default()
 }
 
 /// Where the books live.
@@ -385,7 +447,9 @@ pub mod shelf {
         let _ = fs::remove_file(&probe);
 
         fs::create_dir_all(config)?;
-        let text = serde_json::to_string_pretty(&Saved { root: dir.to_path_buf() })?;
+        let text = serde_json::to_string_pretty(&Saved {
+            root: dir.to_path_buf(),
+        })?;
         grimoire_core::project::write_atomic(&settings(config), &text)?;
         Ok(dir.to_path_buf())
     }
@@ -438,7 +502,11 @@ pub mod shelf {
     /// live on this device, each under the name they would use for it, and
     /// skipping any that are not there.
     pub fn places(roots: &[(PathBuf, String)]) -> Vec<Folder> {
-        roots.iter().filter(|(p, _)| p.is_dir()).map(|(p, name)| describe(p, name.clone())).collect()
+        roots
+            .iter()
+            .filter(|(p, _)| p.is_dir())
+            .map(|(p, name)| describe(p, name.clone()))
+            .collect()
     }
 
     /// Take the books with you when the shelf moves. Anything that is not a
@@ -451,7 +519,9 @@ pub mod shelf {
         fs::create_dir_all(to)?;
         let mut moved = 0;
         for book in books(from) {
-            let Some(name) = book.path.file_name() else { continue };
+            let Some(name) = book.path.file_name() else {
+                continue;
+            };
             let target = to.join(name);
             if target.exists() {
                 continue; // never write over a book already standing there
@@ -509,7 +579,10 @@ mod tests {
         assert!(shelved[0].scenes > 0, "but it does have scenes waiting");
 
         let outline = outline(&book.path).unwrap();
-        assert!(!outline.scenes.is_empty(), "a scaffolded book has scenes to open");
+        assert!(
+            !outline.scenes.is_empty(),
+            "a scaffolded book has scenes to open"
+        );
         assert!(outline.scenes.iter().all(|r| r.path.exists()));
         // a fresh book is empty, so every row starts at zero words
         assert_eq!(outline.words, 0);
@@ -523,18 +596,37 @@ mod tests {
         let first = outline(&book.path).unwrap().scenes[0].clone();
 
         let opened = read_scene(&first.path).unwrap();
-        assert!(!opened.text.contains("title:"), "the editor is handed prose, never frontmatter");
-        let written = format!("{}They crossed at dawn, and the river said nothing.\n", opened.text);
-        let saved = save_scene(&first.path, &written, opened.front.as_deref(), &opened.seen).unwrap();
-        let Saved::Ok { seen, words } = saved else { panic!("expected a clean save") };
+        assert!(
+            !opened.text.contains("title:"),
+            "the editor is handed prose, never frontmatter"
+        );
+        let written = format!(
+            "{}They crossed at dawn, and the river said nothing.\n",
+            opened.text
+        );
+        let saved =
+            save_scene(&first.path, &written, opened.front.as_deref(), &opened.seen).unwrap();
+        let Saved::Ok { seen, words } = saved else {
+            panic!("expected a clean save")
+        };
         assert_eq!(words, 9);
 
         assert_eq!(read_scene(&first.path).unwrap().text, written);
-        assert_eq!(outline(&book.path).unwrap().words, 9, "the outline counts what was written");
+        assert_eq!(
+            outline(&book.path).unwrap().words,
+            9,
+            "the outline counts what was written"
+        );
 
         // saving again with the stamp the save handed back still works
         assert!(matches!(
-            save_scene(&first.path, "Second pass.\n", opened.front.as_deref(), &seen).unwrap(),
+            save_scene(
+                &first.path,
+                "Second pass.\n",
+                opened.front.as_deref(),
+                &seen
+            )
+            .unwrap(),
             Saved::Ok { .. }
         ));
         fs::remove_dir_all(&base).unwrap();
@@ -551,12 +643,27 @@ mod tests {
         // …the phone saved to the same file…
         fs::write(&scene, "the paragraph written on the sofa\n").unwrap();
         // …and now the desktop saves its own version
-        let saved = save_scene(&scene, "the desktop's version", desktop.front.as_deref(), &desktop.seen).unwrap();
+        let saved = save_scene(
+            &scene,
+            "the desktop's version",
+            desktop.front.as_deref(),
+            &desktop.seen,
+        )
+        .unwrap();
 
-        let Saved::Conflict { theirs, kept } = saved else { panic!("expected a conflict") };
+        let Saved::Conflict { theirs, kept } = saved else {
+            panic!("expected a conflict")
+        };
         assert_eq!(theirs, "the paragraph written on the sofa\n");
-        assert!(!theirs.contains("title:"), "the other version is shown as prose, not as a file");
-        assert_eq!(fs::read_to_string(&scene).unwrap(), "the paragraph written on the sofa\n", "the phone's words stay put");
+        assert!(
+            !theirs.contains("title:"),
+            "the other version is shown as prose, not as a file"
+        );
+        assert_eq!(
+            fs::read_to_string(&scene).unwrap(),
+            "the paragraph written on the sofa\n",
+            "the phone's words stay put"
+        );
 
         // and the outline says which row is the parked version
         let rows = outline(&book.path).unwrap().scenes;
@@ -566,8 +673,14 @@ mod tests {
         // the copy is a whole scene file, not a loose fragment, so it opens in
         // Grimoire like any other scene
         let copy = fs::read_to_string(&kept).unwrap();
-        assert!(copy.contains("the desktop's version"), "the desktop's words are kept, not dropped");
-        assert!(copy.starts_with("---\n"), "and it keeps the scene's frontmatter: {copy}");
+        assert!(
+            copy.contains("the desktop's version"),
+            "the desktop's words are kept, not dropped"
+        );
+        assert!(
+            copy.starts_with("---\n"),
+            "and it keeps the scene's frontmatter: {copy}"
+        );
         fs::remove_dir_all(&base).unwrap();
     }
 
@@ -585,7 +698,16 @@ mod tests {
 
         // and a save with the round-tripped stamp is a save, not a conflict
         assert!(
-            matches!(save_scene(&scene, "First words on the phone.\n", opened.front.as_deref(), &back).unwrap(), Saved::Ok { .. }),
+            matches!(
+                save_scene(
+                    &scene,
+                    "First words on the phone.\n",
+                    opened.front.as_deref(),
+                    &back
+                )
+                .unwrap(),
+                Saved::Ok { .. }
+            ),
             "a scene opened and saved on one device must never look like a conflict"
         );
         fs::remove_dir_all(&base).unwrap();
@@ -613,7 +735,10 @@ mod tests {
         drop_conflict_copy(&copy).unwrap();
         assert!(!copy.exists(), "the parked copy is gone");
 
-        assert!(drop_conflict_copy(&scene).is_err(), "a scene must never be deletable this way");
+        assert!(
+            drop_conflict_copy(&scene).is_err(),
+            "a scene must never be deletable this way"
+        );
         assert!(scene.exists(), "and it is still there");
         fs::remove_dir_all(&base).unwrap();
     }
@@ -625,15 +750,26 @@ mod tests {
         let o = outline(&book.path).unwrap();
         let scene = o.scenes[1].path.clone();
 
-        assert!(resuming(&base).is_none(), "nothing written yet, so no button");
+        assert!(
+            resuming(&base).is_none(),
+            "nothing written yet, so no button"
+        );
 
         mark_place(&book.path, &scene, 41).unwrap();
         let r = resuming(&base).expect("a place to pick up");
         assert_eq!(r.path, scene);
         assert_eq!(r.book_title, "The Crossing");
         assert_eq!(r.paragraph, 42);
-        assert!(!r.place.is_empty(), "the card says where in the book: {:?}", r.place);
-        assert!(r.when.contains(','), "a phrase, not a timestamp: {}", r.when);
+        assert!(
+            !r.place.is_empty(),
+            "the card says where in the book: {:?}",
+            r.place
+        );
+        assert!(
+            r.when.contains(','),
+            "a phrase, not a timestamp: {}",
+            r.when
+        );
 
         // a scene that has since been deleted must not leave a dead button
         fs::remove_file(&scene).unwrap();
@@ -649,13 +785,25 @@ mod tests {
         fs::create_dir_all(&fallback).unwrap();
         let vault = base.join("vault").join("Novels");
 
-        assert_eq!(shelf::root(&config, &fallback), fallback, "never chosen: the private folder");
+        assert_eq!(
+            shelf::root(&config, &fallback),
+            fallback,
+            "never chosen: the private folder"
+        );
 
         shelf::choose(&config, &vault).unwrap();
-        assert_eq!(shelf::root(&config, &fallback), vault, "chosen: the vault folder");
+        assert_eq!(
+            shelf::root(&config, &fallback),
+            vault,
+            "chosen: the vault folder"
+        );
 
         fs::remove_dir_all(base.join("vault")).unwrap();
-        assert_eq!(shelf::root(&config, &fallback), fallback, "vault gone: back to the private folder, not a dead app");
+        assert_eq!(
+            shelf::root(&config, &fallback),
+            fallback,
+            "vault gone: back to the private folder, not a dead app"
+        );
         fs::remove_dir_all(&base).unwrap();
     }
 
@@ -670,7 +818,11 @@ mod tests {
 
         let seen = shelf::folders(&base).unwrap();
         let names: Vec<_> = seen.iter().map(|f| f.name.as_str()).collect();
-        assert_eq!(names, vec!["Empty", "Vault"], "files and hidden folders are not places to put a book");
+        assert_eq!(
+            names,
+            vec!["Empty", "Vault"],
+            "files and hidden folders are not places to put a book"
+        );
 
         let vault = seen.iter().find(|f| f.name == "Vault").unwrap();
         assert!(vault.vault, "an Obsidian vault is worth naming");
@@ -690,9 +842,18 @@ mod tests {
         fs::write(to.join("Someone Elses Notes").join("note.md"), "not mine").unwrap();
 
         assert_eq!(shelf::move_books(&from, &to).unwrap(), 1);
-        assert!(to.join("The Crossing").join("novel.toml").is_file(), "the book arrived whole");
-        assert!(!from.join("The Crossing").exists(), "and did not stay behind");
-        assert_eq!(fs::read_to_string(to.join("Someone Elses Notes").join("note.md")).unwrap(), "not mine");
+        assert!(
+            to.join("The Crossing").join("novel.toml").is_file(),
+            "the book arrived whole"
+        );
+        assert!(
+            !from.join("The Crossing").exists(),
+            "and did not stay behind"
+        );
+        assert_eq!(
+            fs::read_to_string(to.join("Someone Elses Notes").join("note.md")).unwrap(),
+            "not mine"
+        );
         assert_eq!(books(&to).len(), 1);
         fs::remove_dir_all(&base).unwrap();
     }
@@ -711,7 +872,11 @@ mod tests {
         ];
         let seen = shelf::places(&named);
         let names: Vec<_> = seen.iter().map(|f| f.name.as_str()).collect();
-        assert_eq!(names, vec!["Documents", "Phone storage"], "a folder that is not there is not a place to offer");
+        assert_eq!(
+            names,
+            vec!["Documents", "Phone storage"],
+            "a folder that is not there is not a place to offer"
+        );
         fs::remove_dir_all(&base).unwrap();
     }
 }

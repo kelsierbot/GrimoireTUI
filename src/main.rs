@@ -79,10 +79,7 @@ fn main() -> Result<()> {
     if first.as_deref() == Some("music-auth") {
         let cfg = music::Config::load();
         let host = args.next().unwrap_or(cfg.host);
-        let port = args
-            .next()
-            .and_then(|p| p.parse().ok())
-            .unwrap_or(cfg.port);
+        let port = args.next().and_then(|p| p.parse().ok()).unwrap_or(cfg.port);
         return music::authenticate(&host, port);
     }
 
@@ -109,8 +106,7 @@ fn main() -> Result<()> {
 
     if first.as_deref() == Some("new") {
         let dir = args.next().map(PathBuf::from).unwrap_or_else(default_root);
-        std::fs::create_dir_all(&dir)
-            .with_context(|| format!("creating {}", dir.display()))?;
+        std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
         project::scaffold(&dir)?;
         println!("Started a manuscript in {}", pretty(&dir));
         println!("Open it with:  grimoire {}", pretty(&dir));
@@ -152,14 +148,20 @@ fn main() -> Result<()> {
     app.super_keys = cmd_is_reachable();
 
     shutdown::install();
-    let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run(&mut terminal, &mut app)));
+    let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        run(&mut terminal, &mut app)
+    }));
     let res = match res {
         Ok(r) => r,
         Err(_) => {
             // ratatui's panic hook has already put the terminal back and
             // printed the panic. Keep every unsaved word before leaving.
             app.rescue();
-            let _ = execute!(std::io::stdout(), DisableBracketedPaste, DisableMouseCapture);
+            let _ = execute!(
+                std::io::stdout(),
+                DisableBracketedPaste,
+                DisableMouseCapture
+            );
             ratatui::restore();
             eprintln!("\nGrimoire hit a bug and closed. Anything unsaved was kept, and will be");
             eprintln!("offered back the next time you open this book.");
@@ -188,9 +190,9 @@ fn export_command(mut args: impl Iterator<Item = String>) -> Result<()> {
             "--epub" => epub = true,
             "--md" | "--markdown" => markdown = true,
             "--parts" => {
-                let list = args
-                    .next()
-                    .with_context(|| format!("--parts needs numbers, like --parts 1,3\n\n  {EXPORT_USAGE}"))?;
+                let list = args.next().with_context(|| {
+                    format!("--parts needs numbers, like --parts 1,3\n\n  {EXPORT_USAGE}")
+                })?;
                 numbers = Some(part_numbers(&list)?);
             }
             s if s.starts_with("--parts=") => numbers = Some(part_numbers(&s["--parts=".len()..])?),
@@ -234,7 +236,15 @@ fn export_command(mut args: impl Iterator<Item = String>) -> Result<()> {
         }
     };
 
-    let out = export::export(&project, &export::ExportOptions { docx, epub, markdown, parts })?;
+    let out = export::export(
+        &project,
+        &export::ExportOptions {
+            docx,
+            epub,
+            markdown,
+            parts,
+        },
+    )?;
     for f in &out.files {
         println!("Wrote {}", pretty(f));
     }
@@ -255,7 +265,10 @@ fn part_numbers(list: &str) -> Result<Vec<usize>> {
     for item in list.split(',').map(str::trim).filter(|s| !s.is_empty()) {
         match item.split_once('-') {
             Some((a, b)) => {
-                let (a, b): (usize, usize) = (a.trim().parse().map_err(|_| bad())?, b.trim().parse().map_err(|_| bad())?);
+                let (a, b): (usize, usize) = (
+                    a.trim().parse().map_err(|_| bad())?,
+                    b.trim().parse().map_err(|_| bad())?,
+                );
                 if a > b {
                     return Err(bad());
                 }
@@ -366,7 +379,10 @@ fn find_project(arg: Option<PathBuf>) -> Result<(PathBuf, Option<String>)> {
     }
     std::fs::create_dir_all(&root).with_context(|| format!("creating {}", root.display()))?;
     project::scaffold(&root)?;
-    Ok((root.clone(), Some(format!("new manuscript at {}", pretty(&root)))))
+    Ok((
+        root.clone(),
+        Some(format!("new manuscript at {}", pretty(&root))),
+    ))
 }
 
 /// Whether this terminal is one that can actually deliver Cmd, decided from
@@ -376,7 +392,9 @@ fn cmd_is_reachable() -> bool {
     if !cfg!(target_os = "macos") {
         return false;
     }
-    let prog = std::env::var("TERM_PROGRAM").unwrap_or_default().to_lowercase();
+    let prog = std::env::var("TERM_PROGRAM")
+        .unwrap_or_default()
+        .to_lowercase();
     let term = std::env::var("TERM").unwrap_or_default();
     matches!(prog.as_str(), "ghostty" | "wezterm")
         || term.contains("kitty")

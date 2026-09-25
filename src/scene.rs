@@ -116,7 +116,11 @@ impl Pomodoro {
             Phase::Idle => "press F2 to begin".into(),
             _ => {
                 let r = self.remaining().as_secs();
-                let tag = if self.phase == Phase::Focus { "focus" } else { "break" };
+                let tag = if self.phase == Phase::Focus {
+                    "focus"
+                } else {
+                    "break"
+                };
                 let pause = if self.running() { "" } else { " (paused)" };
                 format!("{tag} · {:02}:{:02}{pause}", r / 60, r % 60)
             }
@@ -138,15 +142,27 @@ pub enum Ink {
     Ground,
     /// A spectrum bar. `h` is how far up the bars this cell sits (0 at the
     /// roots, 255 at the top), which picks its colour; `glow` is how lit it is.
-    Bar { h: u8, glow: u8 },
+    Bar {
+        h: u8,
+        glow: u8,
+    },
     /// A bar's reflection in the pond, `depth` rows below the surface.
-    Pond { h: u8, depth: u8 },
+    Pond {
+        h: u8,
+        depth: u8,
+    },
     /// A peak cap: `heat` 255 while it holds, cooler once it falls.
-    Cap { heat: u8 },
+    Cap {
+        heat: u8,
+    },
     /// A spark off a bar, `life` 255 new to 0 gone.
-    Spark { life: u8 },
+    Spark {
+        life: u8,
+    },
     /// The played part of the progress row, flashing on a beat.
-    Played { glow: u8 },
+    Played {
+        glow: u8,
+    },
 }
 
 pub type Cell = (char, Ink);
@@ -206,10 +222,26 @@ pub fn render(phase: Phase, progress: f64, frame: u64) -> Vec<Vec<Cell>> {
     // ── rabbits ───────────────────────────────────────────────────────
     // Ears flick and heads turn on slow, mutually-prime cycles, so the two
     // of them never move in lockstep.
-    let ears_a = if ((frame + 5) / 9) % 7 == 0 { "(\\ /)" } else { "(\\_/)" };
-    let ears_b = if ((frame + 31) / 11) % 9 == 0 { "(\\ /)" } else { "(\\_/)" };
-    let face_a = if ((frame + 13) / 23) % 5 == 0 { "(-ᴥ-)" } else { "(•ᴥ•)" };
-    let face_b = if ((frame + 44) / 17) % 6 == 0 { "(-ᴥ-)" } else { "(•ᴥ•)" };
+    let ears_a = if ((frame + 5) / 9) % 7 == 0 {
+        "(\\ /)"
+    } else {
+        "(\\_/)"
+    };
+    let ears_b = if ((frame + 31) / 11) % 9 == 0 {
+        "(\\ /)"
+    } else {
+        "(\\_/)"
+    };
+    let face_a = if ((frame + 13) / 23) % 5 == 0 {
+        "(-ᴥ-)"
+    } else {
+        "(•ᴥ•)"
+    };
+    let face_b = if ((frame + 44) / 17) % 6 == 0 {
+        "(-ᴥ-)"
+    } else {
+        "(•ᴥ•)"
+    };
 
     put(&mut g, 3, RABBIT_TOP, ears_a, Ink::Rabbit);
     put(&mut g, 3, RABBIT_TOP + 1, face_a, Ink::Rabbit);
@@ -218,7 +250,11 @@ pub fn render(phase: Phase, progress: f64, frame: u64) -> Vec<Vec<Cell>> {
 
     // Flowers by day; fireflies drifting between the two by night.
     if night {
-        let seats = [(RABBIT_TOP, 12usize), (RABBIT_TOP + 1, 15), (CANOPY_BASE + 1, 10)];
+        let seats = [
+            (RABBIT_TOP, 12usize),
+            (RABBIT_TOP + 1, 15),
+            (CANOPY_BASE + 1, 10),
+        ];
         for (i, &(fy, fx)) in seats.iter().enumerate() {
             if (frame / (5 + i as u64 * 3)) % 4 != 0 && fy < H && fx < W {
                 g[fy][fx] = ('˙', Ink::Star);
@@ -268,8 +304,14 @@ mod tests {
     fn sun_crosses_the_sky_with_progress() {
         let at = |t: f64| find(&render(Phase::Focus, t, 0), Ink::Sun).expect("sun").0;
         let (start, mid, end) = (at(0.0), at(0.5), at(1.0));
-        assert!(start < mid && mid < end, "sun should advance: {start} {mid} {end}");
-        assert!(end >= W - 4, "sun should finish near the right edge, got {end}");
+        assert!(
+            start < mid && mid < end,
+            "sun should advance: {start} {mid} {end}"
+        );
+        assert!(
+            end >= W - 4,
+            "sun should finish near the right edge, got {end}"
+        );
     }
 
     #[test]
@@ -281,9 +323,15 @@ mod tests {
     #[test]
     fn break_swaps_sun_for_moon_and_flowers_for_fireflies() {
         let night = render(Phase::Break, 0.3, 0);
-        assert!(find(&night, Ink::Moon).is_some(), "break should show a moon");
+        assert!(
+            find(&night, Ink::Moon).is_some(),
+            "break should show a moon"
+        );
         assert!(find(&night, Ink::Sun).is_none(), "break should have no sun");
-        assert!(find(&night, Ink::Flower).is_none(), "flowers close at night");
+        assert!(
+            find(&night, Ink::Flower).is_none(),
+            "flowers close at night"
+        );
     }
 
     #[test]
@@ -417,7 +465,11 @@ pub fn render_spectrum(
         for x in 0..W {
             let fill = (at(&a.levels, x) * steps as f32).round() as usize;
             let (full, part) = (fill / 8, fill % 8);
-            let tip = if part > 0 { full } else { full.saturating_sub(1) };
+            let tip = if part > 0 {
+                full
+            } else {
+                full.saturating_sub(1)
+            };
             for r in 0..BAR_ROWS {
                 let ch = if r < full {
                     '█'
@@ -428,7 +480,13 @@ pub fn render_spectrum(
                 };
                 // The beat lights every bar; the tips burn a little brighter.
                 let glow = (beat as f32 * 0.75) as u8 + if r == tip { 60 } else { 0 };
-                g[BAR_ROWS - 1 - r][x] = (ch, Ink::Bar { h: shade(r, BAR_ROWS), glow });
+                g[BAR_ROWS - 1 - r][x] = (
+                    ch,
+                    Ink::Bar {
+                        h: shade(r, BAR_ROWS),
+                        glow,
+                    },
+                );
             }
 
             // A cap that lingers above the bar after it falls.
@@ -437,7 +495,12 @@ pub fn render_spectrum(
                 let y = BAR_ROWS - 1 - (cap / 8).min(BAR_ROWS - 1);
                 if g[y][x].0 == ' ' {
                     let holding = !a.hold.is_empty() && a.hold[x * a.hold.len() / W] > 0.0;
-                    g[y][x] = ('▔', Ink::Cap { heat: if holding { 255 } else { 110 } });
+                    g[y][x] = (
+                        '▔',
+                        Ink::Cap {
+                            heat: if holding { 255 } else { 110 },
+                        },
+                    );
                 }
             }
         }
@@ -459,7 +522,13 @@ pub fn render_spectrum(
                 } else {
                     continue;
                 };
-                g[BAR_ROWS + d][x] = (ch, Ink::Pond { h: shade(d, POND_ROWS), depth: d as u8 });
+                g[BAR_ROWS + d][x] = (
+                    ch,
+                    Ink::Pond {
+                        h: shade(d, POND_ROWS),
+                        depth: d as u8,
+                    },
+                );
             }
         }
 
@@ -478,7 +547,12 @@ pub fn render_spectrum(
                 } else {
                     '·'
                 };
-                g[y][x] = (ch, Ink::Spark { life: (life * 255.0) as u8 });
+                g[y][x] = (
+                    ch,
+                    Ink::Spark {
+                        life: (life * 255.0) as u8,
+                    },
+                );
             }
         }
     }
@@ -621,11 +695,19 @@ mod mode_tests {
     #[test]
     fn bars_climb_in_eighths_of_a_cell() {
         let half = render_spectrum(&viz(0.5, 0.0), 0.0, None);
-        assert_eq!(count(&half[..BAR_ROWS], '█'), W * BAR_ROWS / 2, "half height fills half the rows");
+        assert_eq!(
+            count(&half[..BAR_ROWS], '█'),
+            W * BAR_ROWS / 2,
+            "half height fills half the rows"
+        );
 
         let one_more = 0.5 + 1.0 / (BAR_ROWS * 8) as f32;
         let g = render_spectrum(&viz(one_more, 0.0), 0.0, None);
-        assert_eq!(count(&g[..BAR_ROWS], '▁'), W, "an extra eighth shows as a partial block");
+        assert_eq!(
+            count(&g[..BAR_ROWS], '▁'),
+            W,
+            "an extra eighth shows as a partial block"
+        );
     }
 
     #[test]
@@ -637,7 +719,11 @@ mod mode_tests {
     #[test]
     fn a_falling_bar_leaves_its_peak_cap_behind() {
         let g = render_spectrum(&viz(0.1, 0.9), 0.0, None);
-        assert_eq!(inks(&g, |i| matches!(i, Ink::Cap { .. })), W, "every bar should show a cap above it");
+        assert_eq!(
+            inks(&g, |i| matches!(i, Ink::Cap { .. })),
+            W,
+            "every bar should show a cap above it"
+        );
     }
 
     #[test]
@@ -647,7 +733,10 @@ mod mode_tests {
             Ink::Bar { h, .. } => h,
             other => panic!("row {row} is {other:?}, not a bar"),
         };
-        assert!(h(BAR_ROWS - 1) < h(BAR_ROWS / 2) && h(BAR_ROWS / 2) < h(0), "shade should climb with the bar");
+        assert!(
+            h(BAR_ROWS - 1) < h(BAR_ROWS / 2) && h(BAR_ROWS / 2) < h(0),
+            "shade should climb with the bar"
+        );
     }
 
     #[test]
@@ -665,9 +754,17 @@ mod mode_tests {
 
     #[test]
     fn the_pond_reflects_the_bars() {
-        let pond = |level: f32| inks(&render_spectrum(&viz(level, 0.0), 0.0, None), |i| matches!(i, Ink::Pond { .. }));
+        let pond = |level: f32| {
+            inks(&render_spectrum(&viz(level, 0.0), 0.0, None), |i| {
+                matches!(i, Ink::Pond { .. })
+            })
+        };
         assert_eq!(pond(0.0), 0, "nothing to reflect in silence");
-        assert_eq!(pond(1.0), W * (H - 1 - BAR_ROWS), "full bars fill the whole pond");
+        assert_eq!(
+            pond(1.0),
+            W * (H - 1 - BAR_ROWS),
+            "full bars fill the whole pond"
+        );
         assert!(pond(0.3) < pond(1.0));
     }
 
@@ -676,14 +773,25 @@ mod mode_tests {
         let mut a = viz(0.5, 0.0);
         a.sparks = vec![Spark::at(0.5, 0.9), Spark::at(0.5, 0.1)];
         let g = render_spectrum(&a, 0.0, None);
-        assert_eq!(inks(&g, |i| matches!(i, Ink::Spark { .. })), 1, "the one inside a bar is hidden by it");
+        assert_eq!(
+            inks(&g, |i| matches!(i, Ink::Spark { .. })),
+            1,
+            "the one inside a bar is hidden by it"
+        );
     }
 
     #[test]
     fn bottom_row_is_the_playback_position() {
-        let played = |f: f64| inks(&render_spectrum(&viz(0.0, 0.0), f, None)[H - 1..], |i| matches!(i, Ink::Played { .. }));
+        let played = |f: f64| {
+            inks(&render_spectrum(&viz(0.0, 0.0), f, None)[H - 1..], |i| {
+                matches!(i, Ink::Played { .. })
+            })
+        };
         assert_eq!(played(0.0), 0);
-        assert!(played(0.9) > played(0.1), "more of the row fills as the track plays");
+        assert!(
+            played(0.9) > played(0.1),
+            "more of the row fills as the track plays"
+        );
     }
 
     #[test]
@@ -692,7 +800,11 @@ mod mode_tests {
         let text: String = g.iter().flatten().map(|(c, _)| *c).collect();
         assert!(text.contains("allow"), "the note should be drawn");
         assert_eq!(count(&g, '█'), 0, "and the bars hidden behind it");
-        assert_eq!(inks(&g, |i| matches!(i, Ink::Pond { .. })), 0, "the pond too");
+        assert_eq!(
+            inks(&g, |i| matches!(i, Ink::Pond { .. })),
+            0,
+            "the pond too"
+        );
     }
 
     #[test]
@@ -701,14 +813,23 @@ mod mode_tests {
         let mut prev = render_growth(0, 1000, false, 0);
         for step in 1..=90 {
             let g = render_growth(step * WORDS_PER_STEP, 1000, false, 0);
-            assert_ne!(g, prev, "{} words should look different from {}", step * 50, (step - 1) * 50);
+            assert_ne!(
+                g,
+                prev,
+                "{} words should look different from {}",
+                step * 50,
+                (step - 1) * 50
+            );
             prev = g;
         }
     }
 
     #[test]
     fn words_between_steps_change_nothing() {
-        assert_eq!(render_growth(100, 1000, false, 0), render_growth(149, 1000, false, 0));
+        assert_eq!(
+            render_growth(100, 1000, false, 0),
+            render_growth(149, 1000, false, 0)
+        );
     }
 
     #[test]
@@ -720,13 +841,26 @@ mod mode_tests {
                 .filter(|(_, i)| *i == Ink::Flower)
                 .count()
         };
-        assert_eq!(flowers(4 * WORDS_PER_STEP), 0, "the first plant is still growing");
-        assert_eq!(flowers(5 * WORDS_PER_STEP), 1, "and flowers on its fifth step");
+        assert_eq!(
+            flowers(4 * WORDS_PER_STEP),
+            0,
+            "the first plant is still growing"
+        );
+        assert_eq!(
+            flowers(5 * WORDS_PER_STEP),
+            1,
+            "and flowers on its fifth step"
+        );
     }
 
     #[test]
     fn the_sun_comes_out_at_the_daily_target() {
-        let sun = |w: usize| render_growth(w, 1000, false, 0).iter().flatten().any(|(_, i)| *i == Ink::Sun);
+        let sun = |w: usize| {
+            render_growth(w, 1000, false, 0)
+                .iter()
+                .flatten()
+                .any(|(_, i)| *i == Ink::Sun)
+        };
         assert!(!sun(950));
         assert!(sun(1000));
     }
@@ -745,7 +879,11 @@ mod mode_tests {
             render_spectrum(&viz(0.3, 0.6), 0.5, None),
             render_spectrum(&Analyzer::new(0), 0.0, None),
             render_spectrum(&Analyzer::new(0), 0.0, Some("nothing playing")),
-            render_spectrum(&Analyzer::new(7), 2.0, Some("a-note-far-longer-than-the-pane-is-wide")),
+            render_spectrum(
+                &Analyzer::new(7),
+                2.0,
+                Some("a-note-far-longer-than-the-pane-is-wide"),
+            ),
             render_growth(300, 1000, true, 5),
             render_growth(9000, 1000, false, 0),
         ] {

@@ -7,6 +7,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use crate::music::{self, Music};
+use crate::palette::{self, Action};
+use crate::scene::{Mode, Pomodoro};
+use crate::theme::{self, Theme};
+use crate::visualizer::Visualizer;
 use grimoire_core::codex;
 use grimoire_core::cork;
 use grimoire_core::create::{self, New, Plan};
@@ -14,18 +19,13 @@ use grimoire_core::editor::{self, Editor};
 use grimoire_core::export;
 use grimoire_core::history;
 use grimoire_core::manuscript;
-use crate::palette::{self, Action};
+use grimoire_core::project::{self, Kind, Project};
 use grimoire_core::recovery;
 use grimoire_core::resume;
-use grimoire_core::sessions;
 use grimoire_core::search;
+use grimoire_core::sessions;
 use grimoire_core::settings::Settings;
 use grimoire_core::spell;
-use crate::music::{self, Music};
-use grimoire_core::project::{self, Kind, Project};
-use crate::scene::{Mode, Pomodoro};
-use crate::theme::{self, Theme};
-use crate::visualizer::Visualizer;
 
 /// Save a couple of seconds after typing stops…
 const AUTOSAVE_IDLE: Duration = Duration::from_secs(2);
@@ -81,14 +81,31 @@ pub enum MenuItem {
 enum TreeStep {
     /// Things moved on disk: a delete (to the trash) or a move. Each batch was
     /// one rename-all; a drag is several. `links` if `[[links]]` followed.
-    Moved { what: String, batches: Vec<Vec<(PathBuf, PathBuf)>>, links: bool },
+    Moved {
+        what: String,
+        batches: Vec<Vec<(PathBuf, PathBuf)>>,
+        links: bool,
+    },
     /// A rename, by name, so a scene's `title:` goes back too.
-    Renamed { from: PathBuf, to: PathBuf, old: String, new: String },
+    Renamed {
+        from: PathBuf,
+        to: PathBuf,
+        old: String,
+        new: String,
+    },
     /// The sections were put in a new order.
-    Sections { what: String, before: Vec<grimoire_core::project::Area>, after: Vec<grimoire_core::project::Area> },
+    Sections {
+        what: String,
+        before: Vec<grimoire_core::project::Area>,
+        after: Vec<grimoire_core::project::Area>,
+    },
     /// Something new. Undoing it sends it to the trash (where it waits, words
     /// and all), and redoing brings it back from there.
-    Created { what: String, path: PathBuf, trashed: Option<PathBuf> },
+    Created {
+        what: String,
+        path: PathBuf,
+        trashed: Option<PathBuf>,
+    },
 }
 
 pub struct App {
@@ -203,15 +220,27 @@ pub const CARD_W: u16 = 30;
 pub enum Overlay {
     None,
     /// The main menu — the discoverable way to reach everything.
-    Menu { sel: usize },
+    Menu {
+        sel: usize,
+    },
     /// The menu's Settings, one level down: themes, music, spellcheck, icons.
-    Settings { sel: usize },
+    Settings {
+        sel: usize,
+    },
     /// Browsing presets. `restore` is put back if you press Esc.
-    Themes { sel: usize, restore: Theme },
+    Themes {
+        sel: usize,
+        restore: Theme,
+    },
     /// Choosing where music comes from.
-    Sources { sel: usize },
+    Sources {
+        sel: usize,
+    },
     /// Editing the custom theme swatch by swatch.
-    Custom { field: usize, buf: String },
+    Custom {
+        field: usize,
+        buf: String,
+    },
     /// Naming a new scene, chapter, part or folder. The name starts as the
     /// plan's suggestion, selected, so typing replaces it and ↵ accepts it.
     Create {
@@ -240,12 +269,23 @@ pub enum Overlay {
         permanent: bool,
     },
     /// Words that couldn't be saved last time, offered back on launch.
-    Recover { items: Vec<recovery::Pending> },
+    Recover {
+        items: Vec<recovery::Pending>,
+    },
     /// Ctrl-K: find any action, scene, note or theme by name.
-    Palette { query: String, sel: usize, entries: Vec<palette::Entry> },
+    Palette {
+        query: String,
+        sel: usize,
+        entries: Vec<palette::Entry>,
+    },
     /// Find (and replace) in the open scene: a bar under the prose, which
     /// stays visible so the matches light up in place.
-    Find { query: String, with: Option<String>, on_with: bool, from: (usize, usize) },
+    Find {
+        query: String,
+        with: Option<String>,
+        on_with: bool,
+        from: (usize, usize),
+    },
     /// Find (and replace) across the whole book.
     FindBook {
         query: String,
@@ -257,7 +297,10 @@ pub enum Overlay {
         confirm: bool,
     },
     /// Near-miss spellings of notebook names.
-    Names { drifts: Vec<search::Drift>, sel: usize },
+    Names {
+        drifts: Vec<search::Drift>,
+        sel: usize,
+    },
     /// Session history isn't on yet: offer to turn it on.
     SessionsOff,
     /// Every saved writing session, newest first; Enter shows what changed.
@@ -271,7 +314,13 @@ pub enum Overlay {
         changes: Option<(usize, Vec<sessions::Change>, usize)>,
     },
     /// One scene's changes in one session, as a word diff.
-    SessionDiff { title: String, label: String, before: String, after: String, scroll: usize },
+    SessionDiff {
+        title: String,
+        label: String,
+        before: String,
+        after: String,
+        scroll: usize,
+    },
     /// Export for readers: formats, which acts, then the result.
     Export {
         /// Word, EPUB, Markdown.
@@ -582,7 +631,10 @@ impl App {
             }
         }
         let report = self.project.save_dirty();
-        let notes_changed = report.saved.iter().any(|&i| !self.project.nodes[i].in_manuscript);
+        let notes_changed = report
+            .saved
+            .iter()
+            .any(|&i| !self.project.nodes[i].in_manuscript);
         for &i in &report.saved {
             let n = &self.project.nodes[i];
             let _ = history::snapshot(&root, &n.path, &n.file_text(), Some(history::GAP));
@@ -606,9 +658,13 @@ impl App {
         let title = self.project.nodes[*i].title.clone();
         self.save_state = SaveState::Failed(why.clone());
         self.msg = if kept {
-            format!("couldn't save {title} ({why}) — your words are kept safe and will be offered back")
+            format!(
+                "couldn't save {title} ({why}) — your words are kept safe and will be offered back"
+            )
         } else {
-            format!("couldn't save {title} ({why}) — and couldn't keep a copy either; copy your text somewhere")
+            format!(
+                "couldn't save {title} ({why}) — and couldn't keep a copy either; copy your text somewhere"
+            )
         };
         false
     }
@@ -656,7 +712,9 @@ impl App {
             return;
         }
         let idle = self.last_edit.is_none_or(|t| t.elapsed() >= AUTOSAVE_IDLE);
-        let overdue = self.unsaved_since.is_some_and(|t| t.elapsed() >= AUTOSAVE_MAX);
+        let overdue = self
+            .unsaved_since
+            .is_some_and(|t| t.elapsed() >= AUTOSAVE_MAX);
         let may_retry = match self.save_state {
             SaveState::Failed(_) => self.last_attempt.is_none_or(|t| t.elapsed() >= RETRY),
             _ => true,
@@ -686,7 +744,12 @@ impl App {
     pub fn rescue(&mut self) {
         let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.flush()));
         let root = self.project.root.clone();
-        for n in self.project.nodes.iter().filter(|n| n.dirty && n.kind == Kind::Scene) {
+        for n in self
+            .project
+            .nodes
+            .iter()
+            .filter(|n| n.dirty && n.kind == Kind::Scene)
+        {
             let _ = recovery::keep(&root, &n.path, &n.file_text());
         }
     }
@@ -750,7 +813,11 @@ impl App {
     pub fn open_palette(&mut self) {
         self.flush();
         let entries = palette::entries(self);
-        self.overlay = Overlay::Palette { query: String::new(), sel: 0, entries };
+        self.overlay = Overlay::Palette {
+            query: String::new(),
+            sel: 0,
+            entries,
+        };
     }
 
     /// Point the tree at a node: unfold the way down to it and select it.
@@ -801,7 +868,11 @@ impl App {
             Action::Undo | Action::Redo => {
                 // The tree's own actions are undone from anywhere but the
                 // editor; from the editor, it's the typing.
-                if action == Action::Undo { self.undo() } else { self.redo() }
+                if action == Action::Undo {
+                    self.undo()
+                } else {
+                    self.redo()
+                }
             }
             Action::ProjectMap => self.run_menu(MenuItem::ProjectMap),
             Action::Compile => self.run_menu(MenuItem::Compile),
@@ -874,8 +945,17 @@ impl App {
             .selected_text()
             .filter(|s| !s.contains('\n'))
             .unwrap_or_default();
-        let from = self.editor.selection().map(|(a, _)| a).unwrap_or((self.editor.cy, self.editor.cx));
-        self.overlay = Overlay::Find { query, with: None, on_with: false, from };
+        let from = self
+            .editor
+            .selection()
+            .map(|(a, _)| a)
+            .unwrap_or((self.editor.cy, self.editor.cx));
+        self.overlay = Overlay::Find {
+            query,
+            with: None,
+            on_with: false,
+            from,
+        };
     }
 
     /// Every match in the open scene, in order.
@@ -884,7 +964,11 @@ impl App {
             .lines
             .iter()
             .enumerate()
-            .flat_map(|(l, line)| search::matches(line, query).into_iter().map(move |(s, e)| (l, s, e)))
+            .flat_map(|(l, line)| {
+                search::matches(line, query)
+                    .into_iter()
+                    .map(move |(s, e)| (l, s, e))
+            })
             .collect()
     }
 
@@ -900,13 +984,21 @@ impl App {
             if forward {
                 (self.editor.cy, self.editor.cx)
             } else {
-                self.editor.selection().map(|(a, _)| a).unwrap_or((self.editor.cy, self.editor.cx))
+                self.editor
+                    .selection()
+                    .map(|(a, _)| a)
+                    .unwrap_or((self.editor.cy, self.editor.cx))
             }
         });
         let pick = if forward {
-            all.iter().find(|&&(l, s, _)| (l, s) >= here).or(all.first())
+            all.iter()
+                .find(|&&(l, s, _)| (l, s) >= here)
+                .or(all.first())
         } else {
-            all.iter().rev().find(|&&(l, s, _)| (l, s) < here).or(all.last())
+            all.iter()
+                .rev()
+                .find(|&&(l, s, _)| (l, s) < here)
+                .or(all.last())
         };
         if let Some(&(l, s, e)) = pick {
             self.editor.select((l, s), (l, e));
@@ -922,7 +1014,10 @@ impl App {
         if all.is_empty() {
             return "no matches".into();
         }
-        let cur = self.editor.selection().and_then(|(a, b)| all.iter().position(|&(l, s, e)| (l, s) == a && (l, e) == b));
+        let cur = self
+            .editor
+            .selection()
+            .and_then(|(a, b)| all.iter().position(|&(l, s, e)| (l, s) == a && (l, e) == b));
         match cur {
             Some(i) => format!("{} of {}", i + 1, all.len()),
             None => format!("{} matches", all.len()),
@@ -946,7 +1041,11 @@ impl App {
     /// replacing across the book.
     pub fn replace_all_key(&mut self) {
         match &mut self.overlay {
-            Overlay::Find { query, with: Some(with), .. } if !query.is_empty() => {
+            Overlay::Find {
+                query,
+                with: Some(with),
+                ..
+            } if !query.is_empty() => {
                 let (query, with) = (query.clone(), with.clone());
                 let (text, n) = search::replace_all(&self.editor.text(), &query, &with);
                 if n > 0 {
@@ -959,7 +1058,13 @@ impl App {
                     n => format!("replaced {n} — Ctrl-Z undoes them"),
                 };
             }
-            Overlay::FindBook { query, with: Some(_), hits, confirm, .. } if !query.is_empty() && !hits.is_empty() => {
+            Overlay::FindBook {
+                query,
+                with: Some(_),
+                hits,
+                confirm,
+                ..
+            } if !query.is_empty() && !hits.is_empty() => {
                 *confirm = true;
             }
             Overlay::Find { .. } | Overlay::FindBook { .. } => {
@@ -972,13 +1077,22 @@ impl App {
     pub fn open_find_book(&mut self, query: String) {
         self.flush();
         let hits = search::book(&self.project, &self.parents, &query);
-        self.overlay = Overlay::FindBook { query, with: None, on_with: false, hits, sel: 0, confirm: false };
+        self.overlay = Overlay::FindBook {
+            query,
+            with: None,
+            on_with: false,
+            hits,
+            sel: 0,
+            confirm: false,
+        };
     }
 
     /// Open the scene a hit is in, with the match selected.
     fn go_to_hit(&mut self, path: &Path, line: usize, start: usize, end: usize) {
         self.overlay = Overlay::None;
-        let Some(i) = self.project.nodes.iter().position(|n| n.path == path) else { return };
+        let Some(i) = self.project.nodes.iter().position(|n| n.path == path) else {
+            return;
+        };
         self.reveal(i);
         if self.open != Some(i) {
             self.open_scene(i);
@@ -1038,7 +1152,9 @@ impl App {
     /// "Reach" counts as the word "reach"; a name the writer has added to the
     /// book's own list counts too, since it's meant.
     fn is_dictionary_word(&self, word: &str) -> bool {
-        self.speller.as_ref().is_some_and(|s| s.is_correct(&word.to_lowercase()))
+        self.speller
+            .as_ref()
+            .is_some_and(|s| s.is_correct(&word.to_lowercase()))
     }
 
     // ---- export ----------------------------------------------------------
@@ -1049,7 +1165,12 @@ impl App {
             .into_iter()
             .map(|(i, title)| (self.project.nodes[i].path.clone(), title, true))
             .collect();
-        self.overlay = Overlay::Export { formats: [true, true, false], parts, sel: 0, done: None };
+        self.overlay = Overlay::Export {
+            formats: [true, true, false],
+            parts,
+            sel: 0,
+            done: None,
+        };
     }
 
     fn run_export(&mut self, formats: [bool; 3], parts: &[(PathBuf, String, bool)]) -> Vec<String> {
@@ -1082,7 +1203,11 @@ impl App {
                 lines.push(String::new());
                 // Shunn rounds, which makes a short book "about 0 words".
                 let rounded = manuscript::rounded_words(done.words);
-                let words = if rounded == 0 { format!("{} words", done.words) } else { format!("about {rounded} words") };
+                let words = if rounded == 0 {
+                    format!("{} words", done.words)
+                } else {
+                    format!("about {rounded} words")
+                };
                 lines.push(format!(
                     "{} chapter{} · {words} · {} manuscript page{}",
                     done.chapters,
@@ -1090,7 +1215,11 @@ impl App {
                     done.pages,
                     if done.pages == 1 { "" } else { "s" },
                 ));
-                self.msg = format!("exported {} file{} to exports/", done.files.len(), if done.files.len() == 1 { "" } else { "s" });
+                self.msg = format!(
+                    "exported {} file{} to exports/",
+                    done.files.len(),
+                    if done.files.len() == 1 { "" } else { "s" }
+                );
                 lines
             }
             Err(e) => vec![format!("couldn't export: {e}")],
@@ -1118,7 +1247,9 @@ impl App {
             .nodes
             .iter()
             .enumerate()
-            .filter(|(i, n)| n.kind == Kind::Scene && n.area.is_notebook() && !self.project.in_trash(*i))
+            .filter(|(i, n)| {
+                n.kind == Kind::Scene && n.area.is_notebook() && !self.project.in_trash(*i)
+            })
             .map(|(_, n)| n.title.clone())
             .collect()
     }
@@ -1151,7 +1282,12 @@ impl App {
         let root = self.project.root.clone();
         let Some(r) = resume::read(&root) else { return };
         let scene = root.join(&r.scene);
-        let Some(i) = self.project.nodes.iter().position(|n| n.kind == Kind::Scene && n.path == scene) else {
+        let Some(i) = self
+            .project
+            .nodes
+            .iter()
+            .position(|n| n.kind == Kind::Scene && n.path == scene)
+        else {
             return;
         };
         self.reveal(i);
@@ -1160,9 +1296,15 @@ impl App {
         self.editor.place(r.line, r.column);
         self.focus = Focus::Editor;
         self.last_resume = Some((scene, r.line));
-        let place = self.parents[i].map(|p| search::place_of(&self.project, &self.parents, p)).unwrap_or_default();
+        let place = self.parents[i]
+            .map(|p| search::place_of(&self.project, &self.parents, p))
+            .unwrap_or_default();
         let here = resume::machine_name();
-        let who = if r.machine == here { "here".to_string() } else { format!("on {}", r.machine) };
+        let who = if r.machine == here {
+            "here".to_string()
+        } else {
+            format!("on {}", r.machine)
+        };
         let when = r.when.format("%a %-I:%M %P");
         self.msg = format!(
             "resuming {} · {}{}paragraph {} · last written {who}, {when}",
@@ -1193,7 +1335,9 @@ impl App {
             machine: resume::machine_name(),
             when: chrono::Local::now(),
         };
-        let place = self.parents[i].map(|p| search::place_of(&self.project, &self.parents, p)).unwrap_or_default();
+        let place = self.parents[i]
+            .map(|p| search::place_of(&self.project, &self.parents, p))
+            .unwrap_or_default();
         if resume::write(&root, &r, &n.title, &place).is_ok() {
             self.last_resume = Some(here);
         }
@@ -1223,7 +1367,9 @@ impl App {
                 Ok(outcome) => {
                     self.backup_note = Some(match outcome {
                         sessions::PushOutcome::Pushed => "backed up ✓".into(),
-                        sessions::PushOutcome::NoRemote => "no remote — sessions stay on this computer".into(),
+                        sessions::PushOutcome::NoRemote => {
+                            "no remote — sessions stay on this computer".into()
+                        }
                         sessions::PushOutcome::Failed(why) => format!("couldn't back up: {why}"),
                     });
                     self.backup_rx = None;
@@ -1246,7 +1392,9 @@ impl App {
             self.msg = "nothing new since the last session".into();
             return None;
         }
-        let label = sessions::pending_label(&root, chrono::Local::now()).ok().flatten();
+        let label = sessions::pending_label(&root, chrono::Local::now())
+            .ok()
+            .flatten();
         match sessions::commit_session(&root, chrono::Local::now()) {
             Ok(Some(_)) => {
                 self.back_up();
@@ -1271,7 +1419,8 @@ impl App {
 
     pub fn open_sessions(&mut self) {
         if !sessions::git_available() {
-            self.msg = "writing sessions need Git — install it from git-scm.com, then try again".into();
+            self.msg =
+                "writing sessions need Git — install it from git-scm.com, then try again".into();
             return;
         }
         if !self.sessions_on {
@@ -1282,7 +1431,10 @@ impl App {
         let root = self.project.root.clone();
         match sessions::sessions(&root, 200) {
             Ok(list) => {
-                let pending = sessions::pending_label(&root, chrono::Local::now()).ok().flatten().filter(|l| l.contains(" · "));
+                let pending = sessions::pending_label(&root, chrono::Local::now())
+                    .ok()
+                    .flatten()
+                    .filter(|l| l.contains(" · "));
                 let backup = if !sessions::has_remote(&root) {
                     "only on this computer — connect a remote (git remote add origin …) to back sessions up".to_string()
                 } else if self.backup_rx.is_some() {
@@ -1296,7 +1448,13 @@ impl App {
                         (Some(n), _) => format!("{n} sessions waiting to back up"),
                     }
                 };
-                self.overlay = Overlay::Sessions { list, sel: 0, pending, backup, changes: None };
+                self.overlay = Overlay::Sessions {
+                    list,
+                    sel: 0,
+                    pending,
+                    backup,
+                    changes: None,
+                };
             }
             Err(e) => self.msg = format!("couldn't read the sessions: {e}"),
         }
@@ -1325,9 +1483,11 @@ impl App {
     pub fn open_codex(&mut self) {
         self.flush();
         let entry = if self.focus == Focus::Tree {
-            self.visible
-                .get(self.sel)
-                .and_then(|&i| self.codex_index.iter().position(|e| e.note == self.project.nodes[i].path))
+            self.visible.get(self.sel).and_then(|&i| {
+                self.codex_index
+                    .iter()
+                    .position(|e| e.note == self.project.nodes[i].path)
+            })
         } else if self.open.is_some() {
             let (cy, cx) = (self.editor.cy, self.editor.cx);
             let line = &self.editor.lines[cy];
@@ -1342,7 +1502,9 @@ impl App {
         };
         // Ctrl-O again, on the same name or on none, puts the note away.
         let showing = self.codex.as_ref().map(|c| c.entry.note.clone());
-        if showing.is_some() && entry.is_none_or(|i| Some(&self.codex_index[i].note) == showing.as_ref()) {
+        if showing.is_some()
+            && entry.is_none_or(|i| Some(&self.codex_index[i].note) == showing.as_ref())
+        {
             self.close_codex();
             return;
         }
@@ -1356,8 +1518,18 @@ impl App {
         };
         let e = self.codex_index[i].clone();
         let appears = codex::appearances(&self.project, &self.parents, &e);
-        self.msg = format!("{} · appears in {} scene{}", e.title, appears.len(), if appears.len() == 1 { "" } else { "s" });
-        self.codex = Some(CodexPane { entry: e, appears, sel: 0, scroll: 0 });
+        self.msg = format!(
+            "{} · appears in {} scene{}",
+            e.title,
+            appears.len(),
+            if appears.len() == 1 { "" } else { "s" }
+        );
+        self.codex = Some(CodexPane {
+            entry: e,
+            appears,
+            sel: 0,
+            scroll: 0,
+        });
     }
 
     pub fn on_codex_key(&mut self, key: Key) {
@@ -1366,7 +1538,9 @@ impl App {
             return;
         };
         match key {
-            Key::Down | Key::Char('j') => pane.sel = (pane.sel + 1).min(pane.appears.len().saturating_sub(1)),
+            Key::Down | Key::Char('j') => {
+                pane.sel = (pane.sel + 1).min(pane.appears.len().saturating_sub(1))
+            }
             Key::Up | Key::Char('k') => pane.sel = pane.sel.saturating_sub(1),
             Key::PageDown | Key::Char(' ') => pane.scroll += 5,
             Key::PageUp => pane.scroll = pane.scroll.saturating_sub(5),
@@ -1394,21 +1568,41 @@ impl App {
 
     pub fn toggle_icons(&mut self) {
         self.icons_on = !self.icons_on;
-        let _ = Settings { spellcheck: self.spell_on, icons: self.icons_on }.save();
-        self.msg = if self.icons_on { "tree icons on".into() } else { "tree icons off".into() };
+        let _ = Settings {
+            spellcheck: self.spell_on,
+            icons: self.icons_on,
+        }
+        .save();
+        self.msg = if self.icons_on {
+            "tree icons on".into()
+        } else {
+            "tree icons off".into()
+        };
     }
 
     pub fn toggle_spellcheck(&mut self) {
         self.spell_on = !self.spell_on;
-        let _ = Settings { spellcheck: self.spell_on, icons: self.icons_on }.save();
-        self.msg = if self.spell_on { "spellcheck on".into() } else { "spellcheck off".into() };
+        let _ = Settings {
+            spellcheck: self.spell_on,
+            icons: self.icons_on,
+        }
+        .save();
+        self.msg = if self.spell_on {
+            "spellcheck on".into()
+        } else {
+            "spellcheck off".into()
+        };
     }
 
     /// Misspelt words in one paragraph of the open scene, leaving out the word
     /// the cursor is in the middle of typing.
     pub fn misspellings(&self, line: usize) -> Vec<(usize, usize)> {
-        let (Some(s), true) = (&self.speller, self.spell_on) else { return Vec::new() };
-        let Some(text) = self.editor.lines.get(line) else { return Vec::new() };
+        let (Some(s), true) = (&self.speller, self.spell_on) else {
+            return Vec::new();
+        };
+        let Some(text) = self.editor.lines.get(line) else {
+            return Vec::new();
+        };
         let typing = self.focus == Focus::Editor && self.editor.cy == line;
         s.misspellings(text)
             .into_iter()
@@ -1438,17 +1632,33 @@ impl App {
             let lines = &self.editor.lines;
             (0..lines.len())
                 .map(|k| (cy + k) % lines.len())
-                .flat_map(|l| speller.misspellings(&lines[l]).into_iter().map(move |(a, b)| (l, a, b)))
+                .flat_map(|l| {
+                    speller
+                        .misspellings(&lines[l])
+                        .into_iter()
+                        .map(move |(a, b)| (l, a, b))
+                })
                 .find(|&(l, a, _)| (l, a) > (cy, cx) || l < cy)
         });
         let Some((line, start, end)) = target else {
             self.msg = "no misspellings in this scene".into();
             return;
         };
-        let word: String = self.editor.lines[line].chars().skip(start).take(end - start).collect();
+        let word: String = self.editor.lines[line]
+            .chars()
+            .skip(start)
+            .take(end - start)
+            .collect();
         let suggestions = rank_suggestions(&word, speller.suggest(&word, 8), 6);
         self.editor.select((line, start), (line, end));
-        self.overlay = Overlay::Spelling { line, start, end, word, suggestions, sel: 0 };
+        self.overlay = Overlay::Spelling {
+            line,
+            start,
+            end,
+            word,
+            suggestions,
+            sel: 0,
+        };
     }
 
     fn apply_spelling(&mut self, line: usize, start: usize, end: usize, with: &str) {
@@ -1492,7 +1702,10 @@ impl App {
             total += count;
         }
         self.commit_saves();
-        self.msg = format!("{variant} → {name} in {total} place{}", if total == 1 { "" } else { "s" });
+        self.msg = format!(
+            "{variant} → {name} in {total} place{}",
+            if total == 1 { "" } else { "s" }
+        );
     }
 
     // ---- scene history -------------------------------------------------
@@ -1579,13 +1792,25 @@ impl App {
                 return;
             }
         };
-        let what = if name.trim().is_empty() { plan.noun.clone() } else { name.trim().to_string() };
-        self.record(TreeStep::Created { what, path: path.clone(), trashed: None });
+        let what = if name.trim().is_empty() {
+            plan.noun.clone()
+        } else {
+            name.trim().to_string()
+        };
+        self.record(TreeStep::Created {
+            what,
+            path: path.clone(),
+            trashed: None,
+        });
         if let Err(e) = self.reload_tree() {
             self.msg = format!("created, but couldn't re-read the tree: {e}");
             return;
         }
-        let mut made = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+        let mut made = path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
         if let Some(i) = self.project.nodes.iter().position(|n| n.path == path) {
             made = self.project.nodes[i].title.clone();
             let mut p = self.parents[i];
@@ -1610,7 +1835,11 @@ impl App {
             New::Part => " · c adds a chapter to it",
             _ => "",
         };
-        let also = if saved > 0 { format!(" · saved {saved} first") } else { String::new() };
+        let also = if saved > 0 {
+            format!(" · saved {saved} first")
+        } else {
+            String::new()
+        };
         self.msg = format!("made {made}{next}{also}");
     }
 
@@ -1623,14 +1852,19 @@ impl App {
             return "section".into();
         }
         if self.project.in_trash(idx) {
-            return if n.kind == Kind::Container { "folder".into() } else { "file".into() };
+            return if n.kind == Kind::Container {
+                "folder".into()
+            } else {
+                "file".into()
+            };
         }
         if !n.in_manuscript {
             if n.kind == Kind::Container {
                 return "folder".into();
             }
             return match n.area {
-                grimoire_core::project::Area::FrontMatter | grimoire_core::project::Area::Format => "document",
+                grimoire_core::project::Area::FrontMatter
+                | grimoire_core::project::Area::Format => "document",
                 grimoire_core::project::Area::Templates => "sheet",
                 _ => "note",
             }
@@ -1656,7 +1890,9 @@ impl App {
     }
 
     pub fn start_rename(&mut self) {
-        let Some(idx) = self.selected_file() else { return };
+        let Some(idx) = self.selected_file() else {
+            return;
+        };
         let n = &self.project.nodes[idx];
         self.overlay = Overlay::Rename {
             path: n.path.clone(),
@@ -1685,7 +1921,12 @@ impl App {
                 return;
             }
         };
-        self.record(TreeStep::Renamed { from: path.clone(), to: to.clone(), old, new: name.trim().to_string() });
+        self.record(TreeStep::Renamed {
+            from: path.clone(),
+            to: to.clone(),
+            old,
+            new: name.trim().to_string(),
+        });
         self.follow_paths(&path, &to);
         if let Err(e) = self.reload_tree() {
             self.msg = format!("renamed, but couldn't re-read the tree: {e}");
@@ -1700,7 +1941,9 @@ impl App {
     }
 
     pub fn start_delete(&mut self) {
-        let Some(idx) = self.selected_file() else { return };
+        let Some(idx) = self.selected_file() else {
+            return;
+        };
         let n = &self.project.nodes[idx];
         self.overlay = Overlay::Confirm {
             path: n.path.clone(),
@@ -1770,7 +2013,11 @@ impl App {
         let moved = |p: &PathBuf| {
             renames.iter().find_map(|(from, to)| {
                 p.strip_prefix(from).ok().map(|rest| {
-                    if rest.as_os_str().is_empty() { to.to_path_buf() } else { to.join(rest) }
+                    if rest.as_os_str().is_empty() {
+                        to.to_path_buf()
+                    } else {
+                        to.join(rest)
+                    }
                 })
             })
         };
@@ -1821,7 +2068,9 @@ impl App {
     }
 
     pub fn cork_scope(&self, scope: &Option<PathBuf>) -> Option<usize> {
-        scope.as_ref().and_then(|p| self.project.nodes.iter().position(|n| &n.path == p))
+        scope
+            .as_ref()
+            .and_then(|p| self.project.nodes.iter().position(|n| &n.path == p))
     }
 
     pub fn open_cork(&mut self) {
@@ -1854,8 +2103,18 @@ impl App {
 
     fn cork_key(&mut self, key: Key) {
         let cols = self.cork_cols();
-        let Overlay::Cork { scope, sel, pov, typing } = &mut self.overlay else { return };
-        let scope_idx = scope.as_ref().and_then(|p| self.project.nodes.iter().position(|n| &n.path == p));
+        let Overlay::Cork {
+            scope,
+            sel,
+            pov,
+            typing,
+        } = &mut self.overlay
+        else {
+            return;
+        };
+        let scope_idx = scope
+            .as_ref()
+            .and_then(|p| self.project.nodes.iter().position(|n| &n.path == p));
         let groups = cork::board(&self.project, scope_idx);
         let cards: Vec<cork::Card> = groups.iter().flat_map(|g| g.cards.clone()).collect();
         if cards.is_empty() {
@@ -1896,7 +2155,11 @@ impl App {
             Key::Char('[') | Key::Char(']') => {
                 let parts = cork::parts(&self.project);
                 if let Some(at) = scope_idx.and_then(|s| parts.iter().position(|&p| p == s)) {
-                    let next = if key == Key::Char('[') { at.checked_sub(1) } else { (at + 1 < parts.len()).then_some(at + 1) };
+                    let next = if key == Key::Char('[') {
+                        at.checked_sub(1)
+                    } else {
+                        (at + 1 < parts.len()).then_some(at + 1)
+                    };
                     if let Some(n) = next {
                         *scope = Some(self.project.nodes[parts[n]].path.clone());
                         *sel = 0;
@@ -1905,7 +2168,10 @@ impl App {
             }
             Key::Char('p') => {
                 let all = cork::povs(&groups);
-                *pov = match pov.as_ref().and_then(|cur| all.iter().position(|x| x == cur)) {
+                *pov = match pov
+                    .as_ref()
+                    .and_then(|cur| all.iter().position(|x| x == cur))
+                {
                     None if !all.is_empty() && pov.is_none() => Some(all[0].clone()),
                     Some(i) if i + 1 < all.len() => Some(all[i + 1].clone()),
                     _ => None,
@@ -1916,8 +2182,15 @@ impl App {
                 self.project.nodes[card.idx].set_meta("status", next);
                 self.mark_changed(card.idx);
             }
-            Key::Char('e') => *typing = Some((CardField::Synopsis, card.synopsis.clone().unwrap_or_default())),
-            Key::Char('v') => *typing = Some((CardField::Pov, card.pov.clone().unwrap_or_default())),
+            Key::Char('e') => {
+                *typing = Some((
+                    CardField::Synopsis,
+                    card.synopsis.clone().unwrap_or_default(),
+                ))
+            }
+            Key::Char('v') => {
+                *typing = Some((CardField::Pov, card.pov.clone().unwrap_or_default()))
+            }
             Key::Enter => {
                 self.overlay = Overlay::None;
                 self.reveal(card.idx);
@@ -1947,21 +2220,41 @@ impl App {
     }
 
     fn take_step(&mut self, back: bool) {
-        let Some(step) = (if back { self.tree_undo.pop() } else { self.tree_redo.pop() }) else {
-            self.msg = if back { "nothing to undo".into() } else { "nothing to redo".into() };
+        let Some(step) = (if back {
+            self.tree_undo.pop()
+        } else {
+            self.tree_redo.pop()
+        }) else {
+            self.msg = if back {
+                "nothing to undo".into()
+            } else {
+                "nothing to redo".into()
+            };
             return;
         };
         self.flush();
         if !self.commit_saves() {
             // Nothing was touched; keep the step for when saving works.
-            if back { self.tree_undo.push(step) } else { self.tree_redo.push(step) }
+            if back {
+                self.tree_undo.push(step)
+            } else {
+                self.tree_redo.push(step)
+            }
             return;
         }
         let root = self.project.root.clone();
         let (result, step, show, what) = match step {
-            TreeStep::Moved { what, batches, links } => {
+            TreeStep::Moved {
+                what,
+                batches,
+                links,
+            } => {
                 let order: Vec<Vec<(PathBuf, PathBuf)>> = if back {
-                    batches.iter().rev().map(|b| b.iter().map(|(f, t)| (t.clone(), f.clone())).collect()).collect()
+                    batches
+                        .iter()
+                        .rev()
+                        .map(|b| b.iter().map(|(f, t)| (t.clone(), f.clone())).collect())
+                        .collect()
                 } else {
                     batches.clone()
                 };
@@ -1976,7 +2269,16 @@ impl App {
                     self.follow_many(batch);
                     show = batch.first().map(|(_, t)| t.clone());
                 }
-                (result, TreeStep::Moved { what: what.clone(), batches, links }, show, what)
+                (
+                    result,
+                    TreeStep::Moved {
+                        what: what.clone(),
+                        batches,
+                        links,
+                    },
+                    show,
+                    what,
+                )
             }
             TreeStep::Renamed { from, to, old, new } => {
                 let (at, name) = if back { (&to, &old) } else { (&from, &new) };
@@ -1987,12 +2289,29 @@ impl App {
                 let what = format!("rename to {new}");
                 (result, TreeStep::Renamed { from, to, old, new }, show, what)
             }
-            TreeStep::Sections { what, before, after } => {
+            TreeStep::Sections {
+                what,
+                before,
+                after,
+            } => {
                 let order = if back { &before } else { &after };
                 let result = project::save_section_order(&root, order);
-                (result, TreeStep::Sections { what: what.clone(), before, after }, None, what)
+                (
+                    result,
+                    TreeStep::Sections {
+                        what: what.clone(),
+                        before,
+                        after,
+                    },
+                    None,
+                    what,
+                )
             }
-            TreeStep::Created { what, path, trashed } => {
+            TreeStep::Created {
+                what,
+                path,
+                trashed,
+            } => {
                 let (result, trashed, show) = if back {
                     let pair = project::trash(&root, &path).map(|t| vec![(path.clone(), t)]);
                     match pair {
@@ -2007,23 +2326,42 @@ impl App {
                     match &trashed {
                         Some(t) => {
                             let batch = vec![(t.clone(), path.clone())];
-                            (project::apply_moves(&root, &batch, false), None, Some(path.clone()))
+                            (
+                                project::apply_moves(&root, &batch, false),
+                                None,
+                                Some(path.clone()),
+                            )
                         }
                         None => (Ok(()), None, Some(path.clone())),
                     }
                 };
                 let label = format!("create {what}");
-                (result, TreeStep::Created { what, path, trashed }, show, label)
+                (
+                    result,
+                    TreeStep::Created {
+                        what,
+                        path,
+                        trashed,
+                    },
+                    show,
+                    label,
+                )
             }
         };
         match result {
             Ok(()) => {
-                if back { self.tree_redo.push(step) } else { self.tree_undo.push(step) }
+                if back {
+                    self.tree_redo.push(step)
+                } else {
+                    self.tree_undo.push(step)
+                }
                 if let Err(e) = self.reload_tree() {
                     self.msg = format!("couldn't re-read the tree: {e}");
                     return;
                 }
-                if let Some(i) = show.and_then(|p| self.project.nodes.iter().position(|n| n.path == p)) {
+                if let Some(i) =
+                    show.and_then(|p| self.project.nodes.iter().position(|n| n.path == p))
+                {
                     self.reveal(i);
                 }
                 let m = self.mod_label();
@@ -2036,7 +2374,10 @@ impl App {
             Err(e) => {
                 // It can't be taken back now (something else changed on disk);
                 // drop it rather than leave a step that will never work.
-                self.msg = format!("couldn't {} {what}: {e}", if back { "undo" } else { "redo" });
+                self.msg = format!(
+                    "couldn't {} {what}: {e}",
+                    if back { "undo" } else { "redo" }
+                );
             }
         }
     }
@@ -2044,8 +2385,13 @@ impl App {
     /// If a move sends the open scene (or what holds it) to the trash, close it.
     fn close_if_trashed(&mut self, batch: &[(PathBuf, PathBuf)]) {
         let bin = project::trash_dir(&self.project.root);
-        let Some(open) = self.open.map(|i| self.project.nodes[i].path.clone()) else { return };
-        if batch.iter().any(|(from, to)| to.starts_with(&bin) && open.starts_with(from)) {
+        let Some(open) = self.open.map(|i| self.project.nodes[i].path.clone()) else {
+            return;
+        };
+        if batch
+            .iter()
+            .any(|(from, to)| to.starts_with(&bin) && open.starts_with(from))
+        {
             self.open = None;
             self.editor = Editor::from_str("");
             self.focus = Focus::Tree;
@@ -2063,7 +2409,9 @@ impl App {
             self.move_section(idx, up);
             return;
         }
-        let Some(idx) = self.selected_file() else { return };
+        let Some(idx) = self.selected_file() else {
+            return;
+        };
         if self.project.in_trash(idx) {
             self.msg = "things in the trash stay where they are".into();
             return;
@@ -2099,7 +2447,12 @@ impl App {
             let body = self.project.nodes[i].body.clone();
             self.editor.set_text(&body);
         }
-        if let Some(i) = self.project.nodes.iter().position(|n| n.path == moved.target) {
+        if let Some(i) = self
+            .project
+            .nodes
+            .iter()
+            .position(|n| n.path == moved.target)
+        {
             self.reveal(i);
         }
         let links = match moved.links {
@@ -2107,7 +2460,10 @@ impl App {
             1 => " · links in 1 file updated".into(),
             n => format!(" · links in {n} files updated"),
         };
-        self.msg = format!("moved {noun} {name} {}{links}", if up { "up" } else { "down" });
+        self.msg = format!(
+            "moved {noun} {name} {}{links}",
+            if up { "up" } else { "down" }
+        );
     }
 
     /// Move a whole section one place up or down among the others. The order
@@ -2120,29 +2476,52 @@ impl App {
             self.msg = "the trash stays at the bottom".into();
             return;
         }
-        let shown: Vec<Area> = self.project.roots.iter().map(|&r| self.project.nodes[r].area).collect();
+        let shown: Vec<Area> = self
+            .project
+            .roots
+            .iter()
+            .map(|&r| self.project.nodes[r].area)
+            .collect();
         let at = shown.iter().position(|&a| a == area).unwrap_or(0);
-        let other = if up { at.checked_sub(1) } else { Some(at + 1) }.and_then(|i| shown.get(i).copied());
+        let other =
+            if up { at.checked_sub(1) } else { Some(at + 1) }.and_then(|i| shown.get(i).copied());
         let Some(other) = other.filter(|&o| o != Area::Trash) else {
             self.msg = format!("{name} is already {}", if up { "first" } else { "last" });
             return;
         };
         let before = Area::ordered(&self.project.meta);
         let mut after = before.clone();
-        let (i, j) = (after.iter().position(|&a| a == area).unwrap(), after.iter().position(|&a| a == other).unwrap());
+        let (i, j) = (
+            after.iter().position(|&a| a == area).unwrap(),
+            after.iter().position(|&a| a == other).unwrap(),
+        );
         after.swap(i, j);
         if let Err(e) = self.set_section_order(&after, Some(area)) {
             self.msg = format!("couldn't move {name}: {e}");
             return;
         }
-        self.record(TreeStep::Sections { what: format!("move {name}"), before, after });
+        self.record(TreeStep::Sections {
+            what: format!("move {name}"),
+            before,
+            after,
+        });
         self.msg = format!("moved section {name} {}", if up { "up" } else { "down" });
     }
 
-    fn set_section_order(&mut self, order: &[grimoire_core::project::Area], show: Option<grimoire_core::project::Area>) -> Result<()> {
+    fn set_section_order(
+        &mut self,
+        order: &[grimoire_core::project::Area],
+        show: Option<grimoire_core::project::Area>,
+    ) -> Result<()> {
         project::save_section_order(&self.project.root, order)?;
         self.reload_tree()?;
-        if let Some(i) = show.and_then(|a| self.project.roots.iter().copied().find(|&r| self.project.nodes[r].area == a)) {
+        if let Some(i) = show.and_then(|a| {
+            self.project
+                .roots
+                .iter()
+                .copied()
+                .find(|&r| self.project.nodes[r].area == a)
+        }) {
             self.reveal(i);
         }
         Ok(())
@@ -2151,7 +2530,9 @@ impl App {
     /// A drag in the tree ended on another row: move there one step at a
     /// time, so crossing chapters works exactly as it does from the keyboard.
     pub fn drop_tree_drag(&mut self) {
-        let Some((from, to)) = self.tree_drag.take() else { return };
+        let Some((from, to)) = self.tree_drag.take() else {
+            return;
+        };
         if from == to || from >= self.visible.len() {
             return;
         }
@@ -2164,9 +2545,14 @@ impl App {
         if self.tree_undo.len() > before + 1 {
             let steps: Vec<TreeStep> = self.tree_undo.drain(before..).collect();
             let merged = match (steps.first(), steps.last()) {
-                (Some(TreeStep::Sections { what, before, .. }), Some(TreeStep::Sections { after, .. })) => {
-                    TreeStep::Sections { what: what.clone(), before: before.clone(), after: after.clone() }
-                }
+                (
+                    Some(TreeStep::Sections { what, before, .. }),
+                    Some(TreeStep::Sections { after, .. }),
+                ) => TreeStep::Sections {
+                    what: what.clone(),
+                    before: before.clone(),
+                    after: after.clone(),
+                },
                 _ => {
                     let batches = steps
                         .into_iter()
@@ -2175,8 +2561,18 @@ impl App {
                             _ => Vec::new(),
                         })
                         .collect();
-                    let name = self.project.nodes.iter().find(|n| n.path == path).map(|n| n.title.clone()).unwrap_or_default();
-                    TreeStep::Moved { what: format!("move {name}"), batches, links: true }
+                    let name = self
+                        .project
+                        .nodes
+                        .iter()
+                        .find(|n| n.path == path)
+                        .map(|n| n.title.clone())
+                        .unwrap_or_default();
+                    TreeStep::Moved {
+                        what: format!("move {name}"),
+                        batches,
+                        links: true,
+                    }
                 }
             };
             self.tree_undo.push(merged);
@@ -2185,8 +2581,12 @@ impl App {
 
     fn drag_moves(&mut self, up: bool, to: usize, path: &mut PathBuf) {
         for _ in 0..40 {
-            let Some(i) = self.project.nodes.iter().position(|n| n.path == *path) else { return };
-            let Some(pos) = self.visible.iter().position(|&v| v == i) else { return };
+            let Some(i) = self.project.nodes.iter().position(|n| n.path == *path) else {
+                return;
+            };
+            let Some(pos) = self.visible.iter().position(|&v| v == i) else {
+                return;
+            };
             if (up && pos <= to) || (!up && pos >= to) {
                 return;
             }
@@ -2195,7 +2595,11 @@ impl App {
             self.move_selected(up);
             // Follow the dragged thing under its new name. A section keeps its
             // name, so for one it's enough that its row moved.
-            match self.visible.get(self.sel).map(|&v| self.project.nodes[v].path.clone()) {
+            match self
+                .visible
+                .get(self.sel)
+                .map(|&v| self.project.nodes[v].path.clone())
+            {
                 Some(p) if p != *path => *path = p,
                 Some(_) if self.sel != pos => {}
                 _ => return,
@@ -2268,8 +2672,10 @@ impl App {
         // With undo, a selection behaves the way it does everywhere else:
         // typing replaces it and Backspace or Delete removes it. Anything else
         // just lets go of it.
-        let replacing = matches!(key, Key::Char(_) | Key::Enter | Key::Backspace | Key::Delete)
-            && self.editor.delete_selection();
+        let replacing = matches!(
+            key,
+            Key::Char(_) | Key::Enter | Key::Backspace | Key::Delete
+        ) && self.editor.delete_selection();
         if !replacing {
             self.editor.clear_selection();
         }
@@ -2318,7 +2724,13 @@ impl App {
 
     /// Tab through every pane that is actually on screen.
     pub fn cycle_focus(&mut self, forward: bool) {
-        const ORDER: [Focus; 5] = [Focus::Tree, Focus::Editor, Focus::Codex, Focus::Clearing, Focus::Music];
+        const ORDER: [Focus; 5] = [
+            Focus::Tree,
+            Focus::Editor,
+            Focus::Codex,
+            Focus::Clearing,
+            Focus::Music,
+        ];
         let cur = ORDER.iter().position(|&f| f == self.focus).unwrap_or(0);
         for step in 1..=ORDER.len() {
             let i = if forward {
@@ -2361,8 +2773,16 @@ impl App {
 
     /// A left click focuses the pane under the pointer and acts on it.
     pub fn on_click(&mut self, x: u16, y: u16) {
-        let clicked = self.create_hits.iter().find(|(r, _)| hit(*r, x, y)).map(|&(_, w)| w);
-        let view = self.view_hits.iter().find(|(r, _)| hit(*r, x, y)).map(|&(_, m)| m);
+        let clicked = self
+            .create_hits
+            .iter()
+            .find(|(r, _)| hit(*r, x, y))
+            .map(|&(_, w)| w);
+        let view = self
+            .view_hits
+            .iter()
+            .find(|(r, _)| hit(*r, x, y))
+            .map(|&(_, m)| m);
         if let Some(mode) = view {
             if self.focus == Focus::Editor {
                 self.flush();
@@ -2398,7 +2818,11 @@ impl App {
             self.flush();
             self.focus = Focus::Codex;
             // A click on an "appears in" row opens that scene.
-            let list_top = self.rect_codex.y + self.rect_codex.height.saturating_sub(self.codex.as_ref().map_or(0, |p| p.appears.len() as u16));
+            let list_top = self.rect_codex.y
+                + self
+                    .rect_codex
+                    .height
+                    .saturating_sub(self.codex.as_ref().map_or(0, |p| p.appears.len() as u16));
             if y >= list_top
                 && let Some(pane) = &mut self.codex
             {
@@ -2409,7 +2833,8 @@ impl App {
             self.focus = Focus::Editor;
             let rows = self.editor.layout(self.edit_width);
             let vis = self.editor.scroll + (y - self.rect_editor.y) as usize;
-            self.editor.click(&rows, vis, (x - self.rect_editor.x) as usize);
+            self.editor
+                .click(&rows, vis, (x - self.rect_editor.x) as usize);
         } else if hit(self.rect_scene, x, y) {
             if self.focus == Focus::Editor {
                 self.flush();
@@ -2431,7 +2856,8 @@ impl App {
         if let Some((from, _)) = self.tree_drag {
             let r = self.rect_tree;
             let cy = y.clamp(r.y, r.y + r.height.saturating_sub(1));
-            let row = (self.tree_scroll + (cy - r.y) as usize).min(self.visible.len().saturating_sub(1));
+            let row =
+                (self.tree_scroll + (cy - r.y) as usize).min(self.visible.len().saturating_sub(1));
             self.tree_drag = Some((from, row));
             return;
         }
@@ -2470,16 +2896,15 @@ impl App {
         const STEP: usize = 3;
         if hit(self.rect_tree, x, y) {
             if down {
-                self.tree_scroll = (self.tree_scroll + STEP)
-                    .min(self.visible.len().saturating_sub(1));
+                self.tree_scroll =
+                    (self.tree_scroll + STEP).min(self.visible.len().saturating_sub(1));
             } else {
                 self.tree_scroll = self.tree_scroll.saturating_sub(STEP);
             }
         } else if hit(self.rect_editor, x, y) {
             let rows = self.editor.layout(self.edit_width);
             if down {
-                self.editor.scroll = (self.editor.scroll + STEP)
-                    .min(rows.len().saturating_sub(1));
+                self.editor.scroll = (self.editor.scroll + STEP).min(rows.len().saturating_sub(1));
             } else {
                 self.editor.scroll = self.editor.scroll.saturating_sub(STEP);
             }
@@ -2501,25 +2926,38 @@ impl App {
         let row = |label: String, key: &str| format!("{label:<20}{key}");
         let m = self.mod_label();
         vec![
-            (row("Find anything…".into(), &format!("({m}K)")), MenuItem::Find),
+            (
+                row("Find anything…".into(), &format!("({m}K)")),
+                MenuItem::Find,
+            ),
             (row("New scene…".into(), "(n)"), MenuItem::NewScene),
             (row("New chapter…".into(), "(c)"), MenuItem::NewChapter),
-            (row(format!("New {}…", self.project.meta.part_noun()), "(p)"), MenuItem::NewPart),
+            (
+                row(format!("New {}…", self.project.meta.part_noun()), "(p)"),
+                MenuItem::NewPart,
+            ),
             (row("New folder…".into(), "(N)"), MenuItem::NewFolder),
             (row("Rename…".into(), "(r)"), MenuItem::Rename),
             (row("Delete…".into(), "(d)"), MenuItem::Delete),
-            (row("Update project map".into(), "(project.md)"), MenuItem::ProjectMap),
+            (
+                row("Update project map".into(), "(project.md)"),
+                MenuItem::ProjectMap,
+            ),
             ("Compile manuscript".into(), MenuItem::Compile),
             (row("Music player…".into(), "(F7)"), MenuItem::Player),
             ("Settings…".into(), MenuItem::Settings),
             (row("Close".into(), "(Esc)"), MenuItem::Close),
-            (row("Quit Grimoire".into(), &format!("({m}Q)")), MenuItem::Quit),
+            (
+                row("Quit Grimoire".into(), &format!("({m}Q)")),
+                MenuItem::Quit,
+            ),
         ]
     }
 
     /// How Grimoire looks and sounds: the menu's Settings, nested.
     pub fn settings_menu(&self) -> Vec<(String, MenuItem)> {
-        let on_off = |on: bool, what: &str| format!("Turn {what} {}", if on { "off" } else { "on" });
+        let on_off =
+            |on: bool, what: &str| format!("Turn {what} {}", if on { "off" } else { "on" });
         vec![
             ("Themes…".into(), MenuItem::Themes),
             ("Music source…".into(), MenuItem::MusicSource),
@@ -2551,7 +2989,11 @@ impl App {
     fn close_codex(&mut self) {
         self.codex = None;
         if self.focus == Focus::Codex {
-            self.focus = if self.open.is_some() { Focus::Editor } else { Focus::Tree };
+            self.focus = if self.open.is_some() {
+                Focus::Editor
+            } else {
+                Focus::Tree
+            };
         }
     }
 
@@ -2572,7 +3014,10 @@ impl App {
     /// While the player is open, keep the queue fresh and the selection on
     /// the playing track (until you move it yourself).
     pub fn tick_player(&mut self) {
-        let Overlay::Player { tab, sel, follow, .. } = &mut self.overlay else {
+        let Overlay::Player {
+            tab, sel, follow, ..
+        } = &mut self.overlay
+        else {
             return;
         };
         if *tab == Tab::Queue && *follow {
@@ -2640,7 +3085,10 @@ impl App {
             MenuItem::Settings => self.overlay = Overlay::Settings { sel: 0 },
             MenuItem::MusicSource => {
                 let cur = self.music.source;
-                let sel = music::Source::ALL.iter().position(|s| *s == cur).unwrap_or(0);
+                let sel = music::Source::ALL
+                    .iter()
+                    .position(|s| *s == cur)
+                    .unwrap_or(0);
                 self.overlay = Overlay::Sources { sel };
             }
             // Toggles stay in Settings, so the change shows on its row.
@@ -2649,7 +3097,11 @@ impl App {
             MenuItem::Icons => self.toggle_icons(),
             MenuItem::Themes => self.open_theme_picker(),
             MenuItem::Back => {
-                let sel = self.menu().iter().position(|(_, i)| *i == MenuItem::Settings).unwrap_or(0);
+                let sel = self
+                    .menu()
+                    .iter()
+                    .position(|(_, i)| *i == MenuItem::Settings)
+                    .unwrap_or(0);
                 self.overlay = Overlay::Menu { sel };
             }
             MenuItem::Close => self.overlay = Overlay::None,
@@ -2674,7 +3126,9 @@ impl App {
         }
         self.msg = if on {
             match self.music.state {
-                music::State::NoToken => "music on — run grimoire music-setup to connect a player".into(),
+                music::State::NoToken => {
+                    "music on — run grimoire music-setup to connect a player".into()
+                }
                 _ => format!("music on · {}", self.music.source.label()),
             }
         } else {
@@ -2712,12 +3166,17 @@ impl App {
 
     pub fn on_overlay_key(&mut self, key: Key) {
         let menu_items: Vec<MenuItem> = self.menu().into_iter().map(|(_, i)| i).collect();
-        let settings_items: Vec<MenuItem> = self.settings_menu().into_iter().map(|(_, i)| i).collect();
+        let settings_items: Vec<MenuItem> =
+            self.settings_menu().into_iter().map(|(_, i)| i).collect();
         let nested = matches!(self.overlay, Overlay::Settings { .. });
         match &mut self.overlay {
             Overlay::None => {}
 
-            Overlay::Palette { query, sel, entries } => match key {
+            Overlay::Palette {
+                query,
+                sel,
+                entries,
+            } => match key {
                 Key::Char(c) if !c.is_control() => {
                     query.push(c);
                     *sel = 0;
@@ -2741,7 +3200,12 @@ impl App {
                 _ => {}
             },
 
-            Overlay::Find { query, with, on_with, from } => {
+            Overlay::Find {
+                query,
+                with,
+                on_with,
+                from,
+            } => {
                 let (q, from_pos) = (query.clone(), *from);
                 match key {
                     Key::Char(c) if !c.is_control() => {
@@ -2784,7 +3248,14 @@ impl App {
                 }
             }
 
-            Overlay::FindBook { query, with, on_with, hits, sel, confirm } => {
+            Overlay::FindBook {
+                query,
+                with,
+                on_with,
+                hits,
+                sel,
+                confirm,
+            } => {
                 if *confirm {
                     match key {
                         Key::Char('y') | Key::Char('Y') => {
@@ -2839,7 +3310,11 @@ impl App {
                     Key::Esc => self.overlay = Overlay::None,
                     _ => {}
                 }
-                if changed && let Overlay::FindBook { query, hits, sel, .. } = &mut self.overlay {
+                if changed
+                    && let Overlay::FindBook {
+                        query, hits, sel, ..
+                    } = &mut self.overlay
+                {
                     *hits = search::book(&self.project, &self.parents, query);
                     *sel = 0;
                 }
@@ -2855,7 +3330,8 @@ impl App {
                     match sessions::enable(&self.project.root) {
                         Ok(()) => {
                             self.sessions_on = true;
-                            self.msg = "session history is on — each session is kept when you quit".into();
+                            self.msg =
+                                "session history is on — each session is kept when you quit".into();
                             self.open_sessions();
                         }
                         Err(e) => self.msg = format!("couldn't turn on session history: {e}"),
@@ -2864,22 +3340,38 @@ impl App {
                 _ => self.overlay = Overlay::None,
             },
 
-            Overlay::Sessions { list, sel, changes, .. } => {
+            Overlay::Sessions {
+                list, sel, changes, ..
+            } => {
                 if let Some((which, items, csel)) = changes {
                     match key {
-                        Key::Down | Key::Char('j') => *csel = (*csel + 1).min(items.len().saturating_sub(1)),
+                        Key::Down | Key::Char('j') => {
+                            *csel = (*csel + 1).min(items.len().saturating_sub(1))
+                        }
                         Key::Up | Key::Char('k') => *csel = csel.saturating_sub(1),
                         Key::Enter => {
-                            if let (Some(s), Some(c)) = (list.get(*which).cloned(), items.get(*csel).cloned()) {
+                            if let (Some(s), Some(c)) =
+                                (list.get(*which).cloned(), items.get(*csel).cloned())
+                            {
                                 let root = self.project.root.clone();
                                 let parent = format!("{}^", s.hash);
                                 let old_path = match &c.kind {
                                     sessions::ChangeKind::Renamed { from } => from.clone(),
                                     _ => c.path.clone(),
                                 };
-                                let before = sessions::file_at(&root, &parent, &old_path).ok().flatten().unwrap_or_default();
-                                let after = sessions::file_at(&root, &s.hash, &c.path).ok().flatten().unwrap_or_default();
-                                let title = c.path.file_stem().map(|x| x.to_string_lossy().to_string()).unwrap_or_default();
+                                let before = sessions::file_at(&root, &parent, &old_path)
+                                    .ok()
+                                    .flatten()
+                                    .unwrap_or_default();
+                                let after = sessions::file_at(&root, &s.hash, &c.path)
+                                    .ok()
+                                    .flatten()
+                                    .unwrap_or_default();
+                                let title = c
+                                    .path
+                                    .file_stem()
+                                    .map(|x| x.to_string_lossy().to_string())
+                                    .unwrap_or_default();
                                 self.overlay = Overlay::SessionDiff {
                                     title,
                                     label: s.label.clone(),
@@ -2895,7 +3387,9 @@ impl App {
                     return;
                 }
                 match key {
-                    Key::Down | Key::Char('j') => *sel = (*sel + 1).min(list.len().saturating_sub(1)),
+                    Key::Down | Key::Char('j') => {
+                        *sel = (*sel + 1).min(list.len().saturating_sub(1))
+                    }
                     Key::Up | Key::Char('k') => *sel = sel.saturating_sub(1),
                     Key::Enter | Key::Right | Key::Char('h') => {
                         if let Some(s) = list.get(*sel) {
@@ -2923,7 +3417,12 @@ impl App {
                 _ => self.open_sessions_keeping_place(),
             },
 
-            Overlay::Export { formats, parts, sel, done } => {
+            Overlay::Export {
+                formats,
+                parts,
+                sel,
+                done,
+            } => {
                 if done.is_some() {
                     self.overlay = Overlay::None;
                     return;
@@ -2942,7 +3441,8 @@ impl App {
                         if !formats.iter().any(|&f| f) {
                             self.msg = "choose at least one format".into();
                         } else if !parts.is_empty() && !parts.iter().any(|p| p.2) {
-                            self.msg = format!("choose at least one {}", self.project.meta.part_noun());
+                            self.msg =
+                                format!("choose at least one {}", self.project.meta.part_noun());
                         } else {
                             let (f, p) = (*formats, parts.clone());
                             let lines = self.run_export(f, &p);
@@ -2956,14 +3456,26 @@ impl App {
                 }
             }
 
-            Overlay::Spelling { line, start, end, word, suggestions, sel } => {
+            Overlay::Spelling {
+                line,
+                start,
+                end,
+                word,
+                suggestions,
+                sel,
+            } => {
                 // Rows: each suggestion, then "add to this book", then "leave it".
                 let rows = suggestions.len() + 2;
                 match key {
                     Key::Down | Key::Char('j') => *sel = (*sel + 1).min(rows - 1),
                     Key::Up | Key::Char('k') => *sel = sel.saturating_sub(1),
                     Key::Char(c @ '1'..='9') if (c as usize - '1' as usize) < suggestions.len() => {
-                        let (l, s, e, with) = (*line, *start, *end, suggestions[c as usize - '1' as usize].clone());
+                        let (l, s, e, with) = (
+                            *line,
+                            *start,
+                            *end,
+                            suggestions[c as usize - '1' as usize].clone(),
+                        );
                         self.overlay = Overlay::None;
                         self.apply_spelling(l, s, e, &with);
                     }
@@ -3025,7 +3537,8 @@ impl App {
                     self.overlay = Overlay::None;
                     let mut restored = 0;
                     for it in &items {
-                        let Some(idx) = self.project.nodes.iter().position(|n| n.path == it.scene) else {
+                        let Some(idx) = self.project.nodes.iter().position(|n| n.path == it.scene)
+                        else {
                             continue;
                         };
                         let (front, body) = grimoire_core::project::split_frontmatter(&it.text);
@@ -3058,7 +3571,13 @@ impl App {
                 _ => {}
             },
 
-            Overlay::History { scene, versions, sel, scroll, .. } => match key {
+            Overlay::History {
+                scene,
+                versions,
+                sel,
+                scroll,
+                ..
+            } => match key {
                 Key::Down | Key::Char('j') => {
                     *sel = (*sel + 1).min(versions.len().saturating_sub(1));
                     *scroll = 0;
@@ -3088,7 +3607,9 @@ impl App {
                         let item = items[*sel];
                         self.run_menu(item);
                     }
-                    Key::Esc | Key::Left | Key::Char('h') if nested => self.run_menu(MenuItem::Back),
+                    Key::Esc | Key::Left | Key::Char('h') if nested => {
+                        self.run_menu(MenuItem::Back)
+                    }
                     Key::Esc => self.overlay = Overlay::None,
                     _ => {}
                 }
@@ -3179,10 +3700,17 @@ impl App {
                     self.msg = "theme: Custom saved".into();
                     self.overlay = Overlay::None;
                 }
-                _ => {},
+                _ => {}
             },
 
-            Overlay::Player { tab, sel, follow, query, find, typing } => {
+            Overlay::Player {
+                tab,
+                sel,
+                follow,
+                query,
+                find,
+                typing,
+            } => {
                 use music::Cmd;
                 let len = match tab {
                     Tab::Queue => self.music.queue.len(),
@@ -3209,7 +3737,8 @@ impl App {
                                 } else {
                                     format!("searching playlists for “{q}”…")
                                 });
-                                self.music.send(Cmd::Playlists((!q.is_empty()).then_some(q)));
+                                self.music
+                                    .send(Cmd::Playlists((!q.is_empty()).then_some(q)));
                             } else if !q.is_empty() {
                                 self.music.results.clear();
                                 self.music.note = Some(format!("searching for “{q}”…"));
@@ -3231,7 +3760,11 @@ impl App {
                     }
                     Key::Esc | Key::F(7) => self.overlay = Overlay::None,
                     Key::Tab | Key::BackTab => {
-                        *tab = if key == Key::Tab { tab.next() } else { tab.prev() };
+                        *tab = if key == Key::Tab {
+                            tab.next()
+                        } else {
+                            tab.prev()
+                        };
                         *sel = 0;
                         *follow = *tab == Tab::Queue;
                         if *tab == Tab::Playlists && self.music.playlists.is_empty() {
@@ -3273,7 +3806,10 @@ impl App {
                         Tab::Search => {
                             if let Some(it) = self.music.results.get(*sel) {
                                 self.music.note = Some(format!("playing {}", it.title));
-                                self.music.send(Cmd::Enqueue { id: it.id.clone(), now: true });
+                                self.music.send(Cmd::Enqueue {
+                                    id: it.id.clone(),
+                                    now: true,
+                                });
                             }
                         }
                         Tab::Playlists => {
@@ -3294,12 +3830,16 @@ impl App {
                     Key::Char('a') if *tab == Tab::Search => {
                         if let Some(it) = self.music.results.get(*sel) {
                             self.music.note = Some(format!("up next: {}", it.title));
-                            self.music.send(Cmd::Enqueue { id: it.id.clone(), now: false });
+                            self.music.send(Cmd::Enqueue {
+                                id: it.id.clone(),
+                                now: false,
+                            });
                         }
                     }
                     Key::Char('a') if *tab == Tab::Playlists => {
                         if let Some(it) = self.music.playlists.get(*sel) {
-                            self.music.note = Some(format!("queueing {} after this song…", it.title));
+                            self.music.note =
+                                Some(format!("queueing {} after this song…", it.title));
                             self.music.send(Cmd::Playlist {
                                 id: it.id.clone(),
                                 title: it.title.clone(),
@@ -3353,7 +3893,9 @@ impl App {
                 _ => {}
             },
 
-            Overlay::Rename { path, buf, fresh, .. } => match key {
+            Overlay::Rename {
+                path, buf, fresh, ..
+            } => match key {
                 Key::Char(c) if !c.is_control() => {
                     if std::mem::take(fresh) {
                         buf.clear();
@@ -3381,7 +3923,12 @@ impl App {
 
             // Only `y` deletes. Enter is the fold key two rows up and the
             // fingers know it — it must not be able to destroy a chapter.
-            Overlay::Confirm { path, name, permanent, .. } => match key {
+            Overlay::Confirm {
+                path,
+                name,
+                permanent,
+                ..
+            } => match key {
                 Key::Char('y') | Key::Char('Y') => {
                     let (path, name, permanent) = (path.clone(), name.clone(), *permanent);
                     self.overlay = Overlay::None;
@@ -3400,7 +3947,11 @@ impl App {
     pub fn hints(&self) -> String {
         let m = self.mod_label();
         // What Esc does comes first, so a narrow status bar never cuts it.
-        let esc = if self.codex.is_some() { "Esc close note" } else { "Esc menu" };
+        let esc = if self.codex.is_some() {
+            "Esc close note"
+        } else {
+            "Esc menu"
+        };
         match self.focus {
             Focus::Tree => {
                 let sel = self.visible.get(self.sel).copied();
@@ -3413,10 +3964,18 @@ impl App {
                     keys.join("  ")
                 )
             }
-            Focus::Editor => format!("{esc}  Tab pane  {m}K find anything  {m}Z undo  F8 spelling  {m}Q quit "),
-            Focus::Codex => "Esc close  Tab pane  ↑↓ scenes  ↵ go there  o open the note  PgDn scroll ".into(),
-            Focus::Clearing => format!("{esc}  Tab pane  ←→ view  ↵ start/pause  r reset  {m}Q quit "),
-            Focus::Music => format!("{esc}  Tab pane  ↵ open player  space pause  ←→ track  {m}Q quit "),
+            Focus::Editor => {
+                format!("{esc}  Tab pane  {m}K find anything  {m}Z undo  F8 spelling  {m}Q quit ")
+            }
+            Focus::Codex => {
+                "Esc close  Tab pane  ↑↓ scenes  ↵ go there  o open the note  PgDn scroll ".into()
+            }
+            Focus::Clearing => {
+                format!("{esc}  Tab pane  ←→ view  ↵ start/pause  r reset  {m}Q quit ")
+            }
+            Focus::Music => {
+                format!("{esc}  Tab pane  ↵ open player  space pause  ←→ track  {m}Q quit ")
+            }
         }
     }
 }
@@ -3478,7 +4037,6 @@ fn rank_suggestions(word: &str, mut found: Vec<String>, max: usize) -> Vec<Strin
     found
 }
 
-
 /// Today's starting word count, so the status line can show a session delta.
 /// Stored in `.grimoire/progress.toml`, which belongs in .gitignore.
 fn today_string() -> String {
@@ -3521,17 +4079,22 @@ fn copy_to_clipboard(text: &str) -> bool {
     use std::process::{Command, Stdio};
 
     const TOOLS: &[(&str, &[&str])] = &[
-        ("pbcopy", &[]),                              // macOS
-        ("wl-copy", &[]),                             // Wayland
-        ("xclip", &["-selection", "clipboard"]),      // X11
-        ("xsel", &["--clipboard", "--input"]),        // X11 alternative
+        ("pbcopy", &[]),                         // macOS
+        ("wl-copy", &[]),                        // Wayland
+        ("xclip", &["-selection", "clipboard"]), // X11
+        ("xsel", &["--clipboard", "--input"]),   // X11 alternative
         // Windows. clip.exe mangles anything outside the console code page —
         // every em dash and curly quote in a manuscript — so PowerShell reads
         // stdin as UTF-8 and sets the clipboard itself.
-        ("powershell", &[
-            "-NoProfile", "-NonInteractive", "-Command",
-            "[Console]::InputEncoding = [Text.Encoding]::UTF8; Set-Clipboard -Value ([Console]::In.ReadToEnd())",
-        ]),
+        (
+            "powershell",
+            &[
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "[Console]::InputEncoding = [Text.Encoding]::UTF8; Set-Clipboard -Value ([Console]::In.ReadToEnd())",
+            ],
+        ),
     ];
 
     for (cmd, args) in TOOLS {
@@ -3586,7 +4149,11 @@ mod clipboard_tests {
 mod spelling_tests {
     #[test]
     fn a_swapped_letter_beats_a_dropped_one() {
-        let ranked = super::rank_suggestions("Teh", vec!["Tet".into(), "Ted".into(), "Eh".into(), "The".into()], 3);
+        let ranked = super::rank_suggestions(
+            "Teh",
+            vec!["Tet".into(), "Ted".into(), "Eh".into(), "The".into()],
+            3,
+        );
         assert_eq!(ranked[0], "The");
         assert_eq!(ranked.len(), 3);
     }
