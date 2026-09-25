@@ -85,6 +85,13 @@ pub enum MenuItem {
 
 /// Something done to the book's files from the tree, kept so it can be taken
 /// back.
+/// The recovered-words choices, in the order they're listed.
+pub const RECOVER_CHOICES: [&str; 3] = [
+    "Restore them — the saved versions go into each scene's history",
+    "Keep the saved versions — the recovered words go to the trash",
+    "Decide later — offered again next time",
+];
+
 #[derive(Debug, Clone)]
 enum TreeStep {
     /// Things moved on disk: a delete (to the trash) or a move. Each batch was
@@ -113,6 +120,12 @@ enum TreeStep {
         what: String,
         path: PathBuf,
         trashed: Option<PathBuf>,
+    },
+    /// A replace across the book: each changed scene's text before and after,
+    /// so one Ctrl-Z takes the whole thing back.
+    Replaced {
+        what: String,
+        scenes: Vec<(PathBuf, String, String)>,
     },
 }
 
@@ -180,6 +193,12 @@ pub struct App {
     /// Ctrl-Z outside the editor can take it back, and Ctrl-Y put it again.
     tree_undo: Vec<TreeStep>,
     tree_redo: Vec<TreeStep>,
+    /// How the find bar matches (whole words, exact case unless loosened).
+    pub find_opts: search::Opts,
+    /// A replace across the book is the last thing done (or undone), so Ctrl-Z
+    /// (or Ctrl-Y) in the editor means all of it, not just this scene.
+    replace_undoable: bool,
+    replace_redoable: bool,
     /// Spellcheck underlines are showing.
     pub spell_on: bool,
     /// The tree shows a symbol beside each row.
@@ -288,6 +307,9 @@ pub enum Overlay {
     /// Words that couldn't be saved last time, offered back on launch.
     Recover {
         items: Vec<recovery::Pending>,
+        /// Which choice is highlighted: see [`RECOVER_CHOICES`]. Only Enter
+        /// acts, so a stray key at launch can't decide for you.
+        sel: usize,
     },
     /// Ctrl-T: every `%% note %%` and TK in the book, to jump to.
     Marks {
@@ -520,6 +542,9 @@ impl App {
             undo_stash: HashMap::new(),
             tree_undo: Vec::new(),
             tree_redo: Vec::new(),
+            find_opts: search::Opts::default(),
+            replace_undoable: false,
+            replace_redoable: false,
             spell_on: Settings::load().spellcheck,
             icons_on: Settings::load().icons,
             speller: None,
@@ -547,7 +572,7 @@ impl App {
             }
             let items = recovery::pending(&app.project);
             if !items.is_empty() {
-                app.overlay = Overlay::Recover { items };
+                app.overlay = Overlay::Recover { items, sel: 0 };
             }
             if let Some(i) = guide.or(first_scene) {
                 app.editor = Editor::from_text(&app.project.nodes[i].body);
@@ -614,6 +639,9 @@ impl App {
             if text != self.project.nodes[i].body {
                 self.project.nodes[i].body = text;
                 self.mark_changed(i);
+                // Typed since: Ctrl-Z is about this scene again.
+                self.replace_undoable = false;
+                self.replace_redoable = false;
             }
         }
     }
@@ -982,7 +1010,7 @@ impl App {
     // ---- undo, cut and paste -------------------------------------------
 
     pub fn undo(&mut self) {
-        if self.focus != Focus::Editor || self.open.is_none() {
+        if self.focus != Focus::Editor || self.open.is_none() || self.replace_undoable {
             self.tree_step(true);
             return;
         }
@@ -994,7 +1022,7 @@ impl App {
     }
 
     pub fn redo(&mut self) {
-        if self.focus != Focus::Editor || self.open.is_none() {
+        if self.focus != Focus::Editor || self.open.is_none() || self.replace_redoable {
             self.tree_step(false);
             return;
         }
@@ -1199,7 +1227,7 @@ impl App {
             .iter()
             .enumerate()
             .flat_map(|(l, line)| {
-                search::matches(line, query)
+                search::matches_with(line, query, self.find_opts)
                     .into_iter()
                     .map(move |(s, e)| (l, s, e))
             })
@@ -1259,10 +1287,9 @@ impl App {
     }
 
     fn replace_current(&mut self, query: &str, with: &str) {
-        let is_match = self
-            .editor
-            .selected_text()
-            .is_some_and(|t| search::matches(&t, query) == vec![(0, t.chars().count())]);
+        let is_match = self.editor.selected_text().is_some_and(|t| {
+            search::matches_with(&t, query, self.find_opts) == vec![(0, t.chars().count())]
+        });
         if is_match {
             self.editor.delete_selection();
             self.editor.insert_str(with);
@@ -1281,7 +1308,8 @@ impl App {
                 ..
             } if !query.is_empty() => {
                 let (query, with) = (query.clone(), with.clone());
-                let (text, n) = search::replace_all(&self.editor.text(), &query, &with);
+                let (text, n) =
+                    search::replace_all(&self.editor.text(), &query, &with, self.find_opts);
                 if n > 0 {
                     self.editor.set_text(&text);
                     self.flush();
@@ -1308,9 +1336,49 @@ impl App {
         }
     }
 
+    /// ^W / Alt-W in the find bar: whole words only, or inside words too.
+    /// ^E / Alt-C: exact case, or any case. What's found is what's replaced.
+    pub fn toggle_find_opt(&mut self, whole_words: bool) {
+        if whole_words {
+            self.find_opts.whole_words = !self.find_opts.whole_words;
+        } else {
+            self.find_opts.match_case = !self.find_opts.match_case;
+        }
+        match &mut self.overlay {
+            Overlay::Find { query, from, .. } => {
+                let (q, from) = (query.clone(), *from);
+                self.find_step(&q, true, Some(from));
+            }
+            Overlay::FindBook {
+                query, hits, sel, ..
+            } => {
+                *hits = search::book(&self.project, &self.parents, query, self.find_opts);
+                *sel = 0;
+            }
+            _ => {}
+        }
+    }
+
+    /// The find bar's matching, as it reads on screen.
+    pub fn find_opts_label(&self) -> String {
+        format!(
+            "{} · {}",
+            if self.find_opts.whole_words {
+                "whole words"
+            } else {
+                "inside words too"
+            },
+            if self.find_opts.match_case {
+                "exact case"
+            } else {
+                "any case"
+            },
+        )
+    }
+
     pub fn open_find_book(&mut self, query: String) {
         self.flush();
-        let hits = search::book(&self.project, &self.parents, &query);
+        let hits = search::book(&self.project, &self.parents, &query, self.find_opts);
         self.overlay = Overlay::FindBook {
             query,
             with: None,
@@ -1336,8 +1404,9 @@ impl App {
     }
 
     fn replace_in_book(&mut self, query: &str, with: &str) {
+        self.flush();
         let root = self.project.root.clone();
-        let mut scenes = 0;
+        let mut changed = Vec::new();
         let mut total = 0;
         for i in 0..self.project.nodes.len() {
             if self.project.nodes[i].kind != Kind::Scene
@@ -1346,7 +1415,8 @@ impl App {
             {
                 continue;
             }
-            let (text, n) = search::replace_all(&self.project.nodes[i].body, query, with);
+            let before = self.project.nodes[i].body.clone();
+            let (text, n) = search::replace_all(&before, query, with, self.find_opts);
             if n == 0 {
                 continue;
             }
@@ -1356,16 +1426,60 @@ impl App {
             if self.open == Some(i) {
                 self.editor.set_text(&text);
             }
-            self.project.nodes[i].body = text;
+            self.project.nodes[i].body = text.clone();
             self.mark_changed(i);
-            scenes += 1;
+            changed.push((path, before, text));
             total += n;
         }
+        let scenes = changed.len();
         self.commit_saves();
+        if scenes > 0 {
+            self.record(TreeStep::Replaced {
+                what: format!("replace “{query}” with “{with}”"),
+                scenes: changed,
+            });
+        }
+        let m = self.mod_label();
         self.msg = format!(
-            "replaced {total} in {scenes} scene{} — each one's previous version is in its history (H)",
+            "replaced {total} in {scenes} scene{} — {m}Z takes back all of it",
             if scenes == 1 { "" } else { "s" }
         );
+    }
+
+    /// Put each scene a book-wide replace changed back to `to` (from `from`).
+    /// A scene edited since is left alone. Returns how many were left.
+    fn swap_replaced(&mut self, scenes: &[(PathBuf, String, String)], back: bool) -> usize {
+        let mut skipped = 0;
+        for (path, before, after) in scenes {
+            let (from, to) = if back {
+                (after, before)
+            } else {
+                (before, after)
+            };
+            let Some(i) = self.project.nodes.iter().position(|n| &n.path == path) else {
+                skipped += 1;
+                continue;
+            };
+            if &self.project.nodes[i].body != from {
+                skipped += 1;
+                continue;
+            }
+            if self.open == Some(i) {
+                // The editor holds the replace as a step of its own: step
+                // through it, so its undo and redo stay in order.
+                let stepped = if back {
+                    self.editor.undo()
+                } else {
+                    self.editor.redo()
+                };
+                if !stepped || &self.editor.text() != to {
+                    self.editor.set_text(to);
+                }
+            }
+            self.project.nodes[i].body = to.clone();
+            self.mark_changed(i);
+        }
+        skipped
     }
 
     pub fn check_names(&mut self) {
@@ -2040,6 +2154,10 @@ impl App {
         } else {
             name.trim().to_string()
         };
+        // Brand new: nothing parked or kept for an older thing at this path
+        // (deleted before its history followed it) is this one's.
+        self.undo_stash.retain(|p, _| !p.starts_with(&path));
+        history::set_aside(&self.project.root, &path);
         self.record(TreeStep::Created {
             what,
             path: path.clone(),
@@ -2211,16 +2329,24 @@ impl App {
         let root = self.project.root.clone();
         // Close the editor if what's going is the scene it's showing, or holds it.
         let open_path = self.open.map(|i| self.project.nodes[i].path.clone());
-        if open_path.is_some_and(|p| p.starts_with(&path)) {
+        if let Some(open) = open_path.filter(|p| p.starts_with(&path)) {
+            // Its undo goes with it, so Ctrl-Z on the delete brings that back too.
+            self.undo_stash.insert(open, self.editor.take_history());
             self.open = None;
             self.editor = Editor::from_text("");
             self.focus = Focus::Tree;
         }
         let done = if permanent {
-            project::destroy(&path).map(|_| String::new())
+            project::destroy(&path).map(|_| {
+                self.undo_stash.retain(|p, _| !p.starts_with(&path));
+                String::new()
+            })
         } else {
             let m = self.mod_label();
             project::trash(&root, &path).map(|to| {
+                // Undo and history follow it into the trash, so nothing made
+                // later at the same path inherits them.
+                self.follow_paths(&path, &to);
                 self.record(TreeStep::Moved {
                     what: format!("delete {name}"),
                     batches: vec![vec![(path.clone(), to)]],
@@ -2272,18 +2398,21 @@ impl App {
             .into_iter()
             .map(|p| moved(&p).unwrap_or(p))
             .collect();
-        if let Some(i) = self.open
-            && let Some(p) = moved(&self.project.nodes[i].path)
-        {
-            self.project.nodes[i].path = p;
+        // Every node follows, not just the open one: a scene with unsaved
+        // words is found again by its new path when the tree is re-read.
+        for n in &mut self.project.nodes {
+            if let Some(p) = moved(&n.path) {
+                n.path = p;
+            }
         }
     }
 
     /// Re-read the tree from disk, keeping what's folded, which scene is open,
-    /// and the editor exactly as it is.
+    /// and the editor exactly as it is. Words not on disk yet ride across,
+    /// still guarded against the version they were written over: the new tree
+    /// comes from the files, and anything unsaved would otherwise go with the
+    /// old one.
     fn reload_tree(&mut self) -> Result<()> {
-        // Words not on disk yet survive the re-read, still guarded against
-        // the version they were written over.
         self.flush();
         let unsaved: Vec<project::Node> = self
             .project
@@ -2301,26 +2430,38 @@ impl App {
             .collect();
         let open_path = self.open.map(|i| self.project.nodes[i].path.clone());
         let root = self.project.root.clone();
+        let stranded = project::restore_stranded(&root);
+        if !stranded.is_empty() {
+            self.msg = Self::stranded_note(&stranded);
+        }
         self.project = Project::load(&root)?;
         for n in &mut self.project.nodes {
             if let Some(&(_, open)) = collapsed.iter().find(|(p, _)| *p == n.path) {
                 n.expanded = open;
             }
         }
-        for old in unsaved {
-            if let Some(n) = self.project.nodes.iter_mut().find(|n| n.path == old.path) {
-                n.front = old.front;
-                n.body = old.body;
-                n.dirty = true;
-                n.seen = old.seen;
-                n.stat = None;
-            }
-        }
         self.parents = self.project.parents();
         self.open = open_path.and_then(|p| self.project.nodes.iter().position(|n| n.path == p));
+        for old in unsaved {
+            match self.project.nodes.iter().position(|n| n.path == old.path) {
+                Some(i) => {
+                    let n = &mut self.project.nodes[i];
+                    n.front = old.front;
+                    n.body = old.body;
+                    n.seen = old.seen;
+                    n.stat = None;
+                    self.mark_changed(i);
+                }
+                // Gone from where it was: keep its words where the next launch
+                // looks for them rather than let them drop.
+                None => {
+                    let _ = recovery::keep(&root, &old.path, &old.file_text());
+                }
+            }
+        }
         // Nothing unsaved in the editor, and the file says something else (a
-        // link rewritten by a move, a change from elsewhere): show the file,
-        // or the next keystroke would save the old words over it.
+        // link rewritten by a move or its undo, a change from elsewhere): show
+        // the file, or the next keystroke would save the old words over it.
         if let Some(i) = self.open
             && !self.project.nodes[i].dirty
             && self.editor.text() != self.project.nodes[i].body
@@ -2331,6 +2472,29 @@ impl App {
         self.refresh_visible();
         self.refresh_names();
         Ok(())
+    }
+
+    /// Said when [`project::restore_stranded`] brought something back.
+    pub fn stranded_note(back: &[PathBuf]) -> String {
+        let names: Vec<String> = back
+            .iter()
+            .take(3)
+            .map(|p| {
+                let stem = p
+                    .file_stem()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string();
+                stem.trim_start_matches(|c: char| c.is_ascii_digit() || c == '-')
+                    .replace('-', " ")
+            })
+            .collect();
+        format!(
+            "brought back {} left hidden by a move that didn't finish: {}{}",
+            back.len(),
+            names.join(", "),
+            if back.len() > 3 { ", …" } else { "" }
+        )
     }
 
     // ---- the corkboard --------------------------------------------------
@@ -2476,6 +2640,8 @@ impl App {
     // ---- undoing what the tree did ---------------------------------------
 
     fn record(&mut self, step: TreeStep) {
+        self.replace_undoable = matches!(step, TreeStep::Replaced { .. });
+        self.replace_redoable = false;
         self.tree_undo.push(step);
         if self.tree_undo.len() > 100 {
             self.tree_undo.remove(0);
@@ -2589,6 +2755,7 @@ impl App {
                     match pair {
                         Ok(batch) => {
                             self.close_if_trashed(&batch);
+                            self.follow_many(&batch);
                             let t = batch[0].1.clone();
                             (Ok(()), Some(t), None)
                         }
@@ -2598,11 +2765,11 @@ impl App {
                     match &trashed {
                         Some(t) => {
                             let batch = vec![(t.clone(), path.clone())];
-                            (
-                                project::apply_moves(&root, &batch, false),
-                                None,
-                                Some(path.clone()),
-                            )
+                            let result = project::apply_moves(&root, &batch, false);
+                            if result.is_ok() {
+                                self.follow_many(&batch);
+                            }
+                            (result, None, Some(path.clone()))
                         }
                         None => (Ok(()), None, Some(path.clone())),
                     }
@@ -2618,6 +2785,26 @@ impl App {
                     show,
                     label,
                 )
+            }
+            TreeStep::Replaced { what, scenes } => {
+                let skipped = self.swap_replaced(&scenes, back);
+                let result = if self.commit_saves() {
+                    Ok(())
+                } else {
+                    Err(anyhow::anyhow!("a scene couldn't be saved"))
+                };
+                let label = if skipped > 0 {
+                    format!(
+                        "{what} ({skipped} scene{} changed since, left as {})",
+                        if skipped == 1 { "" } else { "s" },
+                        if skipped == 1 { "it is" } else { "they are" }
+                    )
+                } else {
+                    what.clone()
+                };
+                self.replace_undoable = !back;
+                self.replace_redoable = back;
+                (result, TreeStep::Replaced { what, scenes }, None, label)
             }
         };
         match result {
@@ -2712,13 +2899,6 @@ impl App {
             self.msg = format!("moved, but couldn't re-read the tree: {e}");
             return;
         }
-        // Rewritten links may have changed the open scene on disk.
-        if let Some(i) = self.open
-            && self.editor.text() != self.project.nodes[i].body
-        {
-            let body = self.project.nodes[i].body.clone();
-            self.editor.set_text(&body);
-        }
         if let Some(i) = self
             .project
             .nodes
@@ -2785,6 +2965,8 @@ impl App {
         order: &[grimoire_core::project::Area],
         show: Option<grimoire_core::project::Area>,
     ) -> Result<()> {
+        // Save first, like every other change to the tree.
+        self.commit_saves();
         project::save_section_order(&self.project.root, order)?;
         self.reload_tree()?;
         if let Some(i) = show.and_then(|a| {
@@ -3595,7 +3777,7 @@ impl App {
                         query, hits, sel, ..
                     } = &mut self.overlay
                 {
-                    *hits = search::book(&self.project, &self.parents, query);
+                    *hits = search::book(&self.project, &self.parents, query, self.find_opts);
                     *sel = 0;
                 }
             }
@@ -3811,8 +3993,14 @@ impl App {
                 _ => {}
             },
 
-            Overlay::Recover { items } => match key {
-                Key::Char('y') | Key::Char('Y') | Key::Enter => {
+            Overlay::Recover { sel, .. } if matches!(key, Key::Up | Key::Char('k')) => {
+                *sel = sel.saturating_sub(1);
+            }
+            Overlay::Recover { sel, .. } if matches!(key, Key::Down | Key::Char('j')) => {
+                *sel = (*sel + 1).min(RECOVER_CHOICES.len() - 1);
+            }
+            Overlay::Recover { items, sel } => match (key, *sel) {
+                (Key::Enter, 0) => {
                     let items = std::mem::take(items);
                     self.overlay = Overlay::None;
                     let mut restored = 0;
@@ -3837,14 +4025,30 @@ impl App {
                         );
                     }
                 }
-                Key::Char('n') | Key::Char('N') => {
+                (Key::Enter, 1) => {
+                    // Set aside, not destroyed: the recovered copies go to the
+                    // trash, where they can still be opened and copied from.
+                    let root = self.project.root.clone();
+                    let mut failed = 0;
                     for it in items.iter() {
-                        let _ = fs::remove_file(&it.file);
+                        if project::trash(&root, &it.file).is_err() {
+                            failed += 1;
+                        }
                     }
                     self.overlay = Overlay::None;
-                    self.msg = "kept the saved versions".into();
+                    if let Err(e) = self.reload_tree() {
+                        self.msg = format!("couldn't re-read the tree: {e}");
+                    } else if failed > 0 {
+                        self.msg = format!(
+                            "kept the saved versions — {failed} recovered cop{} couldn't be moved and will be offered again",
+                            if failed == 1 { "y" } else { "ies" }
+                        );
+                    } else {
+                        self.msg =
+                            "kept the saved versions — the recovered words are in the trash".into();
+                    }
                 }
-                Key::Esc => {
+                (Key::Enter, _) | (Key::Esc, _) => {
                     self.overlay = Overlay::None;
                     self.msg = "left for now — offered again next time".into();
                 }

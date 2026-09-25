@@ -1,20 +1,61 @@
 //! Finding and replacing text, in a scene or across the whole book, and
 //! catching name drift: near-miss spellings of the names in the notebook.
 //!
-//! Matching is "smart case": all-lowercase finds any case, a capital in the
-//! query means exactly that. Matches never span paragraphs, and positions are
-//! char indices so they line up with the editor.
+//! The find bar matches by [`Opts`] — whole words and exact case unless the
+//! writer loosens either, because what the bar finds is what "replace all"
+//! changes. [`matches`] on its own is "smart case": all-lowercase finds any
+//! case, a capital in the query means exactly that. Matches never span
+//! paragraphs, and positions are char indices so they line up with the editor.
 
 use std::path::PathBuf;
 
 use crate::project::{Kind, Project};
 
-/// Char ranges of `query` in `line`.
+/// How the find bar matches. The default is the safe one for replacing:
+/// whole words in their exact case, so replacing "ann" never touches
+/// "planned" and replacing "the" never touches "The".
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Opts {
+    /// Only where the query stands as a word of its own.
+    pub whole_words: bool,
+    /// Capitals count: "Lantern" and "lantern" are different.
+    pub match_case: bool,
+}
+
+impl Default for Opts {
+    fn default() -> Self {
+        Opts {
+            whole_words: true,
+            match_case: true,
+        }
+    }
+}
+
+/// Char ranges of `query` in `line`, smart case, inside words too.
 pub fn matches(line: &str, query: &str) -> Vec<(usize, usize)> {
+    let exact = query.chars().any(char::is_uppercase);
+    find_in(line, query, exact, false)
+}
+
+/// Char ranges of `query` in `line`, the way `opts` says.
+pub fn matches_with(line: &str, query: &str, opts: Opts) -> Vec<(usize, usize)> {
+    find_in(line, query, opts.match_case, opts.whole_words)
+}
+
+fn is_word(c: char) -> bool {
+    c.is_alphanumeric() || c == '_'
+}
+
+fn find_in(line: &str, query: &str, exact: bool, whole: bool) -> Vec<(usize, usize)> {
     if query.is_empty() {
         return Vec::new();
     }
-    let exact = query.chars().any(char::is_uppercase);
+    // A boundary only matters where the query itself starts or ends in a
+    // letter: "Mr." still matches before a space.
+    let (starts_word, ends_word) = (
+        query.chars().next().is_some_and(is_word),
+        query.chars().last().is_some_and(is_word),
+    );
     let fold = |s: &str| -> Vec<char> {
         if exact {
             s.chars().collect()
@@ -50,7 +91,10 @@ pub fn matches(line: &str, query: &str) -> Vec<(usize, usize)> {
             k += f.len();
             j += 1;
         }
-        if k == needle.len() {
+        let bounded = !whole
+            || ((!starts_word || i == 0 || !is_word(hay[i - 1]))
+                && (!ends_word || j == hay.len() || !is_word(hay[j])));
+        if k == needle.len() && bounded {
             out.push((i, j));
             i = j.max(i + 1);
         } else {
@@ -62,12 +106,12 @@ pub fn matches(line: &str, query: &str) -> Vec<(usize, usize)> {
 
 /// Replace every match in `text` (paragraph by paragraph). Returns the new
 /// text and how many were replaced.
-pub fn replace_all(text: &str, query: &str, with: &str) -> (String, usize) {
+pub fn replace_all(text: &str, query: &str, with: &str, opts: Opts) -> (String, usize) {
     let mut count = 0;
     let lines: Vec<String> = text
         .split('\n')
         .map(|line| {
-            let hits = matches(line, query);
+            let hits = matches_with(line, query, opts);
             if hits.is_empty() {
                 return line.to_string();
             }
@@ -119,18 +163,25 @@ pub fn place_of(p: &Project, parents: &[Option<usize>], idx: usize) -> String {
 
 /// Every match in the manuscript and notebook, in book order. The trash is
 /// left out.
-pub fn book(p: &Project, parents: &[Option<usize>], query: &str) -> Vec<Hit> {
+pub fn book(p: &Project, parents: &[Option<usize>], query: &str, opts: Opts) -> Vec<Hit> {
     let mut out = Vec::new();
     if query.is_empty() {
         return out;
     }
     for &r in &p.roots {
-        walk(p, parents, r, query, &mut out);
+        walk(p, parents, r, query, opts, &mut out);
     }
     out
 }
 
-fn walk(p: &Project, parents: &[Option<usize>], idx: usize, query: &str, out: &mut Vec<Hit>) {
+fn walk(
+    p: &Project,
+    parents: &[Option<usize>],
+    idx: usize,
+    query: &str,
+    opts: Opts,
+    out: &mut Vec<Hit>,
+) {
     let n = &p.nodes[idx];
     if p.in_trash(idx) {
         return;
@@ -138,7 +189,7 @@ fn walk(p: &Project, parents: &[Option<usize>], idx: usize, query: &str, out: &m
     if n.kind == Kind::Scene {
         let place = place_of(p, parents, idx);
         for (li, line) in n.body.split('\n').enumerate() {
-            for (s, e) in matches(line, query) {
+            for (s, e) in matches_with(line, query, opts) {
                 out.push(Hit {
                     path: n.path.clone(),
                     place: place.clone(),
@@ -151,7 +202,7 @@ fn walk(p: &Project, parents: &[Option<usize>], idx: usize, query: &str, out: &m
         }
     }
     for &c in &n.children {
-        walk(p, parents, c, query, out);
+        walk(p, parents, c, query, opts, out);
     }
 }
 
@@ -393,9 +444,50 @@ mod tests {
 
     #[test]
     fn replacing_counts_and_keeps_paragraphs() {
-        let (out, n) = replace_all("a lantern\nno match\nLantern lantern", "lantern", "lamp");
+        let loose = Opts {
+            whole_words: false,
+            match_case: false,
+        };
+        let (out, n) = replace_all(
+            "a lantern\nno match\nLantern lantern",
+            "lantern",
+            "lamp",
+            loose,
+        );
         assert_eq!(out, "a lamp\nno match\nlamp lamp");
         assert_eq!(n, 3);
+    }
+
+    #[test]
+    fn replacing_by_default_touches_only_whole_words_in_their_case() {
+        let text = "Ann planned it. ann's too. The ANN banner. Ann's coat.";
+        let (out, n) = replace_all(text, "Ann", "Mara", Opts::default());
+        assert_eq!(
+            out,
+            "Mara planned it. ann's too. The ANN banner. Mara's coat."
+        );
+        assert_eq!(n, 2);
+        let (out, _) = replace_all("the theme. The end.", "the", "a", Opts::default());
+        assert_eq!(
+            out, "a theme. The end.",
+            "neither inside a word nor a capital"
+        );
+        // Loosened on purpose, it does what it says.
+        let inside = Opts {
+            whole_words: false,
+            ..Opts::default()
+        };
+        assert_eq!(replace_all("planned", "ann", "X", inside).0, "plXed");
+        let any_case = Opts {
+            match_case: false,
+            ..Opts::default()
+        };
+        assert_eq!(replace_all("The end", "the", "a", any_case).0, "a end");
+        // Punctuation at the query's edge needs no boundary.
+        assert_eq!(
+            matches_with("Mr.Holt", "Mr.", Opts::default()),
+            vec![(0, 3)]
+        );
     }
 
     #[test]
@@ -471,7 +563,7 @@ mod tests {
     fn book_search_skips_the_trash_and_names_the_place() {
         let (d, p) = book_with("book", "the lantern\nand another lantern", "Kaelen");
         let parents = p.parents();
-        let hits = book(&p, &parents, "lantern");
+        let hits = book(&p, &parents, "lantern", Opts::default());
         assert_eq!(hits.len(), 2);
         assert_eq!((hits[1].line, hits[1].start), (1, 12));
         assert_eq!(hits[0].place, "Act One › Chapter One › Ashfall");

@@ -1289,7 +1289,14 @@ pub fn trash(root: &Path, path: &Path) -> Result<PathBuf> {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
-    let target = dir.join(format!("{stamp}-{name}"));
+    // Every chapter's first scene has the same file name, so two deletes in
+    // one second would share a name — and a rename onto a file replaces it.
+    let mut target = dir.join(format!("{stamp}-{name}"));
+    let mut n = 2;
+    while target.symlink_metadata().is_ok() {
+        target = dir.join(format!("{stamp}-{n}-{name}"));
+        n += 1;
+    }
     fs::rename(path, &target).with_context(|| format!("moving {} to the trash", path.display()))?;
     Ok(target)
 }
@@ -1636,22 +1643,131 @@ pub fn apply_moves(root: &Path, renames: &[(PathBuf, PathBuf)], links: bool) -> 
     Ok(())
 }
 
+/// What a thing is called while a move is under way. The original name rides
+/// along, so a move cut short (a crash, a power cut) can be put back by
+/// [`restore_stranded`] under the name it had.
+const MOVING: &str = ".grimoire-moving-";
+
 /// Rename in two passes through temporary names, so a swap (or a shift along)
-/// never collides with itself.
+/// never collides with itself. All or nothing: if any rename fails, the ones
+/// already made are undone, so nothing is left hidden under a temporary name.
 fn rename_all(renames: &[(PathBuf, PathBuf)]) -> Result<()> {
-    let mut staged = Vec::new();
-    for (i, (from, to)) in renames.iter().enumerate() {
-        let tmp = from.with_file_name(format!(".grimoire-moving-{i}-{}", std::process::id()));
-        fs::rename(from, &tmp).with_context(|| format!("moving {}", from.display()))?;
-        staged.push((tmp, to));
-    }
-    for (tmp, to) in staged {
-        if let Some(d) = to.parent() {
-            fs::create_dir_all(d).with_context(|| format!("creating {}", d.display()))?;
+    let pid = std::process::id();
+    // (where it was, where it waits, where it's going)
+    let mut staged: Vec<(PathBuf, PathBuf, PathBuf)> = Vec::new();
+    let unstage = |staged: &[(PathBuf, PathBuf, PathBuf)]| {
+        for (from, tmp, _) in staged.iter().rev() {
+            let _ = fs::rename(tmp, from);
         }
-        fs::rename(&tmp, to).with_context(|| format!("moving to {}", to.display()))?;
+    };
+    for (i, (from, to)) in renames.iter().enumerate() {
+        let name = from.file_name().unwrap_or_default().to_string_lossy();
+        let tmp = from.with_file_name(format!("{MOVING}{i}-{pid}-{name}"));
+        if let Err(e) = fs::rename(from, &tmp) {
+            unstage(&staged);
+            return Err(e).with_context(|| format!("moving {}", from.display()));
+        }
+        staged.push((from.clone(), tmp, to.clone()));
+    }
+    let mut made: Vec<PathBuf> = Vec::new();
+    for (k, (_, tmp, to)) in staged.iter().enumerate() {
+        let landed = (|| -> Result<()> {
+            if let Some(d) = to.parent() {
+                // Note each folder this creates, so a rollback can take it away.
+                let mut missing: Vec<PathBuf> = d
+                    .ancestors()
+                    .take_while(|a| !a.exists())
+                    .map(Path::to_path_buf)
+                    .collect();
+                fs::create_dir_all(d).with_context(|| format!("creating {}", d.display()))?;
+                made.append(&mut missing);
+            }
+            fs::rename(tmp, to).with_context(|| format!("moving to {}", to.display()))
+        })();
+        if let Err(e) = landed {
+            for (_, tmp, to) in staged[..k].iter().rev() {
+                let _ = fs::rename(to, tmp);
+            }
+            unstage(&staged);
+            made.sort_by_key(|d| std::cmp::Reverse(d.components().count()));
+            for d in &made {
+                let _ = fs::remove_dir(d);
+            }
+            return Err(e);
+        }
     }
     Ok(())
+}
+
+/// Bring back anything a move left under its temporary name — a crash or a
+/// power cut between the two passes of [`rename_all`] — so a scene can never
+/// silently vanish from the tree. Each goes back beside where it was waiting,
+/// under its old name (or that name with "recovered" if the old one has since
+/// been taken). Returns where they went.
+pub fn restore_stranded(root: &Path) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    find_stranded(root, &mut found);
+    let mut out = Vec::new();
+    for tmp in found {
+        let raw = tmp
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+        let rest = &raw[MOVING.len()..];
+        // "<i>-<pid>-<name>"; before names rode along it was only "<i>-<pid>".
+        let mut parts = rest.splitn(3, '-');
+        let (_, pid, name) = (parts.next(), parts.next(), parts.next());
+        if pid
+            .and_then(|p| p.parse::<u32>().ok())
+            .is_some_and(|p| p != std::process::id() && process_alive(p))
+        {
+            continue; // another Grimoire is in the middle of this move
+        }
+        let name = match name {
+            Some(n) if !n.is_empty() => n.to_string(),
+            _ if tmp.is_dir() => format!("Recovered-{rest}"),
+            _ => format!("Recovered-{rest}.md"),
+        };
+        let mut to = tmp.with_file_name(&name);
+        let (stem, ext) = match name.rsplit_once('.') {
+            Some((s, e)) if !tmp.is_dir() => (s.to_string(), format!(".{e}")),
+            _ => (name.clone(), String::new()),
+        };
+        let mut n = 1;
+        while to.symlink_metadata().is_ok() {
+            let tag = if n == 1 {
+                "recovered".to_string()
+            } else {
+                format!("recovered-{n}")
+            };
+            to = tmp.with_file_name(format!("{stem}-{tag}{ext}"));
+            n += 1;
+        }
+        if fs::rename(&tmp, &to).is_ok() {
+            out.push(to);
+        }
+    }
+    out
+}
+
+fn find_stranded(dir: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(rd) = fs::read_dir(dir) else { return };
+    for e in rd.flatten() {
+        let path = e.path();
+        let name = e.file_name().to_string_lossy().to_string();
+        if name.starts_with(MOVING) {
+            out.push(path);
+        } else if name != ".git" && e.file_type().is_ok_and(|t| t.is_dir()) {
+            find_stranded(&path, out);
+        }
+    }
+}
+
+/// Is that process still running? Only answerable cheaply on Linux; elsewhere
+/// assume not, since a move takes milliseconds.
+fn process_alive(pid: u32) -> bool {
+    cfg!(target_os = "linux") && Path::new(&format!("/proc/{pid}")).exists()
 }
 
 /// Point `[[links]]` at the new names. Both Obsidian forms are handled: a bare
@@ -2210,6 +2326,121 @@ mod tests {
         assert!(!scene.exists());
         assert!(gone.exists(), "it's still on disk");
         assert!(gone.starts_with(d.join(".grimoire/trash")));
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_move_that_fails_halfway_puts_everything_back() {
+        use std::os::unix::fs::PermissionsExt;
+        let d = temp_dir("rollback");
+        let (src, locked) = (d.join("src"), d.join("locked"));
+        fs::create_dir_all(&src).unwrap();
+        fs::create_dir_all(&locked).unwrap();
+        fs::write(src.join("01-A.md"), "scene a").unwrap();
+        fs::write(src.join("02-B.md"), "scene b").unwrap();
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o555)).unwrap();
+        let renames = vec![
+            (src.join("01-A.md"), src.join("03-A.md")),
+            (src.join("02-B.md"), locked.join("new").join("01-B.md")),
+        ];
+        let result = rename_all(&renames);
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(result.is_err(), "the locked folder refuses");
+        assert_eq!(fs::read_to_string(src.join("01-A.md")).unwrap(), "scene a");
+        assert_eq!(fs::read_to_string(src.join("02-B.md")).unwrap(), "scene b");
+        assert!(
+            !src.join("03-A.md").exists(),
+            "the half that landed went back"
+        );
+        let left: Vec<String> = fs::read_dir(&src)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
+            .filter(|n| n.starts_with(MOVING))
+            .collect();
+        assert!(
+            left.is_empty(),
+            "nothing hidden under a temporary name: {left:?}"
+        );
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn what_a_cut_short_move_left_hidden_comes_back() {
+        let d = temp_dir("stranded");
+        let ch = d.join("manuscript/01-Act-One/01-Chapter-One");
+        fs::create_dir_all(&ch).unwrap();
+        // A crash between the passes: one scene still under its moving name.
+        fs::write(
+            ch.join(".grimoire-moving-0-4000000-02-Low-Tide.md"),
+            "the tide",
+        )
+        .unwrap();
+        // Its old name has since been taken by something else.
+        fs::write(
+            ch.join(".grimoire-moving-1-4000000-01-Gravel.md"),
+            "gravel, hidden",
+        )
+        .unwrap();
+        fs::write(ch.join("01-Gravel.md"), "gravel, visible").unwrap();
+        // The old form, from before names rode along.
+        fs::write(ch.join(".grimoire-moving-2-4000000"), "nameless").unwrap();
+        let back = restore_stranded(&d);
+        assert_eq!(back.len(), 3, "{back:?}");
+        assert_eq!(
+            fs::read_to_string(ch.join("02-Low-Tide.md")).unwrap(),
+            "the tide"
+        );
+        assert_eq!(
+            fs::read_to_string(ch.join("01-Gravel.md")).unwrap(),
+            "gravel, visible"
+        );
+        assert_eq!(
+            fs::read_to_string(ch.join("01-Gravel-recovered.md")).unwrap(),
+            "gravel, hidden"
+        );
+        assert_eq!(
+            fs::read_to_string(ch.join("Recovered-2-4000000.md")).unwrap(),
+            "nameless"
+        );
+        let p = Project::load(&d).unwrap();
+        assert!(
+            p.nodes.iter().any(|n| n.path == ch.join("02-Low-Tide.md")),
+            "it's in the tree"
+        );
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_move_another_grimoire_is_making_right_now_is_left_alone() {
+        let d = temp_dir("stranded-live");
+        // pid 1 is always running.
+        fs::write(d.join(".grimoire-moving-0-1-01-Busy.md"), "mid-move").unwrap();
+        assert!(restore_stranded(&d).is_empty());
+        assert!(d.join(".grimoire-moving-0-1-01-Busy.md").exists());
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn two_deletes_of_the_same_name_in_one_second_both_stay_in_the_trash() {
+        let d = temp_dir("trash-same-name");
+        let (a, b) = (d.join("one"), d.join("two"));
+        fs::create_dir_all(&a).unwrap();
+        fs::create_dir_all(&b).unwrap();
+        fs::write(a.join("01-Scene-One.md"), "the first chapter's words").unwrap();
+        fs::write(b.join("01-Scene-One.md"), "the second chapter's words").unwrap();
+        let first = trash(&d, &a.join("01-Scene-One.md")).unwrap();
+        let second = trash(&d, &b.join("01-Scene-One.md")).unwrap();
+        assert_ne!(first, second);
+        assert_eq!(
+            fs::read_to_string(&first).unwrap(),
+            "the first chapter's words"
+        );
+        assert_eq!(
+            fs::read_to_string(&second).unwrap(),
+            "the second chapter's words"
+        );
         fs::remove_dir_all(&d).unwrap();
     }
 
