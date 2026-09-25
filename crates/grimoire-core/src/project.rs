@@ -2091,7 +2091,17 @@ fn cousin_folder(root: &Path, folder: &Path, up: bool) -> Option<PathBuf> {
 /// `sections = [...]` line; every other line of the file stays as it was.
 pub fn save_section_order(root: &Path, order: &[Area]) -> Result<()> {
     let path = root.join("novel.toml");
-    let old = fs::read_to_string(&path).unwrap_or_default();
+    // Only a file that isn't there at all starts empty. One that can't be read
+    // (online-only and offline, say) is refused: rewriting it from nothing
+    // would leave the book with one line where its title and targets were.
+    let old = match fs::read_to_string(&path) {
+        Ok(s) => s,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => {
+            return Err(anyhow::Error::new(e)
+                .context("novel.toml can't be read right now, so the section order wasn't saved"));
+        }
+    };
     let keys: Vec<String> = order
         .iter()
         .filter(|&&a| a != Area::Trash)
@@ -3455,6 +3465,25 @@ mod tests {
                 .unwrap()
                 .contains("Words typed after it went.")
         );
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn an_unreadable_novel_toml_is_never_rewritten_by_the_section_order() {
+        use std::os::unix::fs::PermissionsExt;
+        let (d, _) = sync_book("sections-unreadable");
+        let toml = d.join("novel.toml");
+        let before = fs::read(&toml).unwrap();
+        fs::set_permissions(&toml, fs::Permissions::from_mode(0o000)).unwrap();
+        if fs::read(&toml).is_ok() {
+            fs::set_permissions(&toml, fs::Permissions::from_mode(0o644)).unwrap();
+            fs::remove_dir_all(&d).unwrap();
+            return; // root: permissions don't stop reads
+        }
+        assert!(save_section_order(&d, &[Area::Notes, Area::Manuscript]).is_err());
+        fs::set_permissions(&toml, fs::Permissions::from_mode(0o644)).unwrap();
+        assert_eq!(fs::read(&toml).unwrap(), before, "untouched");
         fs::remove_dir_all(&d).unwrap();
     }
 
