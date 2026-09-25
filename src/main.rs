@@ -1,6 +1,7 @@
 //! grimoire — a terminal writing desk for novels.
 
 mod app;
+mod help;
 mod theme;
 use grimoire_core::paths::home;
 mod library;
@@ -719,6 +720,13 @@ fn on_key(app: &mut App, k: KeyEvent, confirm_quit: &mut bool) -> bool {
         _ => Key::Other,
     };
 
+    // F1 is the help from anywhere; `?` too, wherever it wouldn't be typed.
+    let in_help = matches!(app.overlay, Overlay::Help { .. });
+    if (key == Key::F(1) && !in_help) || (key == Key::Char('?') && app.question_opens_help()) {
+        app.open_help(None);
+        return false;
+    }
+
     if !matches!(app.overlay, Overlay::None) {
         app.on_overlay_key(key);
         if std::mem::take(&mut app.quit) && quit_or_arm(app, confirm_quit) {
@@ -727,8 +735,8 @@ fn on_key(app: &mut App, k: KeyEvent, confirm_quit: &mut bool) -> bool {
         return false;
     }
 
-    // Esc is the menu, from any pane (F1 too, where a keyboard has one).
-    if key == Key::Esc || key == Key::F(1) {
+    // Esc is the menu, from any pane.
+    if key == Key::Esc {
         app.escape();
         return false;
     }

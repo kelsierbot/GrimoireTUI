@@ -17,6 +17,7 @@ mod cards;
 mod command;
 mod conflicts;
 mod find;
+mod help;
 mod looks;
 mod marks;
 mod menu;
@@ -27,6 +28,9 @@ mod recover;
 mod session_list;
 mod spelling;
 mod versions;
+
+#[cfg(test)]
+pub(crate) use help::lay_out as help_lay_out;
 
 impl App {
     /// A key while an overlay is up goes to that overlay alone.
@@ -59,6 +63,7 @@ impl App {
             Overlay::Confirm { .. } => self.on_confirm_key(key),
             Overlay::Conflicts { .. } => self.on_conflicts_key(key),
             Overlay::Settle { .. } => self.on_settle_key(key),
+            Overlay::Help { .. } => self.on_help_key(key),
         }
     }
 }
@@ -180,6 +185,7 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
         Overlay::Sources { .. } => looks::draw_sources(f, app, area, t),
         Overlay::Themes { .. } => looks::draw_themes(f, app, area, t),
         Overlay::Custom { .. } => looks::draw_custom(f, app, area, t),
+        Overlay::Help { .. } => help::draw_help(f, app, area, t),
     }
 }
 

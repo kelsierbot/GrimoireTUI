@@ -282,6 +282,17 @@ pub struct App {
     /// When re-reading the tree last failed; it isn't tried again until
     /// [`RETRY`] has passed.
     reload_failed: Option<Instant>,
+    /// How the help was last drawn, so its keys match what's on screen.
+    pub help_fit: std::cell::Cell<HelpFit>,
+}
+
+/// Set while the help is drawn: how far the article can scroll, how many
+/// lines a page is, and whether the topics sit beside it.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct HelpFit {
+    pub max: usize,
+    pub page: usize,
+    pub wide: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -409,6 +420,16 @@ pub enum Overlay {
     Settle {
         copy: PathBuf,
         sel: usize,
+    },
+    /// The help: a topic list and the article picked from it. Typing
+    /// searches; `reading` is the article having the keys. `back` is the box
+    /// it was opened over, put back when it closes.
+    Help {
+        query: String,
+        sel: usize,
+        reading: bool,
+        scroll: usize,
+        back: Option<Box<Overlay>>,
     },
     Confirm {
         path: PathBuf,
@@ -718,6 +739,7 @@ impl App {
             cloud: None,
             history_in_book: false,
             reload_failed: None,
+            help_fit: std::cell::Cell::default(),
         })
         .map(|mut app: App| {
             if setup.background {
@@ -1469,6 +1491,8 @@ impl App {
             }
             Action::LineWidth => self.cycle_line_width(),
             Action::Typewriter => self.toggle_typewriter(),
+            Action::Help => self.open_help(None),
+            Action::HelpTopic(id) => self.open_help(Some(id)),
             other => self.run_feature(other),
         }
     }
@@ -4095,6 +4119,9 @@ impl App {
     /// Wheel scrolls whichever pane is under the pointer, without stealing focus.
     pub fn on_scroll(&mut self, x: u16, y: u16, down: bool) {
         const STEP: usize = 3;
+        if self.help_wheel(down, STEP) {
+            return;
+        }
         if hit(self.rect_tree, x, y) {
             if down {
                 self.tree_scroll =
@@ -4180,6 +4207,7 @@ impl App {
             ("Export…".into(), Action::Export),
             ("Move writing history out…".into(), Action::MoveHistoryOut),
             ("Settings…".into(), Action::Settings),
+            (row("Help…", "(?)"), Action::Help),
             (row("Close", "(Esc)"), Action::CloseMenu),
             (row("Quit Grimoire", &format!("({m}Q)")), Action::Quit),
         ];
@@ -4587,7 +4615,7 @@ impl App {
                     .map(|(k, w)| format!("{k} {w}"))
                     .collect();
                 format!(
-                    "{esc}{focus}  Tab pane  ↵ fold  {}  r rename  d delete  {m}Z undo  H history  {m}Q quit ",
+                    "{esc}{focus}  ? help  Tab pane  ↵ fold  {}  r rename  d delete  {m}Z undo  H history  {m}Q quit ",
                     keys.join("  ")
                 )
             }
@@ -4596,7 +4624,7 @@ impl App {
             }
             Focus::Editor => {
                 format!(
-                    "{esc}{focus}  Tab pane  {m}K find anything  {m}Z undo  F8 spelling  {m}Q quit "
+                    "{esc}{focus}  Tab pane  {m}K find anything  {m}Z undo  F8 spelling  F1 help  {m}Q quit "
                 )
             }
             Focus::Beside => "Esc close  Tab pane  ↑↓ PgDn scroll  ↵ write in this one ".into(),
@@ -4604,11 +4632,13 @@ impl App {
                 "Esc close  Tab pane  ↑↓ scenes  ↵ go there  o open the note  PgDn scroll ".into()
             }
             Focus::Clearing => {
-                format!("{esc}{focus}  Tab pane  ←→ view  ↵ start/pause  r reset  {m}Q quit ")
+                format!(
+                    "{esc}{focus}  Tab pane  ←→ view  ↵ start/pause  r reset  ? help  {m}Q quit "
+                )
             }
             Focus::Music => {
                 format!(
-                    "{esc}  [ ] track  space pause  ←→ seek  r repeat  s shuffle  +/- volume  l like  ↵ player  {m}Q quit "
+                    "{esc}  ? help  [ ] track  space pause  ←→ seek  r repeat  s shuffle  +/- volume  l like  ↵ player  {m}Q quit "
                 )
             }
         }

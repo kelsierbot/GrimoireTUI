@@ -161,13 +161,6 @@ fn closing_the_menu_leaves_you_in_the_editor() {
 }
 
 #[test]
-fn f1_opens_the_menu_too() {
-    let mut d = Desk::open(book("f1", true), 120, 35);
-    d.key(KeyCode::F(1));
-    assert!(d.menu_open());
-}
-
-#[test]
 fn esc_clears_a_selection_before_it_opens_the_menu() {
     let mut d = Desk::open(book("esc-sel", true), 120, 35);
     d.key(KeyCode::Tab);
@@ -1483,4 +1476,702 @@ fn the_export_dialog_fits_a_short_terminal_and_scrolls_to_the_cursor() {
             "row {row}: the cursor is on screen"
         );
     }
+}
+
+// ---- help -------------------------------------------------------------------
+
+/// The topic the help is open on, by id; None if it isn't open.
+fn help_topic(d: &Desk) -> Option<&'static str> {
+    match &d.app.overlay {
+        Overlay::Help { sel, .. } => Some(crate::help::TOPICS[*sel].id),
+        _ => None,
+    }
+}
+
+fn reading(d: &Desk) -> bool {
+    matches!(d.app.overlay, Overlay::Help { reading: true, .. })
+}
+
+#[test]
+fn the_menu_has_a_help_row_that_opens_it() {
+    let mut d = Desk::open(book("help-menu", true), 120, 35);
+    d.key(KeyCode::Esc);
+    assert!(d.shows("Help…"), "the menu offers it");
+    // It sits just above Close and Quit, at the bottom.
+    let rows: Vec<String> = d.app.menu().into_iter().map(|(l, _)| l).collect();
+    let help = rows.iter().position(|l| l.starts_with("Help…")).unwrap();
+    assert_eq!(rows.len() - help, 3, "{rows:?}");
+    for _ in 0..3 {
+        d.key(KeyCode::Up); // round from the top: Quit, Close, Help
+    }
+    d.key(KeyCode::Enter);
+    assert_eq!(
+        help_topic(&d),
+        Some("outline"),
+        "the topic for the pane it was opened from"
+    );
+    assert!(d.shows("HELP"));
+    // `?` from the menu itself, too.
+    d.key(KeyCode::Esc);
+    d.key(KeyCode::Esc);
+    assert!(d.menu_open());
+    d.key(KeyCode::Char('?'));
+    assert!(help_topic(&d).is_some());
+}
+
+#[test]
+fn question_mark_in_the_outline_opens_the_help_on_the_outline() {
+    let mut d = Desk::open(book("help-q", true), 120, 35);
+    assert_eq!(d.app.focus, Focus::Tree);
+    assert!(d.status().contains("? help"), "{}", d.status());
+    d.key(KeyCode::Char('?'));
+    assert_eq!(help_topic(&d), Some("outline"));
+    assert!(d.shows("The outline"));
+    d.key(KeyCode::Esc);
+    assert_eq!(d.app.overlay, Overlay::None, "Esc closes it");
+    assert_eq!(d.app.focus, Focus::Tree);
+}
+
+#[test]
+fn question_mark_on_the_page_is_typed() {
+    let mut d = Desk::open(book("help-type", true), 140, 42);
+    d.key(KeyCode::Tab);
+    // `?` can't be the help here, so the status bar names F1 where it fits.
+    assert!(d.status().contains("F1 help"), "{}", d.status());
+    d.typed("Who?");
+    assert_eq!(d.app.overlay, Overlay::None);
+    assert!(scene_text(&d).contains("Who?"), "{}", scene_text(&d));
+}
+
+#[test]
+fn f1_opens_the_help_from_anywhere_and_closes_it_again() {
+    let mut d = Desk::open(book("help-f1", true), 120, 35);
+    d.key(KeyCode::F(1));
+    assert_eq!(help_topic(&d), Some("outline"));
+    d.key(KeyCode::F(1));
+    assert_eq!(d.app.overlay, Overlay::None, "F1 again closes it");
+    d.key(KeyCode::Tab);
+    d.key(KeyCode::F(1));
+    assert_eq!(help_topic(&d), Some("writing"));
+    assert!(!d.menu_open(), "F1 isn't the menu any more");
+    d.key(KeyCode::Esc);
+    // Over a dialog: the help, then the dialog again.
+    d.app.open_export();
+    d.draw();
+    d.key(KeyCode::F(1));
+    assert_eq!(help_topic(&d), Some("compile"));
+    assert!(d.shows("William Shunn"));
+    d.key(KeyCode::Esc);
+    assert!(
+        matches!(d.app.overlay, Overlay::Export { .. }),
+        "closing the help goes back to the dialog"
+    );
+}
+
+/// A desk with music on (nothing polled) and the keys' commands caught.
+fn music_desk(tag: &str) -> (Desk, std::sync::mpsc::Receiver<music::Cmd>) {
+    music_desk_at(book(tag, true))
+}
+
+fn music_desk_at(root: PathBuf) -> (Desk, std::sync::mpsc::Receiver<music::Cmd>) {
+    let setup = Setup {
+        music: music::Config {
+            enabled: true,
+            ..music::Config::default()
+        },
+        theme: theme::default_theme(),
+        settings: Settings::default(),
+        background: false,
+    };
+    let mut app = App::with(Project::load(&root).unwrap(), setup).unwrap();
+    let rx = app.music.catch_commands();
+    let mut d = Desk {
+        app,
+        term: Terminal::new(TestBackend::new(140, 42)).unwrap(),
+        armed: false,
+        left: false,
+        root,
+    };
+    d.draw();
+    (d, rx)
+}
+
+fn focus_on(d: &mut Desk, pane: Focus) {
+    for _ in 0..6 {
+        if d.app.focus == pane {
+            return;
+        }
+        d.key(KeyCode::Tab);
+    }
+    panic!("Tab never reached {pane:?}");
+}
+
+#[test]
+fn each_place_opens_the_help_on_its_own_topic() {
+    let open = |d: &mut Desk| {
+        d.key(KeyCode::F(1));
+        let id = help_topic(d);
+        d.key(KeyCode::F(1));
+        id
+    };
+    let (root, _, _) = conflicted("help-where");
+    let mut d = Desk::open(root, 140, 42);
+    assert_eq!(open(&mut d), Some("outline"));
+    d.key(KeyCode::Tab);
+    assert_eq!(open(&mut d), Some("writing"));
+    d.ctrl('d');
+    assert_eq!(open(&mut d), Some("focus"));
+    d.ctrl('d');
+    focus_on(&mut d, Focus::Clearing);
+    assert!(d.status().contains("? help"), "{}", d.status());
+    assert_eq!(open(&mut d), Some("pomodoro"));
+    d.key(KeyCode::Right);
+    assert_eq!(d.app.pane_mode, scene::Mode::Visualizer);
+    d.key(KeyCode::Char('?'));
+    assert_eq!(help_topic(&d), Some("visualizer"));
+    d.key(KeyCode::Esc);
+    d.key(KeyCode::Left);
+
+    // A scene beside, and settling conflicts.
+    d.app.open_beside_picker();
+    d.draw();
+    d.key(KeyCode::Enter);
+    assert!(d.app.beside.is_some(), "{}", d.app.msg);
+    focus_on(&mut d, Focus::Beside);
+    assert_eq!(open(&mut d), Some("beside"));
+    d.app.open_conflicts();
+    d.draw();
+    assert_eq!(open(&mut d), Some("sync"));
+
+    let mut d = with_wren("help-note");
+    focus_on(&mut d, Focus::Codex);
+    d.key(KeyCode::Char('?'));
+    assert_eq!(help_topic(&d), Some("notebook"));
+
+    let (mut d, _rx) = music_desk("help-music");
+    focus_on(&mut d, Focus::Music);
+    assert!(d.status().contains("? help"), "{}", d.status());
+    d.key(KeyCode::Char('?'));
+    assert_eq!(help_topic(&d), Some("music"));
+}
+
+#[test]
+fn typing_searches_every_topic_and_enter_opens_the_first() {
+    let mut d = Desk::open(book("help-search", true), 120, 35);
+    d.key(KeyCode::F(1));
+    assert!(d.shows("The corkboard"), "every topic listed");
+    d.typed("shunn");
+    assert!(d.shows("search shunn"));
+    assert!(d.shows("Compile: the manuscript"));
+    assert!(!d.shows("The corkboard"), "topics that don't mention it go");
+    assert_eq!(help_topic(&d), Some("compile"));
+    // Backspace edits the search.
+    d.key(KeyCode::Backspace);
+    assert!(d.shows("search shun"));
+    d.typed("n");
+    d.key(KeyCode::Enter);
+    assert!(reading(&d));
+    assert!(d.shows("William Shunn"));
+    // Esc clears the search first, then closes.
+    d.key(KeyCode::Esc);
+    assert!(matches!(&d.app.overlay, Overlay::Help { query, .. } if query.is_empty()));
+    assert!(d.shows("The corkboard"));
+    d.key(KeyCode::Esc);
+    assert_eq!(d.app.overlay, Overlay::None);
+    // Nothing found says so, and Enter does nothing.
+    d.key(KeyCode::F(1));
+    d.typed("zzqqxx");
+    assert!(d.shows("no topic matches"));
+    d.key(KeyCode::Enter);
+    assert!(!reading(&d));
+}
+
+#[test]
+fn find_anything_reaches_every_topic_but_actions_come_first() {
+    let mut d = Desk::open(book("help-palette", true), 120, 35);
+    let empty = palette::filter(&palette::entries(&d.app), "");
+    assert!(
+        empty.iter().any(|e| e.action == palette::Action::Help)
+            && !empty
+                .iter()
+                .any(|e| matches!(e.action, palette::Action::HelpTopic(_))),
+        "an empty search lists Help, not every topic"
+    );
+    d.ctrl('k');
+    d.typed("sprint");
+    d.key(KeyCode::Enter);
+    assert!(
+        matches!(d.app.overlay, Overlay::Sprint { .. }),
+        "\"sprint\" starts one: {:?}",
+        d.app.overlay
+    );
+    d.key(KeyCode::Esc);
+    d.ctrl('k');
+    d.typed("help sprint");
+    d.key(KeyCode::Enter);
+    assert_eq!(help_topic(&d), Some("sprints"));
+    assert!(reading(&d), "a topic chosen by name opens to read");
+    d.key(KeyCode::Esc);
+    d.ctrl('k');
+    d.typed("help");
+    d.key(KeyCode::Enter);
+    assert_eq!(
+        help_topic(&d),
+        Some("outline"),
+        "Help on its own: where you are"
+    );
+}
+
+/// The last line of a topic's words, as the article sets it.
+fn last_words(id: &str, width: usize) -> String {
+    let t = theme::default_theme();
+    let body = crate::help::TOPICS[crate::help::index(id)].body;
+    let lines = crate::app::overlays::help_lay_out(body, width, &t);
+    let last = lines.iter().rev().find(|l| l.width() > 0).unwrap();
+    last.spans
+        .iter()
+        .map(|s| s.content.as_ref())
+        .collect::<String>()
+        .trim()
+        .to_string()
+}
+
+#[test]
+fn the_longest_article_pages_down_to_its_last_line() {
+    let longest = crate::help::TOPICS
+        .iter()
+        .max_by_key(|t| t.body.len())
+        .unwrap();
+    let mut d = Desk::open(book("help-long", true), 80, 24);
+    d.app.open_help(Some(longest.id));
+    d.draw();
+    assert!(reading(&d));
+    // The article's column at 80 wide: the box, the list, the margins.
+    let width = (80 - 4 - 2) - 30 - 4;
+    let end = last_words(longest.id, width);
+    assert!(!d.shows(&end), "{end:?} starts below the fold");
+    assert!(d.shows("↓ more"));
+    for _ in 0..200 {
+        if !d.shows("↓ more") {
+            break;
+        }
+        d.key(KeyCode::PageDown);
+    }
+    assert!(d.shows(&end), "PgDn reaches {end:?}");
+    assert!(!d.shows("↓ more"));
+    d.key(KeyCode::PageDown);
+    assert!(d.shows(&end), "and stops there");
+    d.key(KeyCode::Home);
+    assert!(!d.shows(&end));
+    // The wheel reads on too, wherever the pointer is.
+    d.app.on_scroll(40, 10, true);
+    d.draw();
+    assert!(matches!(d.app.overlay, Overlay::Help { scroll: 3, .. }));
+    d.app.on_scroll(40, 10, false);
+    d.draw();
+    assert!(matches!(d.app.overlay, Overlay::Help { scroll: 0, .. }));
+    d.key(KeyCode::End);
+    assert!(d.shows(&end));
+    d.key(KeyCode::PageUp);
+    assert!(!d.shows(&end), "PgUp comes back");
+}
+
+#[test]
+fn every_topic_fits_and_scrolls_at_80x24_and_120x35() {
+    // Set at any width, no line is wider than the column it's set in.
+    let t = theme::default_theme();
+    for topic in crate::help::TOPICS {
+        for width in 12..=120 {
+            for line in crate::app::overlays::help_lay_out(topic.body, width, &t) {
+                assert!(line.width() <= width, "{} at {width}: {line:?}", topic.id);
+            }
+        }
+    }
+    // And every word is there, whole: lines break between words. (Sorted,
+    // since a table's key and its words are side by side.)
+    for topic in crate::help::TOPICS {
+        let words = |text: &str| -> Vec<String> {
+            text.split_whitespace()
+                .filter(|w| *w != "•")
+                .map(String::from)
+                .collect()
+        };
+        let runs = |r: &[crate::help::Run]| r.iter().map(|r| r.text.as_str()).collect::<String>();
+        let mut want = Vec::new();
+        for b in crate::help::parse(topic.body) {
+            use crate::help::Block as B;
+            match b {
+                B::Heading(_, r) | B::Paragraph(r) | B::Bullet(r) => want.extend(words(&runs(&r))),
+                B::Row { head: true, .. } => {}
+                B::Row { key, text, .. } => {
+                    want.extend(words(&runs(&key)));
+                    want.extend(words(&runs(&text)));
+                }
+            }
+        }
+        let mut set: Vec<String> = crate::app::overlays::help_lay_out(topic.body, 60, &t)
+            .iter()
+            .flat_map(|l| {
+                words(
+                    &l.spans
+                        .iter()
+                        .map(|s| s.content.as_ref())
+                        .collect::<String>(),
+                )
+            })
+            .collect();
+        set.sort();
+        want.sort();
+        assert_eq!(set, want, "{}", topic.id);
+    }
+    // Drawn, top and bottom, side by side and one at a time, nothing breaks
+    // and the box's right edge is never written over.
+    for (w, h) in [(80, 24), (120, 35), (60, 20)] {
+        let mut d = Desk::open(book(&format!("help-fit{w}"), true), w, h);
+        for topic in crate::help::TOPICS {
+            d.app.open_help(Some(topic.id));
+            d.draw();
+            let right = d.rows()[3].chars().rev().nth(2).unwrap();
+            assert_eq!(right, '│', "{} at {w}x{h}", topic.id);
+            d.key(KeyCode::End);
+            assert!(
+                !d.shows("↓ more"),
+                "{} at {w}x{h}: End is the end",
+                topic.id
+            );
+            let last = d.rows()[h as usize - 4].clone();
+            assert!(
+                last.trim_end().ends_with("│ │"),
+                "{} at {w}x{h}: {last}",
+                topic.id
+            );
+            d.key(KeyCode::F(1));
+        }
+    }
+}
+
+#[test]
+fn every_palette_action_is_explained_in_the_help() {
+    let words: String = crate::help::TOPICS
+        .iter()
+        .map(|t| format!("{}\n{}", t.name, t.body))
+        .collect::<Vec<_>>()
+        .join("\n")
+        .to_lowercase()
+        .replace(['`', '*'], "");
+    // An entry's name without what it says about itself: "Delete (to the
+    // trash)" is "delete", "Turn spellcheck off" is "spellcheck".
+    let name = |label: &str| {
+        let mut n = label.to_lowercase();
+        for cut in [" (", " — ", ": "] {
+            if let Some(i) = n.find(cut) {
+                n.truncate(i);
+            }
+        }
+        let n = n.trim_end_matches('…');
+        let n = n.strip_prefix("turn ").unwrap_or(n);
+        let n = n
+            .strip_suffix(" off")
+            .or(n.strip_suffix(" on"))
+            .unwrap_or(n);
+        n.to_string()
+    };
+    // Every row, with everything that changes a row's name both ways.
+    let (root, _, _) = conflicted("help-coverage");
+    let mut d = Desk::open(root, 120, 35);
+    let mut missing = Vec::new();
+    for on in [false, true] {
+        d.app.focus_mode = on;
+        d.app.echo_on = on;
+        d.app.spell_on = on;
+        d.app.icons_on = on;
+        d.app.typewriter = on;
+        d.app.history_in_book = on;
+        d.app.music.enabled = on;
+        for e in palette::entries(&d.app) {
+            use palette::Action as A;
+            if matches!(
+                e.action,
+                A::Open(_) | A::Theme(_) | A::Beside(_) | A::HelpTopic(_)
+            ) {
+                continue;
+            }
+            if !words.contains(&name(&e.label)) {
+                missing.push(e.label);
+            }
+        }
+    }
+    assert!(missing.is_empty(), "the help never names: {missing:?}");
+}
+
+/// A key as "Every key" writes it — `Ctrl-K`, `Alt-↑`, `Shift-Tab`, `PgDn`,
+/// `Space`, `F7`, `?` — as the terminal sends it.
+fn key_named(name: &str) -> KeyEvent {
+    let mut mods = KeyModifiers::NONE;
+    let mut rest = name;
+    loop {
+        if let Some(r) = rest.strip_prefix("Ctrl-") {
+            mods |= KeyModifiers::CONTROL;
+            rest = r;
+        } else if let Some(r) = rest.strip_prefix("Alt-") {
+            mods |= KeyModifiers::ALT;
+            rest = r;
+        } else if let Some(r) = rest.strip_prefix("Shift-") {
+            mods |= KeyModifiers::SHIFT;
+            rest = r;
+        } else {
+            break;
+        }
+    }
+    let code = match rest {
+        "Esc" => KeyCode::Esc,
+        "Enter" => KeyCode::Enter,
+        "Tab" if mods.contains(KeyModifiers::SHIFT) => KeyCode::BackTab,
+        "Tab" => KeyCode::Tab,
+        "Space" => KeyCode::Char(' '),
+        "Home" => KeyCode::Home,
+        "End" => KeyCode::End,
+        "PgUp" => KeyCode::PageUp,
+        "PgDn" => KeyCode::PageDown,
+        "↑" => KeyCode::Up,
+        "↓" => KeyCode::Down,
+        "←" => KeyCode::Left,
+        "→" => KeyCode::Right,
+        f if f.len() > 1 && f.starts_with('F') => KeyCode::F(f[1..].parse().unwrap()),
+        c if c.chars().count() == 1 => {
+            let c = c.chars().next().unwrap();
+            // Ctrl-K is sent as a small k.
+            KeyCode::Char(if mods.is_empty() {
+                c
+            } else {
+                c.to_ascii_lowercase()
+            })
+        }
+        other => panic!("\"Every key\" has a key this test can't press: {other:?}"),
+    };
+    KeyEvent::new(code, mods)
+}
+
+/// Everything a key could have changed that a writer would notice.
+fn noticed(d: &Desk) -> String {
+    let e = &d.app.editor;
+    format!(
+        "{:?}|{:?}|{:?}|{}|{},{},{}|{}|{}|{:?}|{:?}|{:?}|{:?}",
+        d.rows(),
+        d.app.overlay,
+        d.app.focus,
+        d.app.msg,
+        e.cy,
+        e.cx,
+        e.scroll,
+        d.left,
+        d.app.sel,
+        d.app.pane_mode,
+        d.app
+            .project
+            .nodes
+            .iter()
+            .map(|n| &n.path)
+            .collect::<Vec<_>>(),
+        d.app.codex,
+        d.app.beside,
+    )
+}
+
+/// Every key "Every key" lists, by its section: what to press first so that
+/// pressing it has something to do. Kept by hand, and checked against the
+/// help both ways, so neither can change without the other.
+const EVERY_KEY: &[(&str, &str, &[&str])] = &[
+    ("Everywhere", "Esc", &[]),
+    ("Everywhere", "F1", &[]),
+    ("Everywhere", "?", &[]),
+    ("Everywhere", "Ctrl-K", &[]),
+    ("Everywhere", "Tab", &[]),
+    ("Everywhere", "Shift-Tab", &[]),
+    ("Everywhere", "Ctrl-S", &[]),
+    ("Everywhere", "Ctrl-Q", &[]),
+    ("Everywhere", "Ctrl-Z", &["n", "Enter"]),
+    ("Everywhere", "Ctrl-Y", &["n", "Enter", "Ctrl-Z"]),
+    ("Everywhere", "Ctrl-F", &["Tab"]),
+    ("Everywhere", "Ctrl-D", &[]),
+    ("Everywhere", "Ctrl-T", &[]),
+    ("Everywhere", "Ctrl-O", &["Tab"]),
+    ("Everywhere", "Alt-↑", &["n", "Enter"]),
+    ("Everywhere", "Alt-↓", &[]),
+    ("Everywhere", "F2", &[]),
+    ("Everywhere", "F3", &["F2"]),
+    ("Everywhere", "F4", &[]),
+    ("Everywhere", "F5", &[]),
+    ("Everywhere", "F6", &[]),
+    ("Everywhere", "F7", &[]),
+    ("Everywhere", "F8", &[]),
+    ("Everywhere", "F9", &[]),
+    ("The outline", "↑", &[]),
+    ("The outline", "↓", &["↑"]),
+    ("The outline", "j", &["↑"]),
+    ("The outline", "k", &[]),
+    ("The outline", "→", &["↑", "←"]),
+    ("The outline", "l", &["↑", "←"]),
+    ("The outline", "←", &["↑"]),
+    ("The outline", "h", &["↑"]),
+    ("The outline", "Enter", &["↑"]),
+    ("The outline", "Space", &["↑"]),
+    ("The outline", "n", &[]),
+    ("The outline", "c", &[]),
+    ("The outline", "p", &[]),
+    ("The outline", "N", &[]),
+    ("The outline", "r", &[]),
+    ("The outline", "d", &[]),
+    ("The outline", "K", &["n", "Enter"]),
+    ("The outline", "J", &[]),
+    ("The outline", "H", &[]),
+    ("The outline", "b", &[]),
+    ("The outline", "v", &["↓"]),
+    ("The outline", "/", &[]),
+    ("The outline", "t", &[]),
+    ("The outline", "q", &[]),
+    ("The page", "Home", &[]),
+    ("The page", "End", &["Home"]),
+    ("The page", "PgUp", &[]),
+    ("The page", "PgDn", &["PgUp"]),
+    ("The page", "Ctrl-C", &[]),
+    ("The page", "Ctrl-X", &[]),
+    ("The page", "Ctrl-Shift-Z", &["x", "Ctrl-Z"]),
+    ("The find bar", "Enter", &[]),
+    ("The find bar", "↓", &[]),
+    ("The find bar", "↑", &[]),
+    ("The find bar", "Ctrl-R", &[]),
+    ("The find bar", "Ctrl-W", &[]),
+    ("The find bar", "Alt-W", &[]),
+    ("The find bar", "Ctrl-E", &[]),
+    ("The find bar", "Alt-C", &[]),
+    ("The Pomodoro pane", "Enter", &[]),
+    ("The Pomodoro pane", "Space", &[]),
+    ("The Pomodoro pane", "r", &["Enter"]),
+    ("The Pomodoro pane", "←", &[]),
+    ("The Pomodoro pane", "→", &[]),
+    ("The Pomodoro pane", "h", &[]),
+    ("The Pomodoro pane", "l", &[]),
+    ("The music pane", "[", &[]),
+    ("The music pane", "]", &[]),
+    ("The music pane", "←", &[]),
+    ("The music pane", "→", &[]),
+    ("The music pane", "Space", &[]),
+    ("The music pane", "r", &[]),
+    ("The music pane", "s", &[]),
+    ("The music pane", "+", &[]),
+    ("The music pane", "-", &[]),
+    ("The music pane", "l", &[]),
+    ("The music pane", "Enter", &[]),
+    ("A note or scene beside", "↑", &["↓"]),
+    ("A note or scene beside", "↓", &[]),
+    ("A note or scene beside", "Enter", &[]),
+    ("A note or scene beside", "o", &[]),
+    ("A note or scene beside", "q", &[]),
+    ("A note or scene beside", "Esc", &[]),
+    ("Help", "↑", &[]),
+    ("Help", "↓", &[]),
+    ("Help", "j", &["Enter"]),
+    ("Help", "k", &["Enter", "PgDn"]),
+    ("Help", "Enter", &[]),
+    ("Help", "→", &[]),
+    ("Help", "Tab", &[]),
+    ("Help", "PgDn", &[]),
+    ("Help", "PgUp", &["PgDn"]),
+    ("Help", "Space", &["Enter"]),
+    ("Help", "Home", &["PgDn"]),
+    ("Help", "End", &[]),
+    ("Help", "←", &["Enter"]),
+    ("Help", "h", &["Enter"]),
+    ("Help", "F1", &[]),
+];
+
+/// A desk where one section's keys are live: the music caught, the page
+/// long enough to page through, a name with a note in two scenes.
+fn desk_for(section: &str) -> (Desk, std::sync::mpsc::Receiver<music::Cmd>) {
+    let tag = format!("keys-{}", section.replace(' ', "-").to_lowercase());
+    let root = book(&tag, true);
+    if section == "A note or scene beside" {
+        fs::write(
+            root.join("characters/wren.md"),
+            "---\ntitle: Wren\n---\nA courier.\n",
+        )
+        .unwrap();
+        // Two scenes that name her, so the note lists both.
+        let one = first_scene(&root);
+        fs::write(&one, "---\ntitle: \"Scene One\"\n---\n\nWren waited.\n").unwrap();
+        let two = one.with_file_name("02-Scene-Two.md");
+        fs::write(&two, "---\ntitle: \"Scene Two\"\n---\n\nWren again.\n").unwrap();
+    }
+    let (mut d, rx) = music_desk_at(root);
+    let long: String = (1..=80)
+        .map(|n| format!("Wren walked on, line {n}.\n\n"))
+        .collect();
+    match section {
+        "Everywhere" | "The outline" => {}
+        "The page" => {
+            d.key(KeyCode::Tab);
+            for c in long.chars().take(2000) {
+                d.app.editor.insert(c);
+            }
+            d.draw();
+        }
+        "The find bar" => {
+            d.key(KeyCode::Tab);
+            d.typed("the cat and the dog and the end");
+            d.key(KeyCode::Home);
+            d.ctrl('f');
+            d.typed("the");
+        }
+        "The Pomodoro pane" => focus_on(&mut d, Focus::Clearing),
+        "The music pane" => focus_on(&mut d, Focus::Music),
+        "A note or scene beside" => {
+            d.key(KeyCode::Tab);
+            d.key(KeyCode::Right);
+            d.ctrl('o');
+            assert!(d.app.codex.is_some(), "the note opens");
+            focus_on(&mut d, Focus::Codex);
+        }
+        "Help" => d.key(KeyCode::F(1)),
+        other => panic!("no desk for the section {other:?}"),
+    }
+    (d, rx)
+}
+
+#[test]
+fn every_key_in_every_key_does_something() {
+    let body = crate::help::TOPICS[crate::help::index("keys")].body;
+    let documented = crate::help::table_keys(body);
+    let listed: Vec<(String, String)> = EVERY_KEY
+        .iter()
+        .map(|(s, k, _)| (s.to_string(), k.to_string()))
+        .collect();
+    for key in &documented {
+        assert!(
+            listed.contains(key),
+            "\"Every key\" lists {key:?}; add it here"
+        );
+    }
+    for key in &listed {
+        assert!(
+            documented.contains(key),
+            "{key:?} is here but not in \"Every key\""
+        );
+    }
+    let mut dead = Vec::new();
+    for (section, key, first) in EVERY_KEY {
+        let (mut d, rx) = desk_for(section);
+        for k in *first {
+            d.press(key_named(k));
+        }
+        d.app.msg.clear();
+        d.draw();
+        while rx.try_recv().is_ok() {}
+        let before = noticed(&d);
+        d.press(key_named(key));
+        if noticed(&d) == before && rx.try_recv().is_err() {
+            dead.push(format!("{section}: {key}"));
+        }
+    }
+    assert!(dead.is_empty(), "these keys did nothing: {dead:#?}");
 }
