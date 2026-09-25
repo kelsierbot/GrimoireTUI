@@ -1099,7 +1099,14 @@ pub fn trash(root: &Path, path: &Path) -> Result<PathBuf> {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
-    let target = dir.join(format!("{stamp}-{name}"));
+    // Every chapter's first scene has the same file name, so two deletes in
+    // one second would share a name — and a rename onto a file replaces it.
+    let mut target = dir.join(format!("{stamp}-{name}"));
+    let mut n = 2;
+    while target.symlink_metadata().is_ok() {
+        target = dir.join(format!("{stamp}-{n}-{name}"));
+        n += 1;
+    }
     fs::rename(path, &target).with_context(|| format!("moving {} to the trash", path.display()))?;
     Ok(target)
 }
@@ -1974,6 +1981,22 @@ mod tests {
         assert!(!scene.exists());
         assert!(gone.exists(), "it's still on disk");
         assert!(gone.starts_with(d.join(".grimoire/trash")));
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn two_deletes_of_the_same_name_in_one_second_both_stay_in_the_trash() {
+        let d = temp_dir("trash-same-name");
+        let (a, b) = (d.join("one"), d.join("two"));
+        fs::create_dir_all(&a).unwrap();
+        fs::create_dir_all(&b).unwrap();
+        fs::write(a.join("01-Scene-One.md"), "the first chapter's words").unwrap();
+        fs::write(b.join("01-Scene-One.md"), "the second chapter's words").unwrap();
+        let first = trash(&d, &a.join("01-Scene-One.md")).unwrap();
+        let second = trash(&d, &b.join("01-Scene-One.md")).unwrap();
+        assert_ne!(first, second);
+        assert_eq!(fs::read_to_string(&first).unwrap(), "the first chapter's words");
+        assert_eq!(fs::read_to_string(&second).unwrap(), "the second chapter's words");
         fs::remove_dir_all(&d).unwrap();
     }
 
