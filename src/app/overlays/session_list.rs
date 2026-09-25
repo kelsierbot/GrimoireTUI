@@ -76,7 +76,7 @@ impl App {
             return;
         }
         match key {
-            Key::Enter | Key::Right | Key::Char('h') => {
+            Key::Enter | Key::Right | Key::Char('l') => {
                 if let Some(s) = list.get(*sel) {
                     match sessions::changes(&self.project.root, &s.hash) {
                         Ok(items) => *changes = Some((*sel, items, 0)),
