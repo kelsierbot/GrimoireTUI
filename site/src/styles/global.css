@@ -1,12 +1,34 @@
-/* The page is the application: title bar, panes, status line.
-   One typeface. One accent, and it only ever means "focused". */
+/* The page is the application, in its Rainbow theme: title bar, panes,
+   status line. One typeface. The accent — which only ever means "focused" —
+   is drawn as a spectrum laid over the whole screen, and it flows round the
+   wheel once every twelve seconds, as it does in the app. */
 
 :root {
-  --bg:    #0d0d10;
-  --line:  #2a2a32;
-  --text:  #d7d5cd;
-  --mute:  #71717d;
-  --focus: #d6ad60;   /* the app's ACCENT — used for selection, nothing else */
+  --bg:    #15121f;
+  --line:  #4a4560;
+  --sel:   #3d3560;
+  --text:  #f2f0ff;
+  --mute:  #8f8aa8;
+  --focus: #a78bff;   /* the app's Rainbow accent, where a single colour is needed */
+
+  /* Turned by the page's clock (80 ms ticks, 12 s a turn). Screen-fixed, so
+     neighbouring highlights share one spectrum, like cells in a terminal. */
+  --drift: 0deg;
+  --hl: hsl(calc(var(--drift) + 200deg) 90% 68%);
+  --spectrum: repeating-linear-gradient(132deg,
+    hsl(calc(var(--drift) + 0deg) 90% 68%) 0.000rem,
+    hsl(calc(var(--drift) + 30deg) 90% 68%) 3.833rem,
+    hsl(calc(var(--drift) + 60deg) 90% 68%) 7.667rem,
+    hsl(calc(var(--drift) + 90deg) 90% 68%) 11.500rem,
+    hsl(calc(var(--drift) + 120deg) 90% 68%) 15.333rem,
+    hsl(calc(var(--drift) + 150deg) 90% 68%) 19.167rem,
+    hsl(calc(var(--drift) + 180deg) 90% 68%) 23.000rem,
+    hsl(calc(var(--drift) + 210deg) 90% 68%) 26.833rem,
+    hsl(calc(var(--drift) + 240deg) 90% 68%) 30.667rem,
+    hsl(calc(var(--drift) + 270deg) 90% 68%) 34.500rem,
+    hsl(calc(var(--drift) + 300deg) 90% 68%) 38.333rem,
+    hsl(calc(var(--drift) + 330deg) 90% 68%) 42.167rem,
+    hsl(calc(var(--drift) + 360deg) 90% 68%) 46.000rem);
 
   --mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;
   --fs: clamp(0.78rem, 0.72rem + 0.28vw, 0.875rem);
@@ -32,9 +54,27 @@ body {
 ::selection { background: var(--focus); color: var(--bg); }
 
 a { color: inherit; text-underline-offset: 0.25em; text-decoration-color: var(--line); }
-a:hover { color: var(--focus); text-decoration-color: var(--focus); }
+a:hover { text-decoration-color: var(--hl); }
 
-:focus-visible { outline: 1px solid var(--focus); outline-offset: 2px; }
+:focus-visible { outline: 1px solid var(--hl); outline-offset: 2px; }
+
+/* Everything the app draws in its accent, painted from the one spectrum. */
+.rb,
+.titlebar .brand,
+.pane[data-focused='true'] > .label .t,
+.tree button:hover,
+.tree button[aria-selected='true'],
+.doc strong,
+.grid-block pre i,
+.keys td:first-child,
+.statusbar .pos,
+a:hover {
+  background: var(--spectrum);
+  background-attachment: fixed;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
 
 /* ── the window ──────────────────────────────────────────────── */
 
@@ -55,7 +95,7 @@ a:hover { color: var(--focus); text-decoration-color: var(--focus); }
   white-space: nowrap;
   overflow: hidden;
 }
-.titlebar .brand { color: var(--focus); letter-spacing: 0.02em; }
+.titlebar .brand { letter-spacing: 0.02em; font-weight: 600; }
 .titlebar .desc { color: var(--mute); overflow: hidden; text-overflow: ellipsis; }
 .titlebar .right { margin-left: auto; color: var(--mute); }
 .titlebar .right a { text-decoration: none; }
@@ -88,8 +128,24 @@ a:hover { color: var(--focus); text-decoration-color: var(--focus); }
   text-transform: uppercase;
   pointer-events: none;
 }
-.pane[data-focused='true'] { border-color: var(--focus); }
-.pane[data-focused='true'] > .label { color: var(--focus); }
+.pane > .label { z-index: 1; }
+/* The focused pane's border is the spectrum: a screen-fixed gradient masked
+   down to a one-pixel ring, faded in when the pane takes focus. */
+.pane::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  padding: 1px;
+  background: var(--spectrum);
+  background-attachment: fixed;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  opacity: 0;
+  transition: opacity 260ms ease;
+  pointer-events: none;
+}
+.pane[data-focused='true']::after { opacity: 1; }
 
 /* Scrolling lives on an inner element. If the pane itself scrolled it would
    become a clipping box and shear the top half off its own notch label. */
@@ -121,9 +177,8 @@ a:hover { color: var(--focus); text-decoration-color: var(--focus); }
   text-overflow: ellipsis;
 }
 .tree button::before { content: '• '; color: var(--mute); }
-.tree button:hover { color: var(--focus); }
-.tree button[aria-selected='true'] { color: var(--focus); }
-.tree button[aria-selected='true']::before { content: '● '; color: var(--focus); }
+.tree button:hover::before { color: transparent; }
+.tree button[aria-selected='true']::before { content: '● '; color: transparent; }
 
 .tree .group {
   padding: 1.4em 1.1em 0.2em;
@@ -136,6 +191,10 @@ a:hover { color: var(--focus); text-decoration-color: var(--focus); }
 /* ── document pane ───────────────────────────────────────────── */
 
 .doc .pane-body { padding: 1.35rem clamp(1rem, 3vw, 2.4rem) 1.6rem; }
+/* The address names the open section, and browsers scroll to it after load:
+   leave the pane's own top padding above it rather than tucking the heading
+   under the pane's label. */
+.doc section { scroll-margin-top: 1.35rem; }
 
 /* The measure belongs to prose only. Character grids are a fixed number of
    columns wide and must never be squeezed by it. */
@@ -158,7 +217,7 @@ a:hover { color: var(--focus); text-decoration-color: var(--focus); }
 
 .doc p { margin: 0 0 var(--row); color: var(--text); }
 .doc p.mute { color: var(--mute); }
-.doc strong { font-weight: 600; color: var(--focus); }
+.doc strong { font-weight: 600; }
 
 .doc ul { margin: 0 0 var(--row); padding: 0; list-style: none; }
 .doc ul li { padding-left: 1.4em; text-indent: -1.4em; }
@@ -180,11 +239,11 @@ a:hover { color: var(--focus); text-decoration-color: var(--focus); }
   color: var(--mute);
 }
 .grid-block pre b { font-weight: 400; color: var(--text); }
-.grid-block pre i { font-style: normal; color: var(--focus); }
+.grid-block pre i { font-style: normal; }
 
 .keys { width: 100%; border-collapse: collapse; margin: 0 0 var(--row); }
 .keys td { padding: 0.05em 1.2em 0.05em 0; vertical-align: top; }
-.keys td:first-child { color: var(--focus); white-space: nowrap; width: 1%; }
+.keys td:first-child { white-space: nowrap; width: 1%; }
 .keys td:last-child { color: var(--text); }
 
 .cmd {
@@ -208,13 +267,42 @@ a:hover { color: var(--focus); text-decoration-color: var(--focus); }
   white-space: nowrap;
   overflow: hidden;
 }
-.statusbar .pos { color: var(--focus); }
+.statusbar .pos { font-weight: 600; }
 .statusbar .right { margin-left: auto; }
 .statusbar kbd {
   font: inherit;
   color: var(--text);
 }
 .statusbar .hint + .hint { margin-left: 1.1rem; }
+
+/* ── the left column: the outline, and the Pomodoro under it ─── */
+
+.left {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  min-height: 0;
+}
+.left > .tree { flex: 1 1 auto; }
+
+/* The spellbook heads the outline, as it does in the app. */
+.book {
+  display: none;
+  margin: 0 auto 0.2rem;
+}
+.js .book { display: block; }
+
+.clearing { flex: none; display: none; }
+.js .clearing { display: flex; }
+.clearing .pane-body { padding: 0.9rem 0 0.55rem; overflow: hidden; }
+.clearing canvas, .clearing img { display: block; margin: 0 auto; }
+.clearing [hidden] { display: none; }
+.clearing > .label { text-transform: none; letter-spacing: 0.04em; font-size: 0.9em; }
+.clearing > .label .t { color: var(--text); }
+
+/* Ornaments give way before the outline gets cramped. */
+@media (max-height: 850px) { .js .clearing { display: none; } }
+@media (max-height: 600px) { .js .book { display: none; } }
 
 /* ── narrow screens: stop pretending to be a window ──────────── */
 
@@ -223,6 +311,7 @@ a:hover { color: var(--focus); text-decoration-color: var(--focus); }
   .panes { grid-template-columns: minmax(0, 1fr); }
   .doc, .tree { overflow: visible; }
   .statusbar .keys-hint { display: none; }
+  .js .clearing { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -243,3 +332,93 @@ a:hover { color: var(--focus); text-decoration-color: var(--focus); }
 .cmd { overflow-wrap: anywhere; }
 .kofi { margin: 0 0 var(--row); }
 .kofi a { display: inline-block; text-decoration: none; }
+
+/* ── themes: the switch in the title bar, the picker, the chips ─── */
+
+body { transition: background-color 240ms ease, color 240ms ease; }
+
+.theme-btn, .link-btn {
+  all: unset;
+  cursor: pointer;
+}
+.theme-btn { color: var(--mute); margin-right: 1.25rem; }
+.theme-btn:hover { color: var(--text); }
+.theme-btn .swatch {
+  display: inline-block;
+  width: 0.62em;
+  height: 0.62em;
+  border-radius: 50%;
+  background: var(--spectrum);
+  background-attachment: fixed;
+  vertical-align: 0.02em;
+}
+.theme-btn:focus-visible, .link-btn:focus-visible { outline: 1px solid var(--hl); outline-offset: 2px; }
+.link-btn { text-decoration: underline; text-underline-offset: 0.25em; text-decoration-color: var(--line); }
+.link-btn:hover { text-decoration-color: var(--hl); }
+
+kbd { font: inherit; color: var(--text); border: 1px solid var(--line); padding: 0 0.3em; }
+.statusbar kbd { border: 0; padding: 0; }
+
+.doc p.try { border-left: 2px solid var(--line); padding-left: 0.9em; }
+
+.chips { display: flex; flex-wrap: wrap; gap: 0.45rem 0.5rem; margin: 0 0 var(--row); max-width: 62ch; }
+.chips button {
+  all: unset;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45em;
+  padding: 0.12em 0.65em;
+  border: 1px solid var(--line);
+  color: var(--text);
+  white-space: nowrap;
+}
+.chips button:hover { border-color: var(--mute); }
+.chips button:focus-visible { outline: 1px solid var(--hl); outline-offset: 2px; }
+.chips button[aria-pressed='true'] { border-color: var(--focus); background: var(--sel); }
+.chips i, .pick-list .sw i { display: inline-block; width: 0.62em; height: 0.62em; border-radius: 50%; }
+.spec, .spec-bar {
+  background: linear-gradient(90deg, #ff5f5f, #ffd23c, #5fe07a, #5fd7ff, #a78bff, #ff6ec7);
+}
+.chips i.spec { width: 0.62em; }
+
+dialog.picker {
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  width: min(26rem, calc(100vw - 2rem));
+  height: fit-content;
+  max-height: calc(100dvh - 2rem);
+  padding: 1.2rem 0 0.6rem;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--line);
+  overflow: visible;
+  font: inherit;
+}
+dialog.picker:not([open]) { display: none; }
+dialog.picker::backdrop { background: rgb(0 0 0 / 0.55); }
+.pick-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; max-height: calc(100dvh - 7rem); }
+.pick-list button {
+  all: unset;
+  box-sizing: border-box;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  width: 100%;
+  padding: 0.05em 1.1em;
+}
+.pick-list button:focus, .pick-list button:hover { background: var(--sel); outline: none; }
+.pick-list .mark { width: 1ch; }
+.pick-list .current .mark::before { content: '●'; }
+.pick-list .current .n { font-weight: 600; }
+.pick-list .n { flex: 1; }
+.pick-list .sw { display: inline-flex; gap: 0.3em; }
+.pick-list .spec-bar { width: 5.2em; height: 0.62em; border-radius: 0.31em; }
+.pick-hint { margin: 0.6rem 1.1rem 0; color: var(--mute); font-size: 0.9em; }
+.pick-hint kbd { border: 0; padding: 0; }
+
+@media (max-width: 46rem) {
+  .theme-btn { margin-right: 0.8rem; }
+}

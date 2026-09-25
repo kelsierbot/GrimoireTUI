@@ -458,5 +458,13 @@ fn shots() {
         frames.push(s.json(&format!("visualizer/{}", t.name), Some(pane)));
     }
 
+    // The desk in every theme, for the theme switchers on the site and in
+    // the README.
+    for t in theme::presets() {
+        let mut s = Shot::new("theme", &t.name, w, h, false);
+        s.key(KeyCode::Tab, none);
+        frames.push(s.json(&format!("theme/{}", t.name), None));
+    }
+
     fs::write(out, format!("[{}]", frames.join(",\n"))).unwrap();
 }

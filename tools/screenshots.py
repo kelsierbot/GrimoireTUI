@@ -13,7 +13,7 @@ cells into pixels: a monospace font with symbol fallbacks, each theme on the
 terminal background it was made for, a window frame for the full shots, and
 grids of every theme's Pomodoro and Visualizer. Needs Pillow and fontTools.
 """
-import json, os, subprocess, sys
+import json, os, re, subprocess, sys, unicodedata
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 from fontTools.ttLib import TTFont
 
@@ -286,6 +286,12 @@ def pages(exports, out):
             print("paperback")
 
 
+def slug(name):
+    """A file name for a theme: "Rosé Pine" → rose-pine, "Synthwave '84" → synthwave-84."""
+    flat = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode()
+    return re.sub(r"[^a-z0-9]+", "-", flat.lower()).strip("-")
+
+
 def main():
     frames = json.load(open(sys.argv[1]))
     out = sys.argv[2]
@@ -294,10 +300,23 @@ def main():
     pomos, vizes = [], []
     for fr in frames:
         name = fr["name"]
+        if name.startswith("theme/"):
+            # The desk in each theme, and that theme's Pomodoro on its own
+            # (the scene inside its pane's frame), for the theme switchers.
+            theme = name.split("/", 1)[1]
+            os.makedirs(os.path.join(out, "themes"), exist_ok=True)
+            img = window(paint(fr, fonts), BACKGROUNDS.get(theme, "#121212"), f"grimoire — The Salt Archive · {theme}")
+            img.save(os.path.join(out, "themes", f"{slug(theme)}.png"), optimize=True)
+            print(name)
+            continue
         if "/" in name:
             kind, theme = name.split("/", 1)
             tile = paint(fr, fonts, fr["crop"])
             (pomos if kind == "pomodoro" else vizes).append((theme, tile))
+            if kind == "pomodoro":
+                os.makedirs(os.path.join(out, "themes"), exist_ok=True)
+                inner = tile.crop((fonts.cw, fonts.ch, tile.width - fonts.cw, tile.height - fonts.ch))
+                inner.save(os.path.join(out, "themes", f"pomodoro-{slug(theme)}.png"), optimize=True)
             continue
         img = window(paint(fr, fonts), BACKGROUNDS.get(fr["theme"], "#121212"), f"grimoire — The Salt Archive · {fr['theme']}")
         img.save(os.path.join(out, f"{name}.png"), optimize=True)

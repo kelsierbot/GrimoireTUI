@@ -1,4 +1,4 @@
-<img src="assets/banner.svg" alt="grimoire — a terminal writing desk for novels" width="820">
+<img src="assets/readme/banner.svg" alt="grimoire — a terminal writing desk for novels" width="100%">
 
 **[grimoire.joshking.ai](https://grimoire.joshking.ai)** · Rust + [Ratatui](https://ratatui.rs) · MIT · macOS, Linux and Windows · made by [Catfinity Studios](https://catfinity.com)
 
@@ -8,9 +8,12 @@ A writing desk for novels that lives in your terminal. It knows what a
 manuscript is — parts, chapters, scenes, word targets — and it keeps every word
 of it as plain files you could read with `cat`.
 
-<p align="center"><img src="assets/screenshots/desk.png" alt="Grimoire in the Lost Forest theme: the book's outline under a spellbook, a scene being written, the Pomodoro forest and the music pane" width="100%"></p>
+<p align="center"><img src="assets/screenshots/themes.webp" alt="Grimoire's desk — the outline under a spellbook, a scene being written, the Pomodoro and the music pane — changing through all nineteen themes, from Rainbow to GitHub Dark" width="100%"></p>
 
----
+<p align="center"><b>Nineteen themes, and you can switch any time with <code>F9</code>.</b><br>
+<a href="#themes">See every one below</a> · or <a href="https://grimoire.joshking.ai/#themes">try them on the website</a>, which switches too.</p>
+
+<img src="assets/readme/rule.svg" width="100%" alt="">
 
 ## Why it exists
 
@@ -456,6 +459,67 @@ each one live** as you move, so you pick by looking rather than by name.
 `Enter` keeps it, `Esc` puts back what you had. All of them are dark themes:
 Grimoire draws on your terminal's own background.
 
+**Pick one to see the whole desk in it** — or switch
+[the website](https://grimoire.joshking.ai/#themes) itself, with `t`:
+
+<details><summary><img src="assets/readme/swatches/grimoire.svg" height="14" alt=""> <b>Grimoire</b></summary>
+<p><img src="site/public/shots/themes/grimoire.webp" alt="The desk in Grimoire" width="100%"></p>
+</details>
+<details><summary><img src="assets/readme/swatches/gruvbox-dark.svg" height="14" alt=""> <b>Gruvbox Dark</b></summary>
+<p><img src="site/public/shots/themes/gruvbox-dark.webp" alt="The desk in Gruvbox Dark" width="100%"></p>
+</details>
+<details><summary><img src="assets/readme/swatches/nord.svg" height="14" alt=""> <b>Nord</b></summary>
+<p><img src="site/public/shots/themes/nord.webp" alt="The desk in Nord" width="100%"></p>
+</details>
+<details><summary><img src="assets/readme/swatches/dracula.svg" height="14" alt=""> <b>Dracula</b></summary>
+<p><img src="site/public/shots/themes/dracula.webp" alt="The desk in Dracula" width="100%"></p>
+</details>
+<details><summary><img src="assets/readme/swatches/solarized-dark.svg" height="14" alt=""> <b>Solarized Dark</b></summary>
+<p><img src="site/public/shots/themes/solarized-dark.webp" alt="The desk in Solarized Dark" width="100%"></p>
+</details>
+<details><summary><img src="assets/readme/swatches/catppuccin-mocha.svg" height="14" alt=""> <b>Catppuccin Mocha</b></summary>
+<p><img src="site/public/shots/themes/catppuccin-mocha.webp" alt="The desk in Catppuccin Mocha" width="100%"></p>
+</details>
+<details><summary><img src="assets/readme/swatches/tokyo-night.svg" height="14" alt=""> <b>Tokyo Night</b></summary>
+<p><img src="site/public/shots/themes/tokyo-night.webp" alt="The desk in Tokyo Night" width="100%"></p>
+</details>
+<details><summary><img src="assets/readme/swatches/everforest.svg" height="14" alt=""> <b>Everforest</b></summary>
+<p><img src="site/public/shots/themes/everforest.webp" alt="The desk in Everforest" width="100%"></p>
+</details>
+<details><summary><img src="assets/readme/swatches/lost-forest.svg" height="14" alt=""> <b>Lost Forest</b></summary>
+<p><img src="site/public/shots/themes/lost-forest.webp" alt="The desk in Lost Forest" width="100%"></p>
+</details>
+<details><summary><img src="assets/readme/swatches/rose-pine.svg" height="14" alt=""> <b>Rosé Pine</b></summary>
+<p><img src="site/public/shots/themes/rose-pine.webp" alt="The desk in Rosé Pine" width="100%"></p>
+</details>
+<details><summary><img src="assets/readme/swatches/one-dark.svg" height="14" alt=""> <b>One Dark</b></summary>
+<p><img src="site/public/shots/themes/one-dark.webp" alt="The desk in One Dark" width="100%"></p>
+</details>
+<details><summary><img src="assets/readme/swatches/monokai.svg" height="14" alt=""> <b>Monokai</b></summary>
+<p><img src="site/public/shots/themes/monokai.webp" alt="The desk in Monokai" width="100%"></p>
+</details>
+<details><summary><img src="assets/readme/swatches/kanagawa.svg" height="14" alt=""> <b>Kanagawa</b></summary>
+<p><img src="site/public/shots/themes/kanagawa.webp" alt="The desk in Kanagawa" width="100%"></p>
+</details>
+<details><summary><img src="assets/readme/swatches/ayu-mirage.svg" height="14" alt=""> <b>Ayu Mirage</b></summary>
+<p><img src="site/public/shots/themes/ayu-mirage.webp" alt="The desk in Ayu Mirage" width="100%"></p>
+</details>
+<details><summary><img src="assets/readme/swatches/night-owl.svg" height="14" alt=""> <b>Night Owl</b></summary>
+<p><img src="site/public/shots/themes/night-owl.webp" alt="The desk in Night Owl" width="100%"></p>
+</details>
+<details><summary><img src="assets/readme/swatches/material-palenight.svg" height="14" alt=""> <b>Material Palenight</b></summary>
+<p><img src="site/public/shots/themes/material-palenight.webp" alt="The desk in Material Palenight" width="100%"></p>
+</details>
+<details><summary><img src="assets/readme/swatches/synthwave-84.svg" height="14" alt=""> <b>Synthwave '84</b></summary>
+<p><img src="site/public/shots/themes/synthwave-84.webp" alt="The desk in Synthwave '84" width="100%"></p>
+</details>
+<details><summary><img src="assets/readme/swatches/github-dark.svg" height="14" alt=""> <b>GitHub Dark</b></summary>
+<p><img src="site/public/shots/themes/github-dark.webp" alt="The desk in GitHub Dark" width="100%"></p>
+</details>
+<details><summary><img src="assets/readme/swatches/rainbow.svg" height="14" alt=""> <b>Rainbow</b></summary>
+<p><img src="site/public/shots/themes/rainbow.webp" alt="The desk in Rainbow" width="100%"></p>
+</details>
+
 <p align="center"><img src="assets/screenshots/rainbow.png" alt="The Rainbow theme: every accent a drifting spectrum, and a rainbow over the Pomodoro" width="100%"></p>
 
 **Rainbow** isn't a flat palette. Everything the others draw in their accent —
@@ -666,6 +730,8 @@ builds every platform and publishes the GitHub release with both installers;
 Linux and runs it. Nothing is published unless every build succeeds.
 
 Issues and pull requests welcome.
+
+<img src="assets/readme/rule.svg" width="100%" alt="">
 
 ## Support Grimoire
 

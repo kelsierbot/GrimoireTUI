@@ -1,5 +1,6 @@
 ---
 import '../styles/global.css';
+import THEMES from '../themes.json';
 
 const REPO = 'https://github.com/kelsierbot/GrimoireTUI';
 
@@ -28,6 +29,7 @@ const flat = nav.flatMap((g) => g.items);
 const VERSION = 'v0.5';
 const STUDIO = 'https://catfinity.com';
 const KOFI = 'https://ko-fi.com/F2F21E0DK0';
+const DEFAULT_THEME = 'Rainbow';
 ---
 
 <!doctype html>
@@ -41,7 +43,7 @@ const KOFI = 'https://ko-fi.com/F2F21E0DK0';
       content="A terminal writing desk for novels. Your manuscript is a folder of plain Markdown — it compiles to a standard-format manuscript, a paperback and an EPUB, and stays safe in any sync service. Rust and Ratatui."
     />
     <link rel="canonical" href="https://grimoire.joshking.ai/" />
-    <meta name="theme-color" content="#0d0d10" />
+    <meta name="theme-color" content="#15121f" />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://grimoire.joshking.ai/" />
     <meta property="og:title" content="grimoire — a terminal writing desk for novels" />
@@ -55,8 +57,21 @@ const KOFI = 'https://ko-fi.com/F2F21E0DK0';
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
-    <script is:inline>
+    <script is:inline define:vars={{ THEMES, DEFAULT_THEME }}>
+      // Before the first paint: the viewer's chosen theme, so the page never
+      // flashes Rainbow on its way to Nord.
       document.documentElement.classList.add('js');
+      window.GRIMOIRE_THEMES = THEMES;
+      try {
+        const want = localStorage.getItem('grimoire-theme');
+        const t = THEMES.find((x) => x.name === want);
+        if (t && t.name !== DEFAULT_THEME) {
+          const s = document.documentElement.style;
+          s.setProperty('--bg', t.bg); s.setProperty('--line', t.border); s.setProperty('--sel', t.sel);
+          s.setProperty('--text', t.text); s.setProperty('--mute', t.dim); s.setProperty('--focus', t.accent);
+          s.setProperty('--spectrum', `linear-gradient(${t.accent}, ${t.accent})`); s.setProperty('--hl', t.accent);
+        }
+      } catch (e) {}
     </script>
   </head>
 
@@ -65,13 +80,20 @@ const KOFI = 'https://ko-fi.com/F2F21E0DK0';
       <header class="titlebar">
         <span class="brand">grimoire</span>
         <span class="desc">a terminal writing desk for novels</span>
-        <span class="right"><a href={REPO}>github</a></span>
+        <span class="right">
+          <button class="theme-btn" id="theme-btn" type="button" aria-haspopup="dialog" title="Change the theme (t)">
+            <span class="swatch" aria-hidden="true"></span> theme · <span class="rb" id="theme-name">{DEFAULT_THEME}</span>
+          </button>
+          <a href={REPO}>github</a>
+        </span>
       </header>
 
       <main class="panes">
+        <div class="left">
         <nav class="pane tree" id="tree" data-focused="false" aria-label="Contents">
-          <span class="label">contents</span>
+          <span class="label"><span class="t">contents</span></span>
           <div class="pane-body">
+          <canvas class="book" id="book" aria-hidden="true"></canvas>
           {nav.map((g) => (
             <>
               <div class="group">{g.group}</div>
@@ -94,8 +116,17 @@ const KOFI = 'https://ko-fi.com/F2F21E0DK0';
           </div>
         </nav>
 
+        <aside class="pane clearing" data-focused="false" aria-hidden="true">
+          <span class="label"><span class="t" id="pomo-tag">writing</span> · <span class="time" id="pomo-time">12:39</span></span>
+          <div class="pane-body">
+            <canvas id="pomodoro"></canvas>
+            <img id="pomo-img" alt="" width="224" height="158" hidden />
+          </div>
+        </aside>
+        </div>
+
         <div class="pane doc" id="doc" data-focused="true">
-          <span class="label" id="doc-label">what it is</span>
+          <span class="label"><span class="t" id="doc-label">what it is</span></span>
           <div class="pane-body" id="doc-body">
 
           <section id="what" role="tabpanel" aria-labelledby="tab-what">
@@ -106,10 +137,15 @@ const KOFI = 'https://ko-fi.com/F2F21E0DK0';
               plain files you could read with <code>cat</code>.
             </p>
             <figure class="shot">
-              <img src="/shots/desk.webp" width="1620" height="1114" loading="eager"
-                alt="Grimoire in the Lost Forest theme: a book's outline under a spellbook, a scene being written, the Pomodoro forest and the music pane" />
-              <figcaption>01 — the desk: the outline, the prose, the Pomodoro, the music</figcaption>
+              <img id="hero" src="/shots/themes/rainbow.webp" width="1620" height="1114" loading="eager"
+                alt="Grimoire in the Rainbow theme: a book's outline under a spellbook, a scene being written, the Pomodoro and the music pane" />
+              <figcaption>01 — the desk, in <span id="hero-theme">Rainbow</span>: the outline, the prose, the Pomodoro, the music</figcaption>
             </figure>
+            <p class="try">
+              <strong>Nineteen themes</strong>, and you can change them any time — <kbd>F9</kbd> in
+              the app. Try them on this page: press <kbd>t</kbd>, or
+              <button class="link-btn" type="button" data-open-picker>pick a theme</button>.
+            </p>
             <p>
               When the book is done it compiles a submission manuscript in standard format, a
               print-ready paperback and an EPUB — and while you write it keeps the
@@ -187,7 +223,8 @@ const KOFI = 'https://ko-fi.com/F2F21E0DK0';
                 <tr><td>v</td><td>another scene beside this one, read-only</td></tr>
                 <tr><td>F8</td><td>spelling — or click the underlined word</td></tr>
                 <tr><td>Ctrl-Z · Ctrl-Y</td><td>undo · redo, in the prose and in the tree</td></tr>
-                <tr><td>F2 · F9</td><td>the timer · themes</td></tr>
+                <tr><td>F9</td><td>themes — nineteen, each with its own world, or make your own</td></tr>
+                <tr><td>F2</td><td>the Pomodoro timer</td></tr>
               </tbody>
             </table>
             <figure class="shot">
@@ -270,7 +307,19 @@ const KOFI = 'https://ko-fi.com/F2F21E0DK0';
           <section id="themes" role="tabpanel" aria-labelledby="tab-themes">
             <h2>themes</h2>
             <p>
-              Nineteen themes, and each brings its own world to the pane under the outline. The
+              <strong>Nineteen themes</strong>, and you can switch any time with <kbd>F9</kbd> — the
+              picker previews each one as you move through it. This page switches too; try one:
+            </p>
+            <div class="chips" role="group" aria-label="Themes">
+              {THEMES.map((t) => (
+                <button type="button" data-theme={t.name} aria-pressed={t.name === DEFAULT_THEME ? 'true' : 'false'}>
+                  <i style={t.name === 'Rainbow' ? undefined : `background:${t.accent}`} class={t.name === 'Rainbow' ? 'spec' : undefined}></i>
+                  <span class="n">{t.name}</span>
+                </button>
+              ))}
+            </div>
+            <p>
+              Each theme brings its own world to the pane under the outline. The
               <strong>Pomodoro</strong> is the timer — the sun's position is the clock, and break
               time is night.
             </p>
@@ -378,11 +427,30 @@ const KOFI = 'https://ko-fi.com/F2F21E0DK0';
         </div>
       </main>
 
+      <dialog class="pane picker" id="picker" aria-label="Themes" data-focused="true">
+        <span class="label"><span class="t">themes</span></span>
+        <ol class="pick-list" id="pick-list">
+          {THEMES.map((t) => (
+            <li>
+              <button type="button" data-theme={t.name}>
+                <span class="mark" aria-hidden="true"></span>
+                <span class="n">{t.name}</span>
+                {t.name === 'Rainbow'
+                  ? <span class="sw spec-bar" aria-hidden="true"></span>
+                  : <span class="sw" aria-hidden="true">{[t.accent, t.sun, t.moon, t.foliage, t.bloom].map((c) => <i style={`background:${c}`}></i>)}</span>}
+              </button>
+            </li>
+          ))}
+        </ol>
+        <p class="pick-hint"><kbd>↑↓</kbd> preview · <kbd>↵</kbd> choose · <kbd>esc</kbd> cancel</p>
+      </dialog>
+
       <footer class="statusbar">
         <span class="pos" id="pos">1/{flat.length}</span>
         <span class="keys-hint">
           <span class="hint"><kbd>j</kbd>/<kbd>k</kbd> move</span>
           <span class="hint"><kbd>Tab</kbd> pane</span>
+          <span class="hint"><kbd>t</kbd> theme</span>
           <span class="hint"><kbd>g</kbd> github</span>
         </span>
         <span class="right">{VERSION} · MIT · <a href={STUDIO}>Catfinity Studios</a></span>
@@ -429,6 +497,7 @@ const KOFI = 'https://ko-fi.com/F2F21E0DK0';
       setPane('doc');
 
       addEventListener('keydown', (e) => {
+        if (document.getElementById('picker').open) return;
         const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) || e.target.isContentEditable;
         if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
 
@@ -447,6 +516,294 @@ const KOFI = 'https://ko-fi.com/F2F21E0DK0';
 
       const start = tabs.findIndex((t) => `#${t.dataset.id}` === location.hash);
       show(start > -1 ? start : 0, false);
+    </script>
+    <script is:inline define:vars={{ DEFAULT_THEME }}>
+      // The themes, as the app draws them. Rainbow's spectrum turns on one
+      // clock (80 ms ticks, a full turn every 12 s); the spellbook heads the
+      // outline in the theme's own inks; and the Pomodoro under it is the
+      // theme's world — drawn live for Rainbow, a still from the app for the
+      // rest. The viewer's choice is remembered in this browser only.
+      (() => {
+        const THEMES = window.GRIMOIRE_THEMES;
+        const byName = (n) => THEMES.find((t) => t.name === n);
+        const root = document.documentElement;
+        const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+        let T = byName(DEFAULT_THEME), rainbow = true;
+
+        const rgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+        const blend = (a, b, t) => {
+          const A = rgb(a), B = rgb(b);
+          return '#' + A.map((v, i) => Math.round(v + (B[i] - v) * t).toString(16).padStart(2, '0')).join('');
+        };
+
+        // The spectrum the stylesheet lays over the screen, sampled at a
+        // point, so the canvases' accent cells match the text around them.
+        const A = (132 * Math.PI) / 180, DX = Math.sin(A), DY = -Math.cos(A);
+        let drift = 0, rem = 16;
+        const measure = () => { rem = parseFloat(getComputedStyle(root).fontSize) || 16; };
+        const accentAt = (x, y) => {
+          if (!rainbow) return T.accent;
+          const w = root.clientWidth, h = root.clientHeight, period = 46 * rem;
+          const t = (x - w / 2) * DX + (y - h / 2) * DY + (Math.abs(w * DX) + Math.abs(h * DY)) / 2;
+          const hue = (drift + (360 * (((t % period) + period) % period)) / period) % 360;
+          return `hsl(${hue.toFixed(1)}, 90%, 68%)`;
+        };
+
+        const CW = 8;
+        const FONT = '13.33px "IBM Plex Mono", ui-monospace, monospace';
+        function setup(cv, cols, rows, rh) {
+          const d = devicePixelRatio || 1, w = cols * CW, h = rows * rh;
+          cv.width = Math.round(w * d); cv.height = Math.round(h * d);
+          cv.style.width = w + 'px'; cv.style.height = h + 'px';
+          const ctx = cv.getContext('2d');
+          ctx.setTransform(d, 0, 0, d, 0, 0);
+          ctx.font = FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          return ctx;
+        }
+        const shown = (cv) => cv && cv.offsetParent !== null;
+
+        // ── the spellbook ──
+        const ART = [
+          '    ✧   ·    ✦    ·   ✧',
+          '      ______ ☾ ______',
+          '    _/      ╲│╱      \\_',
+          '   // ≈≈≈ ≈≈ │ ≈≈ ≈≈≈ \\\\',
+          '  // ≈ ≈≈ ✧  │  ✧ ≈≈ ≈ \\\\',
+          ' //__________│__________\\\\',
+          " `───────────┴───────────'",
+        ];
+        const BRH = 15;
+        const book = document.getElementById('book');
+        let bctx = null;
+        function drawBook(frame) {
+          if (!shown(book)) return;
+          bctx = bctx || setup(book, 26, ART.length, BRH);
+          const r = book.getBoundingClientRect(), ctx = bctx;
+          ctx.clearRect(0, 0, 26 * CW, ART.length * BRH);
+          let spark = 0;
+          ART.forEach((line, row) => {
+            [...line].forEach((c, col) => {
+              if (c === ' ') return;
+              const x = (col + 0.5) * CW, y = (row + 0.5) * BRH;
+              let g = c, ink;
+              if (row === 0) {
+                spark += 1;
+                const beat = (Math.floor(frame / (4 + (spark % 3))) + spark) % 4;
+                [g, ink] = beat === 0 ? ['✦', T.sun] : beat % 2 ? ['✧', blend(T.sun, T.dim, 0.35)] : ['·', T.dim];
+              } else if (c === '╲' || c === '╱') ink = blend(T.sun, T.dim, 0.5);
+              else if (c === '☾') ink = T.moon;
+              else if (c === '✧') ink = T.bloom;
+              else if (c === '≈') ink = T.dim;
+              else ink = accentAt(r.left + x, r.top + y);
+              ctx.fillStyle = ink;
+              // Rules are drawn, not typed, so they meet cell to cell.
+              const cx = col * CW, cy = row * BRH;
+              if (c === '─' || c === '┴') ctx.fillRect(cx, Math.round(y), CW, 1);
+              if (c === '│' || c === '┴') ctx.fillRect(Math.round(x), cy, 1, c === '┴' ? BRH / 2 : BRH);
+              if (c === '─' || c === '│' || c === '┴') return;
+              ctx.fillText(g, x, y);
+            });
+          });
+        }
+
+        // ── Rainbow's Pomodoro: a fine arc of five ribbons, in braille dots ──
+        const W = 28, H = 9, PRH = 16, ACX = 28, ACY = (H - 1) * 4, AR = 24, PITCH = 4, THICK = 2, BANDS = 5;
+        const bandAt = (x, y) => {
+          const d = AR - Math.hypot(x + 0.5 - ACX, y + 0.5 - ACY);
+          if (d < 0) return -1;
+          const k = Math.floor(d / PITCH);
+          return k < BANDS && d - k * PITCH < THICK ? k : -1;
+        };
+        const PUFFS = [[3.5, 29, 3.2], [7.5, 27, 4.2], [11.5, 29.5, 3.0]];
+        const inCloud = (x, y, at) => PUFFS.some(([px, py, r]) => Math.hypot(x - px - at, y - py) <= r);
+        const driftDots = (frame, seed) => (Math.floor(frame / 20) + seed) % 3;
+
+        const WRITE = 25 * 60, BREAK = 5 * 60;
+        const t0 = performance.now() - (WRITE - (12 * 60 + 39)) * 1000;
+        const pomo = document.getElementById('pomodoro');
+        const pomoImg = document.getElementById('pomo-img');
+        const tagEl = document.getElementById('pomo-tag'), timeEl = document.getElementById('pomo-time');
+        let pctx = null;
+        function drawPomodoro(now, frame) {
+          const s = ((now - t0) / 1000) % (WRITE + BREAK);
+          const night = s >= WRITE, len = night ? BREAK : WRITE, e = night ? s - WRITE : s;
+          const progress = e / len, left = Math.max(0, Math.ceil(len - e));
+          const tag = night ? 'break' : 'writing';
+          const time = `${String(Math.floor(left / 60)).padStart(2, '0')}:${String(left % 60).padStart(2, '0')}`;
+          if (tagEl.textContent !== tag) tagEl.textContent = tag;
+          if (timeEl.textContent !== time) timeEl.textContent = time;
+          if (!shown(pomo)) return;
+          pctx = pctx || setup(pomo, W, H, PRH);
+          const ctx = pctx, r = pomo.getBoundingClientRect();
+          ctx.clearRect(0, 0, W * CW, H * PRH);
+          const BAND = [T.warn, blend(T.warn, T.sun, 0.5), T.sun, T.foliage, blend(T.moon, T.bloom, 0.4)];
+
+          // The feet stand in two clouds that drift a dot or two.
+          const cloud = new Map();
+          [[0, 0], [2 * W - 15, 7]].forEach(([at0, seed]) => {
+            const at = at0 + (still ? 0 : driftDots(frame, seed));
+            for (let y = (H - 3) * 4; y < (H - 1) * 4; y++)
+              for (let x = 0; x < 2 * W; x++)
+                if (inCloud(x + 0.5, y + 0.5, at)) {
+                  const k = `${x >> 1},${y >> 2}`;
+                  cloud.set(k, (cloud.get(k) || []).concat([[x, y]]));
+                }
+          });
+
+          // By day a light runs slowly along the outer band, then rests.
+          const run = (frame % 160) * 1.5;
+          const dot = (x, y) => { ctx.beginPath(); ctx.arc(x * 4 + 2, y * 4 + 2, 1.15, 0, 7); ctx.fill(); };
+          for (let cy = 2; cy < H - 1; cy++) {
+            for (let cx = 0; cx < W; cx++) {
+              if (cloud.has(`${cx},${cy}`)) continue;
+              const angle = (Math.atan2(ACY - cy * 4 - 2, ACX - cx * 2 - 1) * 180) / Math.PI;
+              for (let col = 0; col < 2; col++) {
+                for (let row = 0; row < 4; row++) {
+                  const x = cx * 2 + col, y = cy * 4 + row, k = bandAt(x, y);
+                  if (k < 0) continue;
+                  let c = BAND[k];
+                  if (k === 0 && !night && !still && Math.abs(angle - run) < 7) c = blend(c, T.text, 0.55);
+                  if (night) c = blend(c, T.border, 0.6);
+                  ctx.fillStyle = c;
+                  dot(x, y);
+                }
+              }
+            }
+          }
+          ctx.fillStyle = blend(T.text, T.border, 0.55);
+          cloud.forEach((dots) => dots.forEach(([x, y]) => dot(x, y)));
+
+          // The clock: the sun crosses the sky; at break, the moon.
+          const span = W - 4;
+          const sx = 2 + Math.min(Math.round(progress * span), span - 1);
+          const sy = Math.sin(Math.PI * progress) > 0.5 ? 0 : 1;
+          ctx.fillStyle = night ? T.moon : T.sun;
+          ctx.fillText(night ? '☾' : '☀', (sx + 0.5) * CW, (sy + 0.5) * PRH);
+
+          // The ground fills in behind the sun, in the accent.
+          const head = Math.round(progress * W);
+          for (let x = 0; x < W; x++) {
+            ctx.fillStyle = x < head ? accentAt(r.left + (x + 0.5) * CW, r.top + (H - 1) * PRH) : T.turf;
+            ctx.fillRect(x * CW, (H - 1) * PRH, CW, 2);
+          }
+        }
+
+        function draw(now) {
+          drawBook(Math.floor(now / 250));
+          drawPomodoro(now, Math.floor(now / 80));
+        }
+
+        // ── switching ──
+        const hero = document.getElementById('hero'), heroTheme = document.getElementById('hero-theme');
+        const nameEl = document.getElementById('theme-name');
+        const meta = document.querySelector('meta[name="theme-color"]');
+        const picker = document.getElementById('picker');
+        const rows = Array.from(picker.querySelectorAll('[data-theme]'));
+        const chips = Array.from(document.querySelectorAll('.chips [data-theme]'));
+
+        function apply(t, keep) {
+          T = t;
+          rainbow = t.name === 'Rainbow';
+          const s = root.style;
+          s.setProperty('--bg', t.bg); s.setProperty('--line', t.border); s.setProperty('--sel', t.sel);
+          s.setProperty('--text', t.text); s.setProperty('--mute', t.dim); s.setProperty('--focus', t.accent);
+          if (rainbow) {
+            s.removeProperty('--spectrum'); s.removeProperty('--hl');
+          } else {
+            s.setProperty('--spectrum', `linear-gradient(${t.accent}, ${t.accent})`);
+            s.setProperty('--hl', t.accent);
+          }
+          if (meta) meta.setAttribute('content', t.bg);
+          nameEl.textContent = t.name;
+          heroTheme.textContent = t.name;
+          const src = `/shots/themes/${t.slug}.webp`;
+          if (!hero.src.endsWith(src)) hero.src = src;
+          hero.alt = `Grimoire in the ${t.name} theme: a book's outline under a spellbook, a scene being written, the Pomodoro and the music pane`;
+          pomo.hidden = !rainbow;
+          pomoImg.hidden = rainbow;
+          if (!rainbow) pomoImg.src = `/shots/themes/pomodoro-${t.slug}.webp`;
+          chips.forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.theme === t.name)));
+          rows.forEach((b) => b.classList.toggle('current', b.dataset.theme === t.name));
+          if (keep) {
+            try { localStorage.setItem('grimoire-theme', t.name); } catch (e) {}
+          }
+          draw(performance.now());
+        }
+
+        // The picker previews as you move and puts things back on Esc, as
+        // the app's does.
+        let before = null, opening = false;
+        function openPicker() {
+          if (picker.open) return;
+          // The browser focuses the first row as the dialog opens; ignore
+          // that, and start on the theme in use.
+          const here = rows.find((r) => r.dataset.theme === T.name) || rows[0];
+          before = T;
+          opening = true;
+          picker.showModal();
+          opening = false;
+          here.focus();
+        }
+        rows.forEach((b) => {
+          b.addEventListener('focus', () => { if (picker.open && !opening) apply(byName(b.dataset.theme), false); });
+          b.addEventListener('click', () => {
+            before = null;
+            apply(byName(b.dataset.theme), true);
+            picker.close();
+          });
+        });
+        picker.addEventListener('keydown', (e) => {
+          const n = rows.indexOf(document.activeElement);
+          const step = e.key === 'ArrowDown' || e.key === 'j' ? 1 : e.key === 'ArrowUp' || e.key === 'k' ? -1 : 0;
+          if (!step) return;
+          e.preventDefault();
+          rows[(n + step + rows.length) % rows.length].focus();
+        });
+        picker.addEventListener('click', (e) => {
+          const r = picker.getBoundingClientRect();
+          if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) picker.close();
+        });
+        picker.addEventListener('close', () => {
+          if (before) apply(before, false);
+          before = null;
+        });
+        document.getElementById('theme-btn').addEventListener('click', openPicker);
+        document.querySelectorAll('[data-open-picker]').forEach((b) => b.addEventListener('click', openPicker));
+        chips.forEach((b) => b.addEventListener('click', () => apply(byName(b.dataset.theme), true)));
+        addEventListener('keydown', (e) => {
+          if (picker.open || e.metaKey || e.ctrlKey || e.altKey) return;
+          if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) || e.target.isContentEditable) return;
+          if (e.key === 't' || e.key === 'F9') {
+            e.preventDefault();
+            openPicker();
+          }
+        });
+
+        measure();
+        addEventListener('resize', () => { measure(); bctx = pctx = null; draw(performance.now()); });
+        let saved = null;
+        try { saved = byName(localStorage.getItem('grimoire-theme')); } catch (e) {}
+        apply(saved || T, false);
+
+        if (still) {
+          setInterval(() => draw(performance.now()), 1000);
+          return;
+        }
+        let last = -1;
+        (function tick(now) {
+          // Rainbow moves every 80 ms; the other themes only twinkle.
+          const f = rainbow ? Math.floor(now / 80) : -Math.floor(now / 250);
+          if (f !== last) {
+            last = f;
+            if (rainbow) {
+              drift = ((now / 12000) * 360) % 360;
+              root.style.setProperty('--drift', drift.toFixed(2) + 'deg');
+            }
+            draw(now);
+          }
+          requestAnimationFrame(tick);
+        })(performance.now());
+      })();
     </script>
   </body>
 </html>
