@@ -39,7 +39,7 @@ impl Version {
     }
 
     pub fn words(&self) -> usize {
-        self.body().split_whitespace().count()
+        crate::notes::count_words(&self.body())
     }
 }
 

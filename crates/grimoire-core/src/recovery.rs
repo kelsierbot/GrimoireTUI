@@ -86,7 +86,7 @@ pub fn pending(p: &Project) -> Vec<Pending> {
             when: fs::metadata(&file).and_then(|m| m.modified()).ok(),
             file,
             saved_words: node.words(),
-            recovered_words: body.split_whitespace().count(),
+            recovered_words: crate::notes::count_words(&body),
             text,
         });
     }

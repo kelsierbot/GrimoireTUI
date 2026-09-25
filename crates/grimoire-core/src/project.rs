@@ -217,8 +217,10 @@ pub struct Node {
 }
 
 impl Node {
+    /// Words in the prose — not counting `%% notes %%` or TKs, which never
+    /// reach the book.
     pub fn words(&self) -> usize {
-        self.body.split_whitespace().count()
+        crate::notes::count_words(&self.body)
     }
 
     /// A value from the scene's frontmatter, if it has one.

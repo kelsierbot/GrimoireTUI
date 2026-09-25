@@ -42,6 +42,12 @@ pub enum Action {
     PrevTrack,
     Timer,
     TimerReset,
+    NotesList,
+    NextTk,
+    NextDraft,
+    EchoWords,
+    StartSprint,
+    EndSprint,
     Menu,
     Quit,
     Open(std::path::PathBuf),
@@ -90,6 +96,23 @@ pub fn entries(app: &crate::app::App) -> Vec<Entry> {
         Entry::new("Redo", &format!("{m}Y"), Action::Redo),
         Entry::new("Save now", &format!("{m}S"), Action::Save),
         Entry::new("Corkboard", "b", Action::Corkboard),
+        Entry::new("Notes & TKs", &format!("{m}T"), Action::NotesList),
+        Entry::new("Next TK (or note)", "", Action::NextTk),
+        Entry::new("Next scene still in draft", "", Action::NextDraft),
+        Entry::new(
+            if app.echo_on {
+                "Echo words off"
+            } else {
+                "Echo words — repeated too close together"
+            },
+            "",
+            Action::EchoWords,
+        ),
+        if app.sprint.is_some() {
+            Entry::new("Stop the sprint", "", Action::EndSprint)
+        } else {
+            Entry::new("Start a sprint…", "", Action::StartSprint)
+        },
         Entry::new(
             "Open the note for the name under the cursor",
             &format!("{m}O"),

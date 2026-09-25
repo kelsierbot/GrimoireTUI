@@ -770,7 +770,7 @@ fn body_words(raw: &str) -> usize {
         }
         None => s,
     };
-    body.split_whitespace().count()
+    crate::notes::count_words(body)
 }
 
 /// `01-Act-One` -> `Act One`. The same rule as the tree's titles in
