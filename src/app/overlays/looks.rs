@@ -105,7 +105,14 @@ pub(super) fn draw_themes(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
         return;
     };
     let names = app.theme_names();
-    let box_area = centred(area, 40, names.len() as u16 + 4);
+    let presets = theme::presets();
+    // Twenty themes don't fit a 24-row terminal: the list scrolls, keeping
+    // the one under the cursor in view.
+    let rows = names
+        .len()
+        .min(area.height.saturating_sub(6).max(3) as usize);
+    let start = (*sel + 1).saturating_sub(rows);
+    let box_area = centred(area, 42, rows as u16 + 4);
     f.render_widget(Clear, box_area);
     let block = pane_block("THEME", true, t);
     let inner = block.inner(box_area);
@@ -114,26 +121,40 @@ pub(super) fn draw_themes(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
     let mut lines: Vec<Line> = names
         .iter()
         .enumerate()
+        .skip(start)
+        .take(rows)
         .map(|(i, n)| {
             let on = i == *sel;
-            Line::from(vec![
+            let mut spans = vec![
                 Span::styled(
                     if on { " ● " } else { " • " },
                     Style::default().fg(if on { t.accent } else { t.dim }),
                 ),
                 Span::styled(
-                    n.clone(),
+                    format!("{n:<21}"),
                     Style::default().fg(if on { t.accent } else { t.text }),
                 ),
-            ])
-            .style(if on {
+            ];
+            // A strip of each theme's own colours, to choose by looking.
+            if let Some(p) = presets.get(i) {
+                for c in [p.accent, p.sun, p.foliage, p.moon, p.bloom, p.warn] {
+                    spans.push(Span::styled("● ", Style::default().fg(c)));
+                }
+            }
+            Line::from(spans).style(if on {
                 Style::default().bg(t.sel)
             } else {
                 Style::default()
             })
         })
         .collect();
-    lines.push(Line::from(""));
+    let more = match (start > 0, start + rows < names.len()) {
+        (true, true) => " ↑↓ more",
+        (true, false) => " ↑ more",
+        (false, true) => " ↓ more",
+        (false, false) => "",
+    };
+    lines.push(hint_line(more, t));
     lines.push(hint_line(" j/k preview   ↵ apply   esc cancel", t));
     f.render_widget(Paragraph::new(lines), inner);
 }

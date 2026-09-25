@@ -298,11 +298,20 @@ Apple Terminal cannot send it at all. Ctrl always works.
 
 ## Themes
 
-`F9` anywhere, or `t` from the tree. Nine presets — Grimoire, Gruvbox Dark,
-Nord, Dracula, Solarized Dark, Catppuccin Mocha, Tokyo Night, Everforest and
-**Lost Forest** — and `j`/`k` **previews each one live** as you move, so you
-pick by looking rather than by name. `Enter` keeps it, `Esc` puts back what
-you had.
+`F9` anywhere, or `t` from the tree. Nineteen presets — Grimoire, Gruvbox
+Dark, Nord, Dracula, Solarized Dark, Catppuccin Mocha, Tokyo Night,
+Everforest, **Lost Forest**, Rosé Pine, One Dark, Monokai, Kanagawa, Ayu
+Mirage, Night Owl, Material Palenight, Synthwave '84, GitHub Dark and
+**Rainbow** — each row showing a strip of its colours, and `j`/`k` **previews
+each one live** as you move, so you pick by looking rather than by name.
+`Enter` keeps it, `Esc` puts back what you had. All of them are dark themes:
+Grimoire draws on your terminal's own background.
+
+**Rainbow** isn't a flat palette. Everything the others draw in their accent —
+the focused border, titles, the progress bar, the word count — is painted as a
+diagonal sweep of the spectrum that drifts round the wheel about once a
+minute; the spectrum view's bars climb from red to violet; and every part of
+the clearing is its own hue.
 
 Lost Forest is the one written for this app rather than borrowed. It is
 green-led on purpose: `accent` drives focused borders, pane titles, the

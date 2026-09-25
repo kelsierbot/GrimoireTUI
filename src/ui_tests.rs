@@ -461,3 +461,62 @@ fn moving_through_themes_previews_each_and_esc_puts_yours_back() {
     d.key(KeyCode::Esc);
     assert_eq!(d.app.theme.name, mine);
 }
+
+// ---- themes ---------------------------------------------------------------
+
+fn fg_colours_in_row(d: &Desk, y: u16) -> Vec<ratatui::style::Color> {
+    let buf = d.term.backend().buffer();
+    let mut v: Vec<ratatui::style::Color> = (0..buf.area.width).map(|x| buf[(x, y)].fg).collect();
+    v.sort_by_key(|c| format!("{c:?}"));
+    v.dedup();
+    v
+}
+
+#[test]
+fn the_rainbow_theme_paints_its_accent_as_a_spectrum() {
+    let mut d = Desk::open(book("rainbow", true), 120, 35);
+    d.app.theme = theme::presets()
+        .into_iter()
+        .find(|t| t.is_rainbow())
+        .unwrap();
+    d.draw();
+    let accent = d.app.theme.accent;
+    let buf = d.term.backend().buffer();
+    let flat = (0..buf.area.height)
+        .flat_map(|y| (0..buf.area.width).map(move |x| (x, y)))
+        .filter(|&(x, y)| buf[(x, y)].fg == accent || buf[(x, y)].bg == accent)
+        .count();
+    assert_eq!(flat, 0, "no cell is left in the flat accent");
+    // The focused tree's top border runs through several hues.
+    assert!(
+        fg_colours_in_row(&d, 0).len() >= 5,
+        "the border is one colour"
+    );
+}
+
+#[test]
+fn a_flat_theme_keeps_its_accent() {
+    let d = Desk::open(book("flat-accent", true), 120, 35);
+    let accent = d.app.theme.accent;
+    let buf = d.term.backend().buffer();
+    assert_eq!(buf[(0, 0)].fg, accent, "the focused border is the accent");
+}
+
+#[test]
+fn the_theme_picker_scrolls_on_a_short_terminal() {
+    let mut d = Desk::open(book("picker", true), 80, 24);
+    d.key(KeyCode::F(9));
+    assert!(matches!(d.app.overlay, Overlay::Themes { .. }));
+    assert!(d.shows("Grimoire"), "starts at the top");
+    assert!(d.shows("↓ more"));
+    // Up from the first wraps to the last: Custom…, with Rainbow above it.
+    d.key(KeyCode::Up);
+    assert!(d.shows("Custom…"), "the last row scrolled into view");
+    assert!(d.shows("Rainbow"));
+    assert!(d.shows("↑ more"));
+    assert_eq!(d.app.theme.name, "Custom", "previewing the custom slot");
+    d.key(KeyCode::Up);
+    assert_eq!(d.app.theme.name, "Rainbow", "previewed as you move");
+    d.key(KeyCode::Esc);
+    assert_eq!(d.app.theme.name, "Grimoire", "Esc puts the old theme back");
+}

@@ -67,6 +67,40 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     if !matches!(app.overlay, Overlay::None) {
         crate::app::overlays::draw(f, app, f.area(), &t);
     }
+
+    if t.is_rainbow() {
+        paint_rainbow(f.buffer_mut(), t.accent, app.frame);
+    }
+}
+
+/// The Rainbow theme's accent isn't one colour: every cell drawn in it — the
+/// focused border, titles, the progress bar, the word count, the open scene —
+/// takes its hue from where it sits on screen, a diagonal sweep across the
+/// spectrum that drifts round the wheel about once a minute.
+pub(crate) fn paint_rainbow(
+    buf: &mut ratatui::buffer::Buffer,
+    accent: ratatui::style::Color,
+    frame: u64,
+) {
+    let area = buf.area;
+    let drift = (frame % 240) as f32 * 1.5;
+    for y in area.top()..area.bottom() {
+        for x in area.left()..area.right() {
+            let Some(cell) = buf.cell_mut((x, y)) else {
+                continue;
+            };
+            if cell.fg != accent && cell.bg != accent {
+                continue;
+            }
+            let c = crate::theme::hue(x as f32 * 3.0 + y as f32 * 7.0 + drift);
+            if cell.fg == accent {
+                cell.fg = c;
+            }
+            if cell.bg == accent {
+                cell.bg = c;
+            }
+        }
+    }
 }
 
 /// The left column — tree, clearing, music — and what's left for writing.
@@ -597,6 +631,11 @@ pub(crate) fn blend(
 /// top. Drawn from the theme, so every palette gets its own.
 fn bar_colour(t: &Theme, h: u8) -> ratatui::style::Color {
     let x = h as f32 / 255.0;
+    // The rainbow's bars climb the spectrum itself: red at the roots, violet
+    // at the tips.
+    if t.is_rainbow() {
+        return crate::theme::hue(x * 280.0);
+    }
     let stops = [
         (0.0, t.foliage),
         (0.4, t.accent),

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.1
+
+- **Ten new themes**: Rosé Pine, One Dark, Monokai, Kanagawa, Ayu Mirage,
+  Night Owl, Material Palenight, Synthwave '84, GitHub Dark — and **Rainbow**,
+  where everything drawn in the accent (focused borders, titles, the progress
+  bar, the word count) is a slowly drifting spectrum, the spectrum view's bars
+  climb from red to violet, and the clearing is every colour at once.
+- **The theme picker shows each theme's colours** beside its name, and scrolls
+  on a short terminal.
+
 ## 0.4.0
 
 ### Keeping every word

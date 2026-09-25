@@ -1,7 +1,7 @@
 //! Colour themes.
 //!
-//! Nine presets drawn from the palettes people already run in their
-//! terminals, plus a custom slot. A theme is a flat set of named roles — no
+//! Nineteen presets drawn from the palettes people already run in their
+//! terminals — and one rainbow — plus a custom slot. A theme is a flat set of named roles — no
 //! inheritance, no derivation — so the custom editor can just be a list of
 //! swatches you type hex into.
 
@@ -79,6 +79,36 @@ impl Theme {
     }
 }
 
+/// The one preset that isn't a flat palette.
+pub const RAINBOW: &str = "Rainbow";
+
+impl Theme {
+    /// Drawn as a spectrum rather than in its accent: see `ui::paint_rainbow`.
+    pub fn is_rainbow(&self) -> bool {
+        self.name == RAINBOW
+    }
+}
+
+/// A colour on the wheel (`hue` in degrees), bright enough to read on a dark
+/// terminal without shouting.
+pub fn hue(hue: f32) -> Color {
+    let (s, l) = (0.9_f32, 0.68_f32);
+    let h = hue.rem_euclid(360.0) / 60.0;
+    let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
+    let x = c * (1.0 - (h % 2.0 - 1.0).abs());
+    let (r, g, b) = match h as u32 {
+        0 => (c, x, 0.0),
+        1 => (x, c, 0.0),
+        2 => (0.0, c, x),
+        3 => (0.0, x, c),
+        4 => (x, 0.0, c),
+        _ => (c, 0.0, x),
+    };
+    let m = l - c / 2.0;
+    let to = |v: f32| ((v + m) * 255.0).round().clamp(0.0, 255.0) as u8;
+    Color::Rgb(to(r), to(g), to(b))
+}
+
 const fn rgb(hex: u32) -> Color {
     Color::Rgb(
         ((hex >> 16) & 0xff) as u8,
@@ -124,7 +154,7 @@ macro_rules! theme {
     };
 }
 
-/// The nine presets. Order is the picker order.
+/// The presets. Order is the picker order.
 pub fn presets() -> Vec<Theme> {
     let mut v = vec![
         //       accent    text      dim       border    sel       warn      sun       moon      foliage   bark      bloom     turf
@@ -193,6 +223,83 @@ pub fn presets() -> Vec<Theme> {
             theme!(
                 "", 0x7cc47f, 0xcdddc6, 0x5f7a63, 0x24332a, 0x2e4436, 0xd1745e, 0xd9c87e, 0x7fd4c8,
                 0x4a8250, 0x5f4c3a, 0x68c2b4, 0x2f4a37
+            ),
+        ),
+        // Rosé Pine: rose as the accent, pine for the trees (it has no green),
+        // foam for the moon, iris for the flowers.
+        (
+            "Rosé Pine",
+            theme!(
+                "", 0xebbcba, 0xe0def4, 0x6e6a86, 0x403d52, 0x524f67, 0xeb6f92, 0xf6c177, 0x9ccfd8,
+                0x31748f, 0x8f6f66, 0xc4a7e7, 0x2a3f4a
+            ),
+        ),
+        (
+            "One Dark",
+            theme!(
+                "", 0x61afef, 0xabb2bf, 0x5c6370, 0x3e4451, 0x3e4451, 0xe06c75, 0xe5c07b, 0x56b6c2,
+                0x98c379, 0x9a7550, 0xc678dd, 0x3f5238
+            ),
+        ),
+        // Monokai's pink leads, so the warning takes its orange.
+        (
+            "Monokai",
+            theme!(
+                "", 0xf92672, 0xf8f8f2, 0x75715e, 0x49483e, 0x49483e, 0xfd971f, 0xe6db74, 0x66d9ef,
+                0xa6e22e, 0x8f6f3e, 0xae81ff, 0x4a5a2a
+            ),
+        ),
+        (
+            "Kanagawa",
+            theme!(
+                "", 0x7e9cd8, 0xdcd7ba, 0x727169, 0x363646, 0x2d4f67, 0xe46876, 0xe6c384, 0x7fb4ca,
+                0x98bb6c, 0x8a6d4b, 0xd27e99, 0x3a4a34
+            ),
+        ),
+        (
+            "Ayu Mirage",
+            theme!(
+                "", 0xffcc66, 0xcccac2, 0x707a8c, 0x363c4a, 0x2f3b54, 0xff6666, 0xffd173, 0x73d0ff,
+                0x87d96c, 0xa37a4c, 0xdfbfff, 0x3b4d35
+            ),
+        ),
+        (
+            "Night Owl",
+            theme!(
+                "", 0x7fdbca, 0xd6deeb, 0x637777, 0x1d3b53, 0x1d3b53, 0xef5350, 0xecc48d, 0x82aaff,
+                0xaddb67, 0x9c7656, 0xc792ea, 0x2e4a3a
+            ),
+        ),
+        (
+            "Material Palenight",
+            theme!(
+                "", 0xc792ea, 0xa6accd, 0x676e95, 0x3a3f58, 0x444267, 0xf07178, 0xffcb6b, 0x89ddff,
+                0xc3e88d, 0xa07b5c, 0xff9cac, 0x3d4a3a
+            ),
+        ),
+        // Neon on a purple night: the ground is the grid's own violet.
+        (
+            "Synthwave '84",
+            theme!(
+                "", 0xff7edb, 0xf4eee4, 0x848bbd, 0x495495, 0x463465, 0xfe4450, 0xfede5d, 0x36f9f6,
+                0x72f1b8, 0xb0735a, 0xf97e72, 0x34294f
+            ),
+        ),
+        (
+            "GitHub Dark",
+            theme!(
+                "", 0x58a6ff, 0xe6edf3, 0x7d8590, 0x30363d, 0x1c3a5e, 0xf85149, 0xd29922, 0x79c0ff,
+                0x3fb950, 0x8b6a4a, 0xd2a8ff, 0x2a4a32
+            ),
+        ),
+        // Every role its own hue, red to violet, so the clearing is a rainbow
+        // by itself; the accent is then repainted as a slow-moving spectrum
+        // wherever it's drawn (see `ui::paint_rainbow`).
+        (
+            RAINBOW,
+            theme!(
+                "", 0xa78bff, 0xf2f0ff, 0x8f8aa8, 0x4a4560, 0x3d3560, 0xff5f5f, 0xffd23c, 0x5fd7ff,
+                0x5fe07a, 0xff9a3c, 0xff6ec7, 0x6a55d8
             ),
         ),
     ];
@@ -269,7 +376,7 @@ mod tests {
     #[test]
     fn every_preset_is_named_and_distinct() {
         let p = presets();
-        assert_eq!(p.len(), 9);
+        assert_eq!(p.len(), 19);
         assert!(p.iter().all(|t| !t.name.is_empty()));
         for i in 0..p.len() {
             for j in i + 1..p.len() {
@@ -331,6 +438,59 @@ mod tests {
         // Warning has to stay warm or it vanishes into the trees.
         let (r, g, b) = chan(t.warn);
         assert!(r > g && r > b, "warning {:?} should be warm", t.warn);
+    }
+
+    /// The rainbow's roles really are a spectrum: every colourful role a
+    /// different hue, spread right round the wheel.
+    #[test]
+    fn rainbow_roles_span_the_spectrum() {
+        let t = presets()
+            .into_iter()
+            .find(|t| t.is_rainbow())
+            .expect("Rainbow missing");
+        let hue_of = |c: Color| {
+            let Color::Rgb(r, g, b) = c else {
+                panic!("truecolor")
+            };
+            let (r, g, b) = (r as f32, g as f32, b as f32);
+            let (max, min) = (r.max(g).max(b), r.min(g).min(b));
+            let d = max - min;
+            let h = if max == r {
+                60.0 * ((g - b) / d).rem_euclid(6.0)
+            } else if max == g {
+                60.0 * ((b - r) / d + 2.0)
+            } else {
+                60.0 * ((r - g) / d + 4.0)
+            };
+            (h / 30.0).round() as i32 % 12
+        };
+        let mut seen: Vec<i32> = [
+            t.warn, t.bark, t.sun, t.foliage, t.moon, t.turf, t.accent, t.bloom,
+        ]
+        .into_iter()
+        .map(hue_of)
+        .collect();
+        seen.sort();
+        seen.dedup();
+        assert!(seen.len() >= 7, "rainbow roles share hues: {seen:?}");
+        assert!(presets().iter().filter(|t| t.is_rainbow()).count() == 1);
+    }
+
+    #[test]
+    fn the_wheel_goes_round() {
+        assert_eq!(hue(0.0), hue(360.0));
+        let Color::Rgb(r, g, b) = hue(0.0) else {
+            panic!()
+        };
+        assert!(r > g && r > b, "0° is red");
+        let Color::Rgb(r, g, b) = hue(120.0) else {
+            panic!()
+        };
+        assert!(g > r && g > b, "120° is green");
+        let Color::Rgb(r, g, b) = hue(240.0) else {
+            panic!()
+        };
+        assert!(b > r && b > g, "240° is blue");
     }
 
     #[test]
