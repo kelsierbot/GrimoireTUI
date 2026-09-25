@@ -152,9 +152,6 @@ pub struct App {
     pub music: Music,
     /// Listens to system audio, but only while the spectrum view is showing.
     pub viz: Visualizer,
-    /// The garden's last step and when it last grew, so new growth can glint.
-    pub growth_step: Option<usize>,
-    pub growth_changed: Option<std::time::Instant>,
     /// When the player last asked for the queue, so it stays current while open.
     pub player_fetched: Option<std::time::Instant>,
     /// Animation counter, bumped once per event-loop tick.
@@ -554,11 +551,9 @@ impl App {
             edit_width: 60,
             edit_height: 20,
             pomo: Pomodoro::default(),
-            pane_mode: Mode::Clearing,
+            pane_mode: Mode::Pomodoro,
             music: Music::spawn(setup.music),
             viz: Visualizer::new(),
-            growth_step: None,
-            growth_changed: None,
             player_fetched: None,
             frame: 0,
             super_keys: false,

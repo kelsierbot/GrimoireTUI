@@ -785,3 +785,130 @@ fn f8_offers_the_same_ways_to_ignore() {
     assert!(d.shows("Always ignore — this book"));
     assert!(d.shows("Always ignore — every book"));
 }
+
+/// Not a test: `GRIMOIRE_SCENE_DUMP=<file> cargo test dump_pomodoro -- --ignored`
+/// writes every theme's Pomodoro (idle, midday, night) as JSON cells with
+/// their colours, for rendering a contact sheet to look at.
+#[test]
+#[ignore]
+fn dump_pomodoro_previews() {
+    let Ok(out) = std::env::var("GRIMOIRE_SCENE_DUMP") else {
+        return;
+    };
+    let frame: u64 = std::env::var("GRIMOIRE_SCENE_FRAME")
+        .ok()
+        .and_then(|f| f.parse().ok())
+        .unwrap_or(0);
+    let hex = |c: ratatui::style::Color| match c {
+        ratatui::style::Color::Rgb(r, g, b) => format!("{r:02x}{g:02x}{b:02x}"),
+        _ => "ffffff".into(),
+    };
+    let mut themes = Vec::new();
+    for t in theme::presets() {
+        let mut shots = Vec::new();
+        for (label, phase, p) in [
+            ("idle", scene::Phase::Idle, 0.0),
+            ("writing", scene::Phase::Focus, 0.42),
+            ("break", scene::Phase::Break, 0.55),
+        ] {
+            let g = scene::render(scene::Scenery::for_theme(&t.name), phase, p, false, frame);
+            let night = phase == scene::Phase::Break;
+            let rows: Vec<Vec<(String, String)>> = g
+                .iter()
+                .enumerate()
+                .map(|(y, row)| {
+                    row.iter()
+                        .enumerate()
+                        .map(|(x, &(ch, ink))| {
+                            let mut c = ui::scene_colour(ink, &t, night);
+                            if t.is_rainbow() && c == t.accent {
+                                c = theme::hue(x as f32 * 3.0 + y as f32 * 7.0);
+                            }
+                            (ch.to_string(), hex(c))
+                        })
+                        .collect()
+                })
+                .collect();
+            shots.push(serde_json::json!({ "label": label, "rows": rows }));
+        }
+        themes.push(serde_json::json!({ "name": t.name, "border": hex(t.border), "shots": shots }));
+    }
+    fs::write(out, serde_json::to_string(&themes).unwrap()).unwrap();
+}
+
+// ---- the Pomodoro and the Visualizer ---------------------------------------
+
+#[test]
+fn every_theme_draws_its_own_pomodoro_through_the_real_desk() {
+    let mut d = Desk::open(book("pomodoro-worlds", true), 140, 42);
+    let mut seen: Vec<Vec<String>> = Vec::new();
+    for t in theme::presets() {
+        d.app.theme = t.clone();
+        d.app.pomo.reset();
+        d.draw();
+        let pane = |d: &Desk| -> Vec<String> {
+            let r = d.app.rect_scene;
+            let rows = d.rows();
+            (r.y..r.y + r.height)
+                .map(|y| {
+                    rows[y as usize]
+                        .chars()
+                        .skip(r.x as usize)
+                        .take(r.width as usize)
+                        .collect()
+                })
+                .collect()
+        };
+        let idle = pane(&d);
+        assert!(
+            !seen.contains(&idle),
+            "{} looks like another theme's world",
+            t.name
+        );
+        seen.push(idle);
+        // Running, and on to night, across a spread of frames: no panics, and
+        // the title keeps its words.
+        d.key(KeyCode::F(2));
+        for f in (0..300).step_by(37) {
+            d.app.frame = f;
+            d.draw();
+        }
+        assert!(d.shows("writing · "), "{}", t.name);
+        d.app.pomo.phase = scene::Phase::Break;
+        for f in (0..300).step_by(41) {
+            d.app.frame = f;
+            d.draw();
+        }
+        assert!(d.shows("break · "), "{}", t.name);
+    }
+}
+
+#[test]
+fn the_pane_switches_between_pomodoro_and_visualizer_and_there_is_no_garden() {
+    let mut d = Desk::open(book("two-views", true), 140, 42);
+    assert!(
+        d.shows("pomodoro visualizer"),
+        "the switcher names both views"
+    );
+    assert_eq!(d.app.pane_mode, scene::Mode::Pomodoro);
+    for _ in 0..6 {
+        if d.app.focus == Focus::Clearing {
+            break;
+        }
+        d.key(KeyCode::Tab);
+    }
+    assert_eq!(d.app.focus, Focus::Clearing);
+    d.key(KeyCode::Right);
+    assert_eq!(d.app.pane_mode, scene::Mode::Visualizer);
+    d.key(KeyCode::Right);
+    assert_eq!(
+        d.app.pane_mode,
+        scene::Mode::Pomodoro,
+        "two views, round and back"
+    );
+    d.key(KeyCode::Left);
+    assert_eq!(d.app.pane_mode, scene::Mode::Visualizer);
+    for word in ["garden", "clearing", "spectrum"] {
+        assert!(!d.shows(word), "{word} is still on screen");
+    }
+}

@@ -472,19 +472,25 @@ fn draw_create_keys(f: &mut Frame, app: &mut App, area: Rect, focused: bool, t: 
 }
 
 fn draw_scene(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
-    // The pane's title says which of the three views you're on, so ←/→ is
+    // The pane's title says which of the two views you're on, so ←/→ is
     // discoverable without a legend.
     let (label, grid) = match app.pane_mode {
-        Mode::Clearing => (
+        Mode::Pomodoro => (
             // Idle, the title has room to say where focus mode is.
             if app.pomo.phase == Phase::Idle && app.open.is_some() {
                 format!("F2 timer · {}D focus mode", app.mod_label())
             } else {
                 app.pomo.label()
             },
-            scene::render(app.pomo.phase, app.pomo.progress(), app.frame),
+            scene::render(
+                scene::Scenery::for_theme(&t.name),
+                app.pomo.phase,
+                app.pomo.progress(),
+                app.pomo.phase != Phase::Idle && !app.pomo.running(),
+                app.frame,
+            ),
         ),
-        Mode::Spectrum => {
+        Mode::Visualizer => {
             let (title, frac, playing) = match &app.music.state {
                 MusicState::Playing(tr) => (
                     tr.title.clone(),
@@ -498,7 +504,7 @@ fn draw_scene(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
                 _ => (String::new(), 0.0, false),
             };
             let head = if title.is_empty() {
-                "spectrum".to_string()
+                "visualizer".to_string()
             } else {
                 truncate(&title, 22)
             };
@@ -508,32 +514,12 @@ fn draw_scene(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
                 scene::render_spectrum(&app.viz, frac, note.as_deref()),
             )
         }
-        Mode::Growth => {
-            // The garden grows with what's written; a cut doesn't uproot it.
-            let today = app.today_words().max(0) as usize;
-            let target = app.project.meta.daily_target.max(1);
-            // New growth glints for two seconds. The first sighting just records
-            // the step, so opening the view doesn't fake a milestone.
-            let step = today / scene::WORDS_PER_STEP;
-            match app.growth_step {
-                Some(seen) if step > seen => app.growth_changed = Some(std::time::Instant::now()),
-                _ => {}
-            }
-            app.growth_step = Some(step);
-            let glint = app
-                .growth_changed
-                .is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(2));
-            (
-                format!("word garden · {today} today"),
-                scene::render_growth(today, target, glint, app.frame),
-            )
-        }
     };
 
     let focused = app.focus == Focus::Clearing;
     let mut block = pane_block(&label, focused, t);
     // On a beat the frame flashes bloom, and fades back as the beat does.
-    if app.pane_mode == Mode::Spectrum && app.viz.beat > 0.0 {
+    if app.pane_mode == Mode::Visualizer && app.viz.beat > 0.0 {
         let base = if focused { t.accent } else { t.border };
         block = block.border_style(Style::default().fg(blend(base, t.bloom, app.viz.beat)));
     }
@@ -541,44 +527,17 @@ fn draw_scene(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
     app.rect_scene = inner;
     f.render_widget(block, area);
 
-    let night = app.pomo.phase == Phase::Break && app.pane_mode == Mode::Clearing;
-    let lit = |v: u8| v as f32 / 255.0;
-
+    let night = app.pomo.phase == Phase::Break && app.pane_mode == Mode::Pomodoro;
     let lines: Vec<Line> = grid
         .iter()
         .map(|row| {
             Line::from(
                 row.iter()
                     .map(|&(ch, ink)| {
-                        let col = match ink {
-                            Ink::Sky => t.border,
-                            Ink::Star => {
-                                if night {
-                                    t.moon
-                                } else {
-                                    t.dim
-                                }
-                            }
-                            Ink::Sun => t.sun,
-                            Ink::Moon => t.moon,
-                            Ink::Tree => t.foliage,
-                            Ink::Trunk => t.bark,
-                            Ink::Rabbit => t.text,
-                            Ink::Flower => t.bloom,
-                            Ink::Ground => t.turf,
-                            Ink::Bar { h, glow } => {
-                                blend(bar_colour(t, h), t.text, lit(glow) * 0.6)
-                            }
-                            Ink::Pond { h, depth } => {
-                                blend(bar_colour(t, h), t.border, 0.45 + 0.2 * depth as f32)
-                            }
-                            Ink::Cap { heat } => blend(t.dim, t.moon, lit(heat)),
-                            Ink::Spark { life } => {
-                                blend(t.dim, blend(t.sun, t.text, 0.35), lit(life))
-                            }
-                            Ink::Played { glow } => blend(t.accent, t.bloom, lit(glow)),
-                        };
-                        Span::styled(ch.to_string(), Style::default().fg(col))
+                        Span::styled(
+                            ch.to_string(),
+                            Style::default().fg(scene_colour(ink, t, night)),
+                        )
                     })
                     .collect::<Vec<_>>(),
             )
@@ -589,8 +548,58 @@ fn draw_scene(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
     draw_view_switch(f, app, area, focused, t);
 }
 
-/// The view switcher, on the scene pane's bottom edge: "◂ clearing spectrum
-/// garden ▸", the current view lit. It says ←/→ has somewhere to go, and
+/// The colour of one cell of the Pomodoro or the Visualizer: every world is
+/// drawn in roles, so each theme paints it in its own palette.
+pub(crate) fn scene_colour(ink: Ink, t: &Theme, night: bool) -> ratatui::style::Color {
+    let lit = |v: u8| v as f32 / 255.0;
+    match ink {
+        Ink::Sky => t.border,
+        Ink::Star => {
+            if night {
+                t.moon
+            } else {
+                t.dim
+            }
+        }
+        Ink::Sun => t.sun,
+        Ink::Moon => t.moon,
+        Ink::Tree => t.foliage,
+        Ink::Trunk => t.bark,
+        Ink::Creature => t.text,
+        Ink::Flower => t.bloom,
+        Ink::Ground => t.turf,
+        Ink::Water => blend(t.moon, t.border, 0.45),
+        Ink::Foam => blend(t.text, t.moon, 0.35),
+        Ink::Stone => blend(t.dim, t.border, 0.25),
+        Ink::Snow => t.text,
+        Ink::Light => t.sun,
+        Ink::Glow(v) => blend(t.foliage, t.bloom, lit(v)),
+        Ink::Band { n, faint } => {
+            let c = match n {
+                0 => t.warn,
+                1 => t.sun,
+                2 => t.foliage,
+                3 => t.moon,
+                _ => t.bloom,
+            };
+            if faint { blend(c, t.border, 0.6) } else { c }
+        }
+        Ink::Accent => t.accent,
+        Ink::Warn => t.warn,
+        Ink::Cloud => blend(t.text, t.border, 0.55),
+        Ink::Sand => blend(t.sun, t.bark, 0.5),
+        Ink::Trail => t.accent,
+        Ink::Dim => t.dim,
+        Ink::Bar { h, glow } => blend(bar_colour(t, h), t.text, lit(glow) * 0.6),
+        Ink::Pond { h, depth } => blend(bar_colour(t, h), t.border, 0.45 + 0.2 * depth as f32),
+        Ink::Cap { heat } => blend(t.dim, t.moon, lit(heat)),
+        Ink::Spark { life } => blend(t.dim, blend(t.sun, t.text, 0.35), lit(life)),
+        Ink::Played { glow } => blend(t.accent, t.bloom, lit(glow)),
+    }
+}
+
+/// The view switcher, on the scene pane's bottom edge: "◂ pomodoro
+/// visualizer ▸", the current view lit. It says ←/→ has somewhere to go, and
 /// clicking a name or an arrow goes there.
 fn draw_view_switch(f: &mut Frame, app: &mut App, area: Rect, focused: bool, t: &Theme) {
     if area.height < 3 || area.width < 4 {
@@ -614,6 +623,10 @@ fn draw_view_switch(f: &mut Frame, app: &mut App, area: Rect, focused: bool, t: 
             Piece::Current => Span::styled(text, lit),
             Piece::Other => Span::styled(text, Style::default().fg(t.dim)),
             Piece::Gap => Span::raw(text),
+            Piece::Rule => Span::styled(
+                text,
+                Style::default().fg(if focused { t.accent } else { t.border }),
+            ),
         })
         .collect();
     for (x, width, mode) in items {
@@ -636,6 +649,9 @@ enum Piece {
     Current,
     Other,
     Gap,
+    /// The pane's own border line, carried on either side of a centred
+    /// switcher.
+    Rule,
 }
 
 /// Lay out the switcher in `width` cells: the pieces to draw, and each
@@ -668,6 +684,16 @@ fn view_switch(current: Mode, width: u16) -> Switcher {
         spans.push((" ".into(), Piece::Gap));
         spans.push(("▸".into(), Piece::Arrow));
         hits.push((x + 1, 1, current.next()));
+        x += 2;
+    }
+    // Two names leave room to spare: centre the switcher on the edge, so it
+    // reads as a control rather than a caption.
+    let pad = width.saturating_sub(x) / 2;
+    if pad > 0 {
+        spans.insert(0, ("─".repeat(pad as usize), Piece::Rule));
+        for h in &mut hits {
+            h.0 += pad;
+        }
     }
     (hits, spans)
 }
@@ -1350,42 +1376,37 @@ mod tests {
     }
 
     #[test]
-    fn the_view_switcher_names_every_view_inside_the_scene_pane() {
+    fn the_view_switcher_names_both_views_inside_the_scene_pane() {
         let inner = LEFT_W - 2;
-        let (hits, spans) = view_switch(Mode::Growth, inner);
+        let (hits, spans) = view_switch(Mode::Visualizer, inner);
         let text: String = spans.iter().map(|(s, _)| s.as_str()).collect();
-        assert_eq!(text, "◂ clearing spectrum garden ▸");
+        assert_eq!(text.trim_start_matches('─'), "◂ pomodoro visualizer ▸");
         assert!(text.chars().count() as u16 <= inner);
+        let pad = text.chars().take_while(|c| *c == '─').count() as u16;
+        assert!(pad >= 2, "centred on the edge: {text:?}");
         let lit: Vec<&str> = spans
             .iter()
             .filter(|(_, k)| *k == Piece::Current)
             .map(|(s, _)| s.as_str())
             .collect();
-        assert_eq!(lit, ["garden"]);
+        assert_eq!(lit, ["visualizer"]);
         // Arrows step from the current view; each name goes to itself.
         let at = |x: u16| {
             hits.iter()
                 .find(|(o, w, _)| x >= *o && x < o + w)
                 .map(|h| h.2)
         };
-        assert_eq!(at(0), Some(Mode::Spectrum));
-        assert_eq!(at(2), Some(Mode::Clearing));
-        assert_eq!(at(11), Some(Mode::Spectrum));
-        assert_eq!(at(20), Some(Mode::Growth));
-        assert_eq!(at(27), Some(Mode::Clearing));
-        assert_eq!(at(1), None);
+        assert_eq!(at(pad), Some(Mode::Pomodoro), "◂");
+        assert_eq!(at(pad + 2), Some(Mode::Pomodoro), "pomodoro");
+        assert_eq!(at(pad + 11), Some(Mode::Visualizer), "visualizer");
+        assert_eq!(at(pad + 22), Some(Mode::Pomodoro), "▸");
+        assert_eq!(at(pad + 1), None);
     }
 
     #[test]
     fn a_narrow_switcher_drops_names_but_keeps_its_arrows() {
-        let (_, spans) = view_switch(Mode::Clearing, 14);
+        let (_, spans) = view_switch(Mode::Pomodoro, 14);
         let text: String = spans.iter().map(|(s, _)| s.as_str()).collect();
-        assert_eq!(text, "◂ clearing ▸");
-    }
-
-    #[test]
-    fn the_garden_title_fits_its_pane() {
-        let title = format!("word garden · {} today", 99_999);
-        assert!(title.chars().count() as u16 + 2 <= LEFT_W - 2);
+        assert_eq!(text.trim_start_matches('─'), "◂ pomodoro ▸");
     }
 }
