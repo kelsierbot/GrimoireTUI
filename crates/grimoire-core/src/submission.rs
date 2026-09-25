@@ -628,6 +628,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn an_unreadable_novel_toml_is_never_written_over() {
         use std::os::unix::fs::PermissionsExt;
         let d =

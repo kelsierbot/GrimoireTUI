@@ -76,6 +76,34 @@ fn new_items_are_named_so_every_client_takes_them() {
     fs::remove_dir_all(&d).unwrap();
 }
 
+/// Whether the disk under `dir` keeps `A` and `a` apart (Linux does; a Mac,
+/// Windows and Box don't). Some cases can only be set up where it does.
+fn case_sensitive(dir: &Path) -> bool {
+    let probe = dir.join(".Case-Probe");
+    fs::write(&probe, "x").unwrap();
+    let apart = !dir.join(".case-probe").exists();
+    let _ = fs::remove_file(&probe);
+    apart
+}
+
+/// Whether the disk keeps a composed é and a decomposed é apart.
+fn normalisation_sensitive(dir: &Path) -> bool {
+    let probe = dir.join(".probe-\u{e9}");
+    fs::write(&probe, "x").unwrap();
+    let apart = !dir.join(".probe-e\u{301}").exists();
+    let _ = fs::remove_file(&probe);
+    apart
+}
+
+/// The names actually in `dir`, as the disk spells them.
+fn listed(dir: &Path) -> Vec<String> {
+    fs::read_dir(dir)
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        .collect()
+}
+
 #[test]
 fn renaming_a_note_to_a_neighbours_name_in_other_capitals_is_refused() {
     let d = temp("rename-case");
@@ -90,7 +118,9 @@ fn renaming_a_note_to_a_neighbours_name_in_other_capitals_is_refused() {
     let err = project::rename(&notes.join("Oren.md"), "wren").unwrap_err();
     assert!(err.to_string().contains("clash"), "{err}");
     assert!(notes.join("Oren.md").exists(), "nothing moved");
-    assert!(!notes.join("wren.md").exists());
+    // Asked of the listing, not `exists()`: on a Mac `wren.md` "exists"
+    // because `Wren.md` does.
+    assert!(!listed(&notes).contains(&"wren.md".to_string()));
     // Accents too: Box treats Café and Cafe as one file.
     fs::write(notes.join("Café.md"), "x\n").unwrap();
     let err = project::rename(&notes.join("Oren.md"), "Cafe").unwrap_err();
@@ -134,7 +164,10 @@ fn a_move_that_would_land_beside_a_case_twin_is_refused() {
     fs::write(b.join("wren.md"), "theirs\n").unwrap();
     let err =
         project::apply_moves(&d, &[(a.join("Wren.md"), b.join("Wren.md"))], false).unwrap_err();
-    assert!(err.to_string().contains("clash"), "{err}");
+    // Refused either way: as a clash where the disk tells the two apart, as
+    // already taken where it doesn't (a Mac, Windows).
+    let why = err.to_string();
+    assert!(why.contains("clash") || why.contains("taken"), "{why}");
     assert_eq!(fs::read_to_string(a.join("Wren.md")).unwrap(), "mine\n");
     assert_eq!(fs::read_to_string(b.join("wren.md")).unwrap(), "theirs\n");
     fs::remove_dir_all(&d).unwrap();
@@ -144,6 +177,11 @@ fn a_move_that_would_land_beside_a_case_twin_is_refused() {
 fn twins_already_on_disk_both_load_and_are_flagged() {
     let d = book("twins");
     let ch = d.join("manuscript/01-Part-One/01-Chapter-One");
+    if !case_sensitive(&ch) {
+        // Twins can't exist on this disk to be found.
+        fs::remove_dir_all(&d).unwrap();
+        return;
+    }
     fs::write(
         ch.join("01-scene-one.md"),
         "---\ntitle: \"Scene One\"\n---\n\nfrom a Linux box\n",
@@ -172,6 +210,7 @@ fn twins_already_on_disk_both_load_and_are_flagged() {
 #[test]
 fn a_scene_a_mac_spelled_in_decomposed_form_keeps_its_history() {
     let d = temp("nfd");
+    let _ = normalisation_sensitive(&d); // either way, one history
     let composed = d.join("01-Ros\u{e9}.md");
     let decomposed = d.join("01-Rose\u{301}.md");
     // History written on Linux under the composed spelling…

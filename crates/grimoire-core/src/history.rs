@@ -59,7 +59,10 @@ pub fn versions(root: &Path, scene: &Path) -> Vec<Version> {
         .join("history")
         .join(raw_rel(root, scene));
     let mut dirs = vec![composed.clone()];
-    if spelled != composed {
+    // The other spelling only counts when it's a different folder: on a Mac
+    // (and in Box) both spellings open the same one, which would list every
+    // version twice.
+    if spelled != composed && !crate::names::same_file(&spelled, &composed) {
         dirs.push(spelled);
     }
     let mut out: Vec<Version> = dirs
