@@ -17,10 +17,10 @@ use std::io::{ErrorKind, Write};
 use std::path::Path;
 use std::sync::{Mutex, PoisonError};
 
-const EN_US_AFF: &str = include_str!("../assets/dict/en_US.aff");
-const EN_US_DIC: &str = include_str!("../assets/dict/en_US.dic");
+const EN_US_AFF: &str = include_str!("../../../assets/dict/en_US.aff");
+const EN_US_DIC: &str = include_str!("../../../assets/dict/en_US.dic");
 /// Real words the standard-size list lacks: "grey", "axe", "mana", "wyvern".
-const EXTRA_WORDS: &str = include_str!("../assets/dict/extra_words.dic");
+const EXTRA_WORDS: &str = include_str!("../../../assets/dict/extra_words.dic");
 
 /// The book's own word list, at the project root.
 const BOOK_DICTIONARY: &str = "dictionary.txt";

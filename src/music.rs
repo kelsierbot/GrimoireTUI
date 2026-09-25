@@ -120,7 +120,7 @@ impl Default for Config {
 
 impl Config {
     pub fn path() -> PathBuf {
-        crate::home().join(".config").join("grimoire").join("music.toml")
+        grimoire_core::paths::home().join(".config").join("grimoire").join("music.toml")
     }
 
     /// Missing or unreadable config just means "music off".
@@ -1475,19 +1475,19 @@ fn app_path() -> PathBuf {
             .join("youtube-music")
             .join(WINDOWS_EXE)
     } else {
-        crate::home().join(".local/bin/youtube-music")
+        grimoire_core::paths::home().join(".local/bin/youtube-music")
     }
 }
 
 fn client_config_path() -> PathBuf {
     if cfg!(target_os = "macos") {
-        crate::home().join("Library/Application Support/YouTube Music/config.json")
+        grimoire_core::paths::home().join("Library/Application Support/YouTube Music/config.json")
     } else if cfg!(windows) {
         windows_folder("APPDATA", "AppData/Roaming")
             .join("YouTube Music")
             .join("config.json")
     } else {
-        crate::home().join(".config/YouTube Music/config.json")
+        grimoire_core::paths::home().join(".config/YouTube Music/config.json")
     }
 }
 
@@ -1495,7 +1495,7 @@ fn client_config_path() -> PathBuf {
 fn windows_folder(var: &str, under_home: &str) -> PathBuf {
     std::env::var_os(var)
         .map(PathBuf::from)
-        .unwrap_or_else(|| crate::home().join(under_home))
+        .unwrap_or_else(|| grimoire_core::paths::home().join(under_home))
 }
 
 fn installed() -> bool {

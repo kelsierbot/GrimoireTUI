@@ -1,0 +1,23 @@
+[package]
+name = "grimoire-core"
+version = "0.3.4"
+edition = "2024"
+description = "The book on disk behind Grimoire: project, editor, history, export, search"
+authors = ["Josh King"]
+license = "MIT"
+repository = "https://github.com/kelsierbot/GrimoireTUI"
+
+[dependencies]
+anyhow = "1.0.104"
+chrono = "0.4.45"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+spellbook = "0.4.2"
+toml = "1.1.6"
+unicode-width = "0.2.2"
+similar = "2"
+zip = { version = "8.6", default-features = false, features = ["deflate-flate2"] }
+flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
+
+[dev-dependencies]
+roxmltree = "0.21"

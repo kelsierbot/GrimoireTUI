@@ -716,6 +716,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "grimoire-app"
+version = "0.3.4"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "grimoire-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "grimoire-core"
+version = "0.3.4"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "flate2",
+ "roxmltree",
+ "serde",
+ "serde_json",
+ "similar",
+ "spellbook",
+ "toml",
+ "unicode-width",
+ "zip",
+]
+
+[[package]]
 name = "grimoire-tui"
 version = "0.3.6"
 dependencies = [
@@ -723,14 +751,13 @@ dependencies = [
  "chrono",
  "cpal",
  "flate2",
+ "grimoire-core",
  "ratatui",
  "rodio",
  "roxmltree",
  "serde",
  "serde_json",
  "signal-hook",
- "similar",
- "spellbook",
  "toml",
  "unicode-width",
  "ureq",

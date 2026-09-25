@@ -7,9 +7,9 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Padding, Paragraph};
 
 use crate::app::{App, Focus, Overlay};
-use crate::create::{self, New};
+use grimoire_core::create::{self, New};
 use crate::music::State as MusicState;
-use crate::project::{Area, Kind};
+use grimoire_core::project::{Area, Kind};
 use crate::scene::{self, Ink, Mode, Phase};
 use crate::theme::{self, Theme};
 
@@ -618,14 +618,14 @@ fn draw_editor(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
                 }
             };
             // Notebook names in the accent colour.
-            let names = line_names.entry(r.line).or_insert_with(|| crate::codex::spans(&app.editor.lines[r.line], &app.codex_index));
+            let names = line_names.entry(r.line).or_insert_with(|| grimoire_core::codex::spans(&app.editor.lines[r.line], &app.codex_index));
             for &(s, e, _) in names.iter() {
                 paint(s, e, &|st| st.fg(t.accent));
             }
             if let Some(q) = find {
                 let hits = line_matches
                     .entry(r.line)
-                    .or_insert_with(|| crate::search::matches(&app.editor.lines[r.line], q));
+                    .or_insert_with(|| grimoire_core::search::matches(&app.editor.lines[r.line], q));
                 for &(s, e) in hits.iter() {
                     paint(s, e, &|st| st.bg(match_bg));
                 }
@@ -1071,9 +1071,9 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
                         let on = i == *csel;
                         let delta = c.words_after as i64 - c.words_before as i64;
                         let what = match &c.kind {
-                            crate::sessions::ChangeKind::Added => format!("new · {} words", thousands(c.words_after)),
-                            crate::sessions::ChangeKind::Deleted => format!("removed · {} words", thousands(c.words_before)),
-                            crate::sessions::ChangeKind::Renamed { .. } if delta == 0 => "moved".to_string(),
+                            grimoire_core::sessions::ChangeKind::Added => format!("new · {} words", thousands(c.words_after)),
+                            grimoire_core::sessions::ChangeKind::Deleted => format!("removed · {} words", thousands(c.words_before)),
+                            grimoire_core::sessions::ChangeKind::Renamed { .. } if delta == 0 => "moved".to_string(),
                             _ if delta > 0 => format!("{} words added", thousands(delta as usize)),
                             _ if delta < 0 => format!("{} words cut", thousands((-delta) as usize)),
                             _ => "revised".to_string(),
@@ -1103,7 +1103,7 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             let inner = block.inner(box_area);
             f.render_widget(block, box_area);
             let dim = Style::default().fg(t.dim);
-            let pieces = crate::history::diff(before, after);
+            let pieces = grimoire_core::history::diff(before, after);
             let (body, first) = diff_lines(&pieces, inner.width.saturating_sub(1) as usize, t);
             let mut lines = vec![
                 Line::from(vec![
@@ -1363,7 +1363,7 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             // What changed between that version and now.
             let v = &versions[*sel];
             let old = v.body();
-            let pieces = crate::history::diff(&old, &current);
+            let pieces = grimoire_core::history::diff(&old, &current);
             let width = diff_area.width.saturating_sub(1) as usize;
             let (mut body, first_change) = diff_lines(&pieces, width, t);
             let header = vec![
@@ -1383,7 +1383,7 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             let top = first_change.saturating_sub(2) + *scroll;
             let top = top.min(body.len().saturating_sub(1));
             let mut lines = header;
-            if pieces.iter().all(|p| matches!(p, crate::history::Piece::Same(_))) {
+            if pieces.iter().all(|p| matches!(p, grimoire_core::history::Piece::Same(_))) {
                 lines.push(Line::from(Span::styled("identical to the scene as it is now", dim)));
             } else {
                 lines.extend(body.drain(..).skip(top).take(room));
@@ -1791,7 +1791,7 @@ fn draw_cork(
     pov: Option<&str>,
     typing: Option<&(crate::app::CardField, String)>,
 ) {
-    use crate::cork;
+    use grimoire_core::cork;
     let box_area = Rect { x: area.x, y: area.y, width: area.width, height: area.height.saturating_sub(1) };
     f.render_widget(Clear, box_area);
     let part = app.cork_scope(scope);
@@ -1974,8 +1974,8 @@ fn when_label(dt: chrono::DateTime<chrono::Local>) -> String {
 
 /// Lay a word diff out as wrapped lines. Returns the lines and the index of
 /// the first line with a change, so the view can open where it matters.
-fn diff_lines(pieces: &[crate::history::Piece], width: usize, t: &Theme) -> (Vec<Line<'static>>, usize) {
-    use crate::history::Piece;
+fn diff_lines(pieces: &[grimoire_core::history::Piece], width: usize, t: &Theme) -> (Vec<Line<'static>>, usize) {
+    use grimoire_core::history::Piece;
 
     struct Wrap {
         width: usize,

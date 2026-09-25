@@ -2,7 +2,7 @@
 //! by typing a few letters of its name, and shows the key that does the same
 //! thing — so using it teaches the shortcuts.
 
-use crate::project::Kind;
+use grimoire_core::project::Kind;
 
 /// Everything the palette can do. Scenes and notes are opened by path.
 #[derive(Debug, Clone, PartialEq)]
@@ -142,9 +142,9 @@ pub fn entries(app: &crate::app::App) -> Vec<Entry> {
         }
         trail.reverse();
         let what = match n.area {
-            crate::project::Area::Manuscript => "scene",
-            crate::project::Area::FrontMatter | crate::project::Area::Format => "document",
-            crate::project::Area::Templates => "sheet",
+            grimoire_core::project::Area::Manuscript => "scene",
+            grimoire_core::project::Area::FrontMatter | grimoire_core::project::Area::Format => "document",
+            grimoire_core::project::Area::Templates => "sheet",
             _ => "note",
         };
         let detail = if trail.is_empty() { what.to_string() } else { format!("{what} · {}", trail.join(" › ")) };
