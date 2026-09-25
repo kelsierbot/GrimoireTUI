@@ -3166,6 +3166,12 @@ impl App {
     /// still guarded against the version they were written over: the new tree
     /// comes from the files, and anything unsaved would otherwise go with the
     /// old one.
+    /// For the README's screenshots: pick up files a shot just wrote.
+    #[cfg(test)]
+    pub(crate) fn reload_for_shots(&mut self) {
+        let _ = self.reload_tree();
+    }
+
     fn reload_tree(&mut self) -> Result<()> {
         self.flush();
         let unsaved: Vec<project::Node> = self

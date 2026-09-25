@@ -36,15 +36,46 @@ where the light could reach it.
 \"Then we'd better start,\" she said.";
 
 const SCENE_TWO: &str = "The third floor smelled of the sea. Oren had left the window open again, \
-and the tide tables on the long desk had curled at their corners like leaves.";
+and the tide tables on the long desk had curled at their corners like leaves. Wren weighted them \
+flat with whatever came to hand: a tin of pencils, a brass rule, a stone somebody had brought in \
+from the beach and never taken home.
+
+She found the ledger she wanted by its smell before she found it by its year. Salt got into \
+everything here, but the old books kept it best, the way a shell keeps the sound. She opened it \
+on the desk and turned the pages with the side of her hand, the way her father had taught her, \
+so the corners wouldn't tear.
+
+The entries ran in two hands. The first was her father's, square and patient. The second was \
+smaller, slanted, in a brown ink that had faded to the colour of tea, and it began in the middle \
+of a line, as if whoever wrote it had taken the pen out of his fingers.
+
+\"You're not supposed to have that,\" Oren said from the door.
+
+\"Then you shouldn't have left it where the light could find it.\"";
 
 const CHAPTER_TWO: &str = "By morning the ledgers had been moved. Not far — a shelf to the left, \
-a year out of order — but Wren saw it the moment she came in, the way you notice a missing tooth.";
+a year out of order — but Wren saw it the moment she came in, the way you notice a missing tooth.
+
+She didn't touch them. She made tea on the ring in the back room and drank it standing at the \
+window, watching the lot fill with gulls and then empty again when the fish van left. The tide \
+was out. The mud shone like a road nobody was allowed to walk on.
+
+When she came back the ledgers were where they belonged, and the brass rule she'd left on the \
+desk was lying across the gap where they had been, exactly level, exactly as long as the space \
+was wide.
+
+She measured it twice to be sure. Then she sat down, opened the book at the page with the brown \
+ink, and began to copy it out word by word, because whatever was happening in the archive, it \
+was happening to that page first.";
 
 /// A book called The Salt Archive, with a few scenes written and two people
 /// in its notebook. `typo` misspells one word of the first scene.
 fn sample_book(tag: &str, typo: bool) -> PathBuf {
-    let root = std::env::temp_dir().join(format!("grimoire-shots-{tag}-{}", std::process::id()));
+    let root = match std::env::var("GRIMOIRE_SHOTS_BOOK") {
+        // For tools/screenshots.py's page renders: the book, kept.
+        Ok(dir) if tag == "keep" => PathBuf::from(dir),
+        _ => std::env::temp_dir().join(format!("grimoire-shots-{tag}-{}", std::process::id())),
+    };
     let _ = fs::remove_dir_all(&root);
     fs::create_dir_all(&root).unwrap();
     project::scaffold(&root).unwrap();
@@ -64,6 +95,20 @@ fn sample_book(tag: &str, typo: bool) -> PathBuf {
         .collect::<Vec<_>>()
         .join("\n");
     fs::write(&toml, meta).unwrap();
+    // A title page's contact block — plainly fictional.
+    grimoire_core::submission::save(
+        &root,
+        "Avery Marlowe",
+        &grimoire_core::submission::Contact {
+            legal_name: "Avery M. Marlowe".into(),
+            address: vec!["12 Harbour Road".into(), "Saltmarsh".into()],
+            phone: "555-0142".into(),
+            email: "avery@example.com".into(),
+            agent: Vec::new(),
+        },
+        &grimoire_core::submission::Manuscript::default(),
+    )
+    .unwrap();
     fs::create_dir_all(root.join(".grimoire")).unwrap();
     fs::write(root.join(".grimoire/progress.toml"), "").unwrap();
 
@@ -350,6 +395,51 @@ fn shots() {
     s.app.on_click(x + 1, y);
     s.draw();
     frames.push(s.json("spelling", None));
+
+    // The export dialog, author details filled in.
+    let mut s = Shot::new("export", "Grimoire", w, h, false);
+    s.key(KeyCode::Tab, none);
+    s.key(KeyCode::Esc, none);
+    for _ in 0..24 {
+        if s.shows("▸ Export…") {
+            break;
+        }
+        s.key(KeyCode::Down, none);
+    }
+    s.key(KeyCode::Enter, none);
+    frames.push(s.json("export", None));
+
+    // A Dropbox conflict copy beside its scene, being settled.
+    let mut s = Shot::new("conflicts", "Nord", w, h, false);
+    let ch1 = s.root.join("manuscript/01-Part-One/01-Chapter-One");
+    let theirs = fs::read_to_string(ch1.join("01-Scene-One.md"))
+        .unwrap()
+        .replace(
+            "It was a quarter past ten.",
+            "It was nearly eleven, and raining again.",
+        );
+    fs::write(
+        ch1.join("01-Scene-One (Avery's conflicted copy 2026-09-25).md"),
+        theirs,
+    )
+    .unwrap();
+    s.app.reload_for_shots();
+    s.key(KeyCode::Tab, none);
+    s.key(KeyCode::Esc, none);
+    for _ in 0..24 {
+        if s.shows("▸ Settle conflicts") {
+            break;
+        }
+        s.key(KeyCode::Down, none);
+    }
+    s.key(KeyCode::Enter, none);
+    s.key(KeyCode::Enter, none);
+    frames.push(s.json("conflicts", None));
+
+    // A book kept for the page renders (manuscript and paperback PDFs).
+    if std::env::var("GRIMOIRE_SHOTS_BOOK").is_ok() {
+        let _ = sample_book("keep", false);
+    }
 
     // Every theme's Pomodoro and Visualizer, for the grids.
     for t in theme::presets() {

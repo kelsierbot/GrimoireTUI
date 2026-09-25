@@ -300,10 +300,14 @@ mentions it. Nothing extra is stored; it's all read from the files.
   [--paperback [--trim 6x9]] [--epub] [--md] [--parts 1,3]
   [--chapters 1-3 | --words 10000]`.
 
+<p align="center"><img src="assets/screenshots/export.png" alt="The export dialog: Word manuscript, PDF, paperback, EPUB and Markdown, with parts, a sample scope, the manuscript's look and the author's details" width="100%"></p>
+
 ### Compiling for submission
 
 Export does what Scrivener's Compile does, with its *Manuscript* format as
 the default — William Shunn's modern standard manuscript format:
+
+<p align="center"><img src="assets/screenshots/manuscript.png" alt="The first three pages of a compiled manuscript: a title page with the contact block and word count, Part One and Chapter One on the opening page, and a page with a centred # scene break" width="100%"></p>
 
 - **The title page**: your contact block top left, single-spaced (legal name,
   address, phone, email, and an agent if you have one — *Author details…* in
@@ -385,6 +389,8 @@ terminal can actually deliver. Cmd only reaches a terminal application through
 the Kitty keyboard protocol — Ghostty, Kitty, WezTerm and foot support it,
 Apple Terminal cannot send it at all. Ctrl always works.
 
+<p align="center"><img src="assets/screenshots/paperback.png" alt="A spread from the 6×9 paperback: a left-hand page with the author's running head facing the Chapter Two opener with its small-caps lead-in" width="100%"></p>
+
 ## Keeping a book in Dropbox, Google Drive, pCloud or Box
 
 A book is a folder, so any sync service carries it — OneDrive and iCloud
@@ -396,6 +402,8 @@ Drive too. What Grimoire does about the ways syncing goes wrong:
   sync service makes itself are recognised too — they're parked, never
   counted or exported twice — and *Settle conflicts…* shows the two side by
   side to keep one, the other or both.
+
+<p align="center"><img src="assets/screenshots/conflicts.png" alt="Settling a Dropbox conflict copy: the scene on the left, the copy on the right, and the choice to take the copy, keep the scene, or keep both" width="100%"></p>
 - **A file isn't here yet** (online-only, still downloading, offline). It
   shows as offline and is never saved over; Grimoire tries again later.
 - **A file blinks** while a service replaces it. A scene that vanishes for a
@@ -623,9 +631,14 @@ The screenshots in this README are drawn by Grimoire itself, from a sample
 book, then painted to PNG:
 
 ```sh
-GRIMOIRE_SHOTS=/tmp/frames.json cargo test --locked shots -- --ignored
-python3 tools/screenshots.py /tmp/frames.json assets/screenshots   # Pillow + fontTools
+GRIMOIRE_SHOTS=/tmp/frames.json GRIMOIRE_SHOTS_BOOK=~/shots-book \
+  cargo test --locked shots -- --ignored
+(cd ~/shots-book && grimoire export --docx --pdf --paperback)   # PDFs need LibreOffice
+python3 tools/screenshots.py /tmp/frames.json assets/screenshots ~/shots-book/exports
 ```
+
+Pillow and fontTools paint the frames; `pdftoppm` renders the manuscript and
+paperback pages.
 
 ### Releasing
 

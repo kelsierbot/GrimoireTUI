@@ -2,7 +2,11 @@
 """Paint the README's screenshots from frames the real interface drew.
 
     GRIMOIRE_SHOTS=/tmp/frames.json cargo test --locked shots -- --ignored
-    python3 tools/screenshots.py /tmp/frames.json assets/screenshots
+    python3 tools/screenshots.py /tmp/frames.json assets/screenshots [exports/]
+
+With an exports folder (the sample book kept by GRIMOIRE_SHOTS_BOOK, then
+`grimoire export --docx --pdf --paperback`), it also composes the
+manuscript's first pages and a paperback spread from the PDFs.
 
 Every cell comes from Grimoire's own renderer (src/shots.rs); this only turns
 cells into pixels: a monospace font with symbol fallbacks, each theme on the
@@ -215,6 +219,73 @@ def grid(tiles, fonts, cols, title):
     return out
 
 
+def backdrop(w, h):
+    """The dark wash every composed image sits on."""
+    out = Image.new("RGB", (w, h), "#0b0b0e")
+    d = ImageDraw.Draw(out)
+    for y in range(h):
+        t = y / h
+        d.line([(0, y), (w, y)], fill=tuple(int(a + (b - a) * t) for a, b in zip((22, 20, 30), (8, 8, 11))))
+    return out
+
+
+def shadowed(canvas, img, x, y, r=18):
+    shadow = Image.new("L", canvas.size, 0)
+    ImageDraw.Draw(shadow).rectangle([x + 6, y + 12, x + img.width + 6, y + img.height + 12], fill=160)
+    canvas.paste(Image.new("RGB", canvas.size, "#000000"), (0, 0), shadow.filter(ImageFilter.GaussianBlur(r)))
+    canvas.paste(img, (x, y))
+
+
+def render_pdf(pdf, dpi):
+    """Every page of `pdf` as an image (pdftoppm)."""
+    import glob, tempfile
+    tmp = tempfile.mkdtemp()
+    subprocess.run(["pdftoppm", "-png", "-r", str(dpi), pdf, os.path.join(tmp, "p")], check=True)
+    return [Image.open(p).convert("RGB") for p in sorted(glob.glob(os.path.join(tmp, "p-*.png")))]
+
+
+def ink(img):
+    g = img.convert("L").resize((80, 120))
+    return sum(1 for v in g.tobytes() if v < 200) / (80 * 120)
+
+
+def pages(exports, out):
+    """The manuscript's first three pages, and a paperback spread."""
+    import glob
+    ms = sorted(glob.glob(os.path.join(exports, "*_Manuscript*.pdf")))
+    pb = sorted(glob.glob(os.path.join(exports, "*_Paperback*.pdf")))
+    if ms:
+        pgs = render_pdf(ms[0], 110)[:3]
+        w, h = pgs[0].size
+        gap, pad = 40, 60
+        c = backdrop(len(pgs) * w + (len(pgs) - 1) * gap + 2 * pad, h + 2 * pad)
+        for i, p in enumerate(pgs):
+            shadowed(c, p, pad + i * (w + gap), pad)
+        c.save(os.path.join(out, "manuscript.png"), optimize=True)
+        print("manuscript")
+    if pb:
+        pgs = render_pdf(pb[0], 130)
+        # The last left/right pair with words on both: a verso facing a recto.
+        pairs = [(i, i + 1) for i in range(1, len(pgs) - 1, 2) if ink(pgs[i]) > 0.004 and ink(pgs[i + 1]) > 0.004]
+        if pairs:
+            a, b = pairs[-1]
+            w, h = pgs[a].size
+            pad = 70
+            c = backdrop(2 * w + 2 * pad, h + 2 * pad)
+            spread = Image.new("RGB", (2 * w, h), "#ffffff")
+            spread.paste(pgs[a], (0, 0))
+            spread.paste(pgs[b], (w, 0))
+            # A soft gutter where the pages meet.
+            g = ImageDraw.Draw(spread)
+            for dx in range(18):
+                shade = int(255 - (18 - dx) * 2.2)
+                g.line([(w - dx, 0), (w - dx, h)], fill=(shade, shade, shade))
+                g.line([(w + dx, 0), (w + dx, h)], fill=(shade, shade, shade))
+            shadowed(c, spread, pad, pad)
+            c.save(os.path.join(out, "paperback.png"), optimize=True)
+            print("paperback")
+
+
 def main():
     frames = json.load(open(sys.argv[1]))
     out = sys.argv[2]
@@ -237,6 +308,8 @@ def main():
     if vizes:
         grid(vizes, fonts, 5, "Visualizer").save(os.path.join(out, "visualizers.png"), optimize=True)
         print("visualizers")
+    if len(sys.argv) > 3:
+        pages(sys.argv[3], out)
 
 
 if __name__ == "__main__":
