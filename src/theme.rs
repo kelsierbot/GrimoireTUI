@@ -25,6 +25,41 @@ pub struct Theme {
     pub bark: Color,
     pub bloom: Color,
     pub turf: Color,
+    /// The Pomodoro world to draw, by the name of the preset it belongs to;
+    /// `None` is the theme's own ([`Theme::world`]). Only Custom sets it.
+    pub pomodoro: Option<String>,
+    /// The Visualizer look, the same way ([`Theme::look`]).
+    pub visualizer: Option<String>,
+}
+
+/// What Custom draws when it hasn't chosen: the glade the house theme has,
+/// and the Visualizer as it first was.
+pub const CUSTOM_WORLD: &str = "Lost Forest";
+pub const ORIGINAL_LOOK: &str = "Original";
+
+/// The Pomodoro worlds a Custom theme can borrow: every preset's, by name.
+pub fn pomodoro_choices() -> Vec<String> {
+    presets().into_iter().map(|t| t.name).collect()
+}
+
+/// The Visualizer looks a Custom theme can borrow: the original, then every
+/// preset's, by name.
+pub fn visualizer_choices() -> Vec<String> {
+    std::iter::once(ORIGINAL_LOOK.to_string())
+        .chain(presets().into_iter().map(|t| t.name))
+        .collect()
+}
+
+/// The choice after (or before) `current`, round the list.
+pub fn step_choice(choices: &[String], current: &str, forward: bool) -> String {
+    let n = choices.len().max(1);
+    let i = choices.iter().position(|c| c == current).unwrap_or(0);
+    let j = if forward {
+        (i + 1) % n
+    } else {
+        (i + n - 1) % n
+    };
+    choices.get(j).cloned().unwrap_or_default()
 }
 
 /// Field order for the custom editor and for (de)serialisation.
@@ -44,6 +79,36 @@ pub const ROLES: [&str; 12] = [
 ];
 
 impl Theme {
+    /// Whose Pomodoro world this theme draws: its pick, else its own (a
+    /// preset's name), and for Custom the glade.
+    pub fn world(&self) -> &str {
+        match &self.pomodoro {
+            Some(p) => p,
+            None if self.name == "Custom" => CUSTOM_WORLD,
+            None => &self.name,
+        }
+    }
+
+    /// Whose Visualizer look this theme draws: its pick, else its own, and
+    /// for Custom the original.
+    pub fn look(&self) -> &str {
+        match &self.visualizer {
+            Some(v) => v,
+            None if self.name == "Custom" => ORIGINAL_LOOK,
+            None => &self.name,
+        }
+    }
+
+    /// Choose the Pomodoro world; the default is stored as no choice at all.
+    pub fn pick_world(&mut self, name: String) {
+        self.pomodoro = (name != CUSTOM_WORLD).then_some(name);
+    }
+
+    /// Choose the Visualizer look; the original is stored as no choice.
+    pub fn pick_look(&mut self, name: String) {
+        self.visualizer = (name != ORIGINAL_LOOK).then_some(name);
+    }
+
     pub fn role(&self, i: usize) -> Color {
         match i {
             0 => self.accent,
@@ -150,6 +215,8 @@ macro_rules! theme {
             bark: rgb($bark),
             bloom: rgb($bloom),
             turf: rgb($turf),
+            pomodoro: None,
+            visualizer: None,
         }
     };
 }
@@ -321,7 +388,12 @@ pub fn config_path() -> PathBuf {
 /// Load the saved theme. A named preset is looked up fresh so preset tweaks
 /// reach existing users; "Custom" is read swatch by swatch.
 pub fn load() -> Theme {
-    let Ok(s) = std::fs::read_to_string(config_path()) else {
+    load_from(&config_path())
+}
+
+/// [`load`], from `path`.
+pub fn load_from(path: &std::path::Path) -> Theme {
+    let Ok(s) = std::fs::read_to_string(path) else {
         return default_theme();
     };
     let mut name = String::new();
@@ -350,13 +422,22 @@ pub fn load() -> Theme {
     for (k, v) in fields {
         if let (Some(i), Some(c)) = (ROLES.iter().position(|r| *r == k), parse_hex(&v)) {
             t.set_role(i, c);
+        } else if k == "pomodoro" && pomodoro_choices().contains(&v) {
+            // A name no preset has any more is no choice: the default.
+            t.pick_world(v);
+        } else if k == "visualizer" && visualizer_choices().contains(&v) {
+            t.pick_look(v);
         }
     }
     t
 }
 
 pub fn save(t: &Theme) -> std::io::Result<()> {
-    let path = config_path();
+    save_to(&config_path(), t)
+}
+
+/// [`save`], to `path`.
+pub fn save_to(path: &std::path::Path, t: &Theme) -> std::io::Result<()> {
     if let Some(d) = path.parent() {
         std::fs::create_dir_all(d)?;
     }
@@ -365,6 +446,12 @@ pub fn save(t: &Theme) -> std::io::Result<()> {
         for (i, role) in ROLES.iter().enumerate() {
             out.push_str(&format!("{role} = \"{}\"\n", hex_of(t.role(i))));
         }
+        if let Some(p) = &t.pomodoro {
+            out.push_str(&format!("pomodoro = \"{p}\"\n"));
+        }
+        if let Some(v) = &t.visualizer {
+            out.push_str(&format!("visualizer = \"{v}\"\n"));
+        }
     }
     std::fs::write(path, out)
 }
@@ -372,6 +459,85 @@ pub fn save(t: &Theme) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn scratch(tag: &str) -> std::path::PathBuf {
+        let d = std::env::temp_dir().join(format!("grimoire-theme-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        d.join("theme.toml")
+    }
+
+    #[test]
+    fn a_custom_themes_picks_survive_saving() {
+        let path = scratch("picks");
+        let mut t = default_theme();
+        t.name = "Custom".into();
+        t.pick_world("Kanagawa".into());
+        t.pick_look("Synthwave '84".into());
+        save_to(&path, &t).unwrap();
+        let back = load_from(&path);
+        assert_eq!(back.world(), "Kanagawa");
+        assert_eq!(back.look(), "Synthwave '84");
+        assert_eq!(back, t);
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn an_older_custom_theme_loads_as_it_always_did() {
+        let path = scratch("old");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let mut file = String::from("name = \"Custom\"\n");
+        for (i, role) in ROLES.iter().enumerate() {
+            file.push_str(&format!(
+                "{role} = \"{}\"\n",
+                hex_of(default_theme().role(i))
+            ));
+        }
+        std::fs::write(&path, &file).unwrap();
+        let t = load_from(&path);
+        assert_eq!(
+            (t.pomodoro.as_deref(), t.visualizer.as_deref()),
+            (None, None)
+        );
+        assert_eq!((t.world(), t.look()), (CUSTOM_WORLD, ORIGINAL_LOOK));
+        // A name no preset has any more is no pick at all.
+        std::fs::write(
+            &path,
+            file + "pomodoro = \"Atlantis\"\nvisualizer = \"Nope\"\n",
+        )
+        .unwrap();
+        let t = load_from(&path);
+        assert_eq!((t.world(), t.look()), (CUSTOM_WORLD, ORIGINAL_LOOK));
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn presets_draw_their_own_world_and_look() {
+        for p in presets() {
+            assert_eq!(
+                (p.pomodoro.as_deref(), p.visualizer.as_deref()),
+                (None, None)
+            );
+            assert_eq!(p.world(), p.name);
+            assert_eq!(p.look(), p.name);
+        }
+        // Picking the default stores no pick; every preset can be borrowed.
+        let mut t = default_theme();
+        t.name = "Custom".into();
+        t.pick_world(CUSTOM_WORLD.into());
+        t.pick_look(ORIGINAL_LOOK.into());
+        assert_eq!(
+            (t.pomodoro.as_deref(), t.visualizer.as_deref()),
+            (None, None)
+        );
+        assert_eq!(pomodoro_choices().len(), presets().len());
+        assert_eq!(visualizer_choices().len(), presets().len() + 1);
+        let c = visualizer_choices();
+        assert_eq!(
+            step_choice(&c, ORIGINAL_LOOK, false),
+            "Rainbow",
+            "round the list"
+        );
+    }
 
     #[test]
     fn every_preset_is_named_and_distinct() {

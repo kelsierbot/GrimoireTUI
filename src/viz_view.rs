@@ -6,7 +6,8 @@
 //! far apart, whether they rise from the floor or open out from the middle,
 //! what lies beneath them, how colour runs through them, and what the
 //! playback row is made of. [`look_for`] picks one per preset; Custom keeps
-//! the original: dense eighth-blocks over a rippling pond.
+//! the original — dense eighth-blocks over a rippling pond — unless it has
+//! borrowed a preset's look.
 //!
 //! The song playing is always named: in the pane's title, or — for the looks
 //! whose playback row is the title itself — along the bottom, lit up to the
@@ -234,9 +235,16 @@ pub(crate) const ORIGINAL: Look = Look {
     progress: Progress::Line,
 };
 
-/// Each preset's Visualizer. Every one differs from every other in the shape
-/// of what's drawn, not only its colours.
+/// The Visualizer a theme draws: its own, or — for a custom theme — the one it
+/// borrowed ([`Theme::look`]); the original when it hasn't chosen.
 pub(crate) fn look_for(t: &Theme) -> Look {
+    look_named(t.look())
+}
+
+/// Each preset's Visualizer, by the preset's name. Every one differs from
+/// every other in the shape of what's drawn, not only its colours. Any other
+/// name — "Original" — is the original.
+pub(crate) fn look_named(name: &str) -> Look {
     use Fill::*;
     use Role::*;
     let l = |fill, shape, bar, gap, cap, floor, paint, sparks, progress| Look {
@@ -252,7 +260,7 @@ pub(crate) fn look_for(t: &Theme) -> Look {
     };
     let (r, m) = (Shape::Rising, Shape::Mirrored);
     let dots = ['·', '·', '·'];
-    match t.name.as_str() {
+    match name {
         // An illuminated manuscript: broad bars on a shelf, the song written
         // along the bottom.
         "Grimoire" => l(
@@ -502,11 +510,7 @@ fn song(app: &App) -> Option<String> {
 /// The pane's title and its contents, for the view switcher's Visualizer.
 /// `width` is the pane's outer width, so the title fits between its corners.
 pub(crate) fn view(app: &App, t: &Theme, width: u16) -> (String, Vec<Vec<Cell>>) {
-    let look = if t.name == "Custom" {
-        ORIGINAL
-    } else {
-        look_for(t)
-    };
+    let look = look_for(t);
     let (frac, playing) = match &app.music.state {
         MusicState::Playing(tr) => (
             if tr.duration > 0.0 {

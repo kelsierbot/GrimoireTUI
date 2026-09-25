@@ -3924,8 +3924,11 @@ impl App {
         if i < presets.len() {
             self.theme = presets[i].clone();
         } else if self.theme.name != "Custom" {
-            // Entering the custom slot starts from whatever you were just on.
-            self.theme.name = "Custom".into();
+            // Entering the custom slot starts from whatever you were just on:
+            // its colours, and its Pomodoro world and Visualizer to go on with.
+            let from = std::mem::replace(&mut self.theme.name, "Custom".into());
+            self.theme.pick_world(from.clone());
+            self.theme.pick_look(from);
         }
     }
 

@@ -483,7 +483,8 @@ fn draw_scene(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
                 app.pomo.label()
             },
             scene::render(
-                scene::Scenery::for_theme(&t.name),
+                // A custom theme may borrow any preset's world.
+                scene::Scenery::for_theme(t.world()),
                 app.pomo.phase,
                 app.pomo.progress(),
                 app.pomo.phase != Phase::Idle && !app.pomo.running(),

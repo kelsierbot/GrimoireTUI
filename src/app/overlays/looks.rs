@@ -3,6 +3,12 @@
 
 use super::*;
 
+/// The custom editor's rows: the twelve swatches, then the two borrowed
+/// views — which preset's Pomodoro world and Visualizer to draw.
+const PICK_WORLD: usize = theme::ROLES.len();
+const PICK_LOOK: usize = theme::ROLES.len() + 1;
+const CUSTOM_ROWS: usize = theme::ROLES.len() + 2;
+
 impl App {
     pub(super) fn on_themes_key(&mut self, key: Key) {
         let Overlay::Themes { sel, restore } = &mut self.overlay else {
@@ -42,21 +48,52 @@ impl App {
         let Overlay::Custom { field, buf } = &mut self.overlay else {
             return;
         };
-        match key {
-            Key::Down | Key::Enter => {
+        let picking = *field >= theme::ROLES.len();
+        let moved = match key {
+            Key::Down | Key::Enter if !picking || key == Key::Down => {
                 commit(&mut self.theme, *field, buf);
-                *field = (*field + 1) % theme::ROLES.len();
+                *field = (*field + 1) % CUSTOM_ROWS;
                 buf.clear();
+                true
             }
             Key::Up => {
                 commit(&mut self.theme, *field, buf);
-                *field = (*field + theme::ROLES.len() - 1) % theme::ROLES.len();
+                *field = (*field + CUSTOM_ROWS - 1) % CUSTOM_ROWS;
                 buf.clear();
+                true
+            }
+            _ => false,
+        };
+        if moved {
+            // On a pick row, the pane under the tree shows what's picked.
+            match *field {
+                PICK_WORLD => self.pane_mode = crate::scene::Mode::Pomodoro,
+                PICK_LOOK => self.pane_mode = crate::scene::Mode::Visualizer,
+                _ => {}
+            }
+            return;
+        }
+        match key {
+            // Borrow a preset's Pomodoro world or Visualizer, previewed live.
+            Key::Right | Key::Left | Key::Enter | Key::Char(' ') if picking => {
+                let forward = key != Key::Left;
+                if *field == PICK_WORLD {
+                    let next =
+                        theme::step_choice(&theme::pomodoro_choices(), self.theme.world(), forward);
+                    self.theme.pick_world(next);
+                } else {
+                    let next = theme::step_choice(
+                        &theme::visualizer_choices(),
+                        self.theme.look(),
+                        forward,
+                    );
+                    self.theme.pick_look(next);
+                }
             }
             Key::Backspace => {
                 buf.pop();
             }
-            Key::Char(c) if c.is_ascii_hexdigit() && buf.len() < 6 => {
+            Key::Char(c) if !picking && c.is_ascii_hexdigit() && buf.len() < 6 => {
                 buf.push(c.to_ascii_lowercase());
                 // Six digits is a complete colour — apply it live.
                 if buf.len() == 6 {
@@ -163,7 +200,9 @@ pub(super) fn draw_custom(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
     let Overlay::Custom { field, buf } = &app.overlay else {
         return;
     };
-    let box_area = centred(area, 46, theme::ROLES.len() as u16 + 4);
+    // Twelve swatches, a gap, the two picks, a gap and the hint: 17 rows
+    // inside, 19 with the frame, so it fits a 24-row terminal.
+    let box_area = centred(area, 46, CUSTOM_ROWS as u16 + 5);
     f.render_widget(Clear, box_area);
     let block = pane_block("CUSTOM THEME", true, t);
     let inner = block.inner(box_area);
@@ -200,7 +239,46 @@ pub(super) fn draw_custom(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
         })
         .collect();
     lines.push(Line::from(""));
-    lines.push(hint_line(" type hex · ↵ next · esc save & close", t));
+    // Which preset's Pomodoro world and Visualizer to draw — mix and match.
+    for (row, label, name) in [
+        (PICK_WORLD, "pomodoro", app.theme.world()),
+        (PICK_LOOK, "visualizer", app.theme.look()),
+    ] {
+        let on = row == *field;
+        let shown = if on {
+            format!("◂ {name} ▸")
+        } else {
+            name.to_string()
+        };
+        lines.push(
+            Line::from(vec![
+                Span::styled(
+                    if on { " ▸ " } else { "   " },
+                    Style::default().fg(t.accent),
+                ),
+                Span::styled(format!("{label:<10}"), Style::default().fg(t.text)),
+                Span::styled("   ", Style::default()),
+                Span::styled(
+                    shown,
+                    Style::default().fg(if on { t.accent } else { t.dim }),
+                ),
+            ])
+            .style(if on {
+                Style::default().bg(t.sel)
+            } else {
+                Style::default()
+            }),
+        );
+    }
+    lines.push(Line::from(""));
+    lines.push(hint_line(
+        if *field >= theme::ROLES.len() {
+            " ←→ choose · ↑↓ move · esc save & close"
+        } else {
+            " type hex · ↵ next · esc save & close"
+        },
+        t,
+    ));
     f.render_widget(Paragraph::new(lines), inner);
 }
 
@@ -248,8 +326,12 @@ pub(super) fn draw_sources(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
     f.render_widget(Paragraph::new(lines), inner);
 }
 
-/// Apply a typed hex buffer to a role, ignoring anything unparseable.
+/// Apply a typed hex buffer to a role, ignoring anything unparseable (and
+/// the pick rows, which take no hex).
 fn commit(t: &mut Theme, field: usize, buf: &str) {
+    if field >= theme::ROLES.len() {
+        return;
+    }
     if let Some(c) = theme::parse_hex(buf) {
         t.set_role(field, c);
         t.name = "Custom".into();
