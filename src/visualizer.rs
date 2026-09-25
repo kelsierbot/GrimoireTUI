@@ -1,12 +1,18 @@
 //! Listens to what the machine is playing and turns it into spectrum bars.
 //!
-//! Audio comes from Core Audio loopback (through cpal) on macOS 14.6+: a tap
-//! on the default output device, so it works whichever source is playing —
-//! YouTube Music, Spotify, Jellyfin, Plex, anything. Nothing is recorded or
-//! kept; samples live in a ring buffer a few hundredths of a second long.
+//! Audio comes from the default output, so it works whichever source is
+//! playing — YouTube Music, Spotify, Jellyfin, Plex, anything:
 //!
-//! Capture runs only while the spectrum view is on screen, so the one-time
-//! system-audio permission prompt only ever reaches people who open it.
+//! - **macOS 14.6+**: Core Audio loopback through cpal, a tap on the output
+//!   device.
+//! - **Linux**: the output's monitor, read from PipeWire's `pw-record` or,
+//!   failing that, PulseAudio's `parec` (both ship with the desktop's sound
+//!   server; no audio libraries needed at build time).
+//!
+//! Nothing is recorded or kept; samples live in a ring buffer a few
+//! hundredths of a second long. Capture runs only while the spectrum view is
+//! on screen, so the one-time system-audio permission prompt (macOS) only
+//! ever reaches people who open it.
 
 use std::f32::consts::PI;
 use std::time::Instant;
@@ -44,8 +50,14 @@ const MAX_SPARKS: usize = 36;
 /// How long "playing" may stay silent before the pane explains why.
 const SILENT_HINT_AFTER: f32 = 3.0;
 /// macOS mutes the tap, rather than failing, until the terminal is allowed.
+#[cfg(target_os = "macos")]
 const SILENT_HINT: &str = "hearing only silence. add your terminal to Privacy & Security › \
     Screen & System Audio Recording › System Audio Recording Only";
+/// On Linux the monitor is of the default output; music sent elsewhere (a
+/// second sound card, a headset) never reaches it.
+#[cfg(not(target_os = "macos"))]
+const SILENT_HINT: &str = "hearing only silence. is the music playing through the default \
+    output? GRIMOIRE_MONITOR=<sink> listens to another";
 
 /// A spark thrown off the top of a bar. Position is in fractions of the bar
 /// area — `x` across, `y` up — so it draws at any size.
@@ -376,9 +388,17 @@ impl Visualizer {
             .map_or(1.0 / 30.0, |t| now.duration_since(t).as_secs_f32())
             .min(0.25);
         self.last = Some(now);
-        let Some(cap) = &self.capture else {
+        let Some(cap) = &mut self.capture else {
             return;
         };
+        // A recorder that stopped (no sound server, say) says why, rather
+        // than leaving the bars frozen.
+        if let Err(why) = cap.check() {
+            self.capture = None;
+            self.status = Status::Unavailable(why);
+            self.analyzer = Analyzer::new(BARS);
+            return;
+        }
         cap.latest(&mut self.samples);
         self.analyzer.update(&self.samples, cap.rate, dt);
     }
@@ -398,26 +418,45 @@ impl Visualizer {
     }
 }
 
-#[cfg(all(feature = "audio", target_os = "macos"))]
-mod capture {
-    use super::FFT_LEN;
-    use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-    use std::sync::{Arc, Mutex};
+/// The most recent `FFT_LEN` mono samples, overwritten as audio arrives.
+#[cfg(any(all(feature = "audio", target_os = "macos"), target_os = "linux"))]
+struct Ring {
+    buf: Vec<f32>,
+    pos: usize,
+    filled: bool,
+}
 
-    /// The most recent `FFT_LEN` mono samples, overwritten as audio arrives.
-    struct Ring {
-        buf: Vec<f32>,
-        pos: usize,
-        filled: bool,
-    }
-
-    impl Ring {
-        fn push(&mut self, s: f32) {
-            self.buf[self.pos] = s;
-            self.pos = (self.pos + 1) % self.buf.len();
-            self.filled |= self.pos == 0;
+#[cfg(any(all(feature = "audio", target_os = "macos"), target_os = "linux"))]
+impl Ring {
+    fn new() -> Ring {
+        Ring {
+            buf: vec![0.0; FFT_LEN],
+            pos: 0,
+            filled: false,
         }
     }
+
+    fn push(&mut self, s: f32) {
+        self.buf[self.pos] = s;
+        self.pos = (self.pos + 1) % self.buf.len();
+        self.filled |= self.pos == 0;
+    }
+
+    /// Copy out the ring, oldest sample first.
+    fn copy_to(&self, out: &mut Vec<f32>) {
+        out.clear();
+        if self.filled {
+            out.extend_from_slice(&self.buf[self.pos..]);
+        }
+        out.extend_from_slice(&self.buf[..self.pos]);
+    }
+}
+
+#[cfg(all(feature = "audio", target_os = "macos"))]
+mod capture {
+    use super::Ring;
+    use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+    use std::sync::{Arc, Mutex};
 
     pub struct Capture {
         // Dropping the stream tears down the tap and its aggregate device.
@@ -443,11 +482,7 @@ mod capture {
                 ));
             }
             let channels = (cfg.channels() as usize).max(1);
-            let ring = Arc::new(Mutex::new(Ring {
-                buf: vec![0.0; FFT_LEN],
-                pos: 0,
-                filled: false,
-            }));
+            let ring = Arc::new(Mutex::new(Ring::new()));
             let sink = Arc::clone(&ring);
             let stream = device
                 .build_input_stream(
@@ -475,18 +510,286 @@ mod capture {
 
         /// Copy out the ring, oldest sample first.
         pub fn latest(&self, out: &mut Vec<f32>) {
-            out.clear();
-            if let Ok(r) = self.ring.lock() {
-                if r.filled {
-                    out.extend_from_slice(&r.buf[r.pos..]);
+            match self.ring.lock() {
+                Ok(r) => r.copy_to(out),
+                Err(_) => out.clear(),
+            }
+        }
+
+        /// A Core Audio tap doesn't stop by itself.
+        pub fn check(&mut self) -> Result<(), String> {
+            Ok(())
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+mod capture {
+    //! The default output's monitor, recorded by a child process as raw
+    //! 32-bit floats on its stdout; a thread downmixes them into the ring.
+    //!
+    //! Dropping the capture kills the child, which ends the thread. If
+    //! Grimoire dies without dropping it, the child's next write hits a
+    //! closed pipe and it exits too, so nothing is left recording.
+    use super::Ring;
+    use std::io::Read;
+    use std::process::{Child, Command, Stdio};
+    use std::sync::{Arc, Mutex};
+
+    const RATE: u32 = 48_000;
+    const CHANNELS: usize = 2;
+
+    /// The recorders that can listen, best first: PipeWire's own, then
+    /// PulseAudio's (which PipeWire also answers, through pipewire-pulse).
+    #[derive(Debug, Clone, Copy, PartialEq)]
+    enum Tool {
+        PwRecord,
+        Parec,
+    }
+
+    impl Tool {
+        const ALL: [Tool; 2] = [Tool::PwRecord, Tool::Parec];
+
+        fn program(self) -> &'static str {
+            match self {
+                Tool::PwRecord => "pw-record",
+                Tool::Parec => "parec",
+            }
+        }
+
+        /// `sink` names an output to listen to instead of the default one
+        /// (`GRIMOIRE_MONITOR`); its monitor is what gets recorded.
+        fn command(self, sink: Option<&str>) -> Command {
+            let mut c = Command::new(self.program());
+            match self {
+                Tool::PwRecord => {
+                    // Capturing *from a sink* records what it plays.
+                    c.args(["-P", "{ stream.capture.sink = true }"]);
+                    if let Some(s) = sink {
+                        c.args(["--target", s.trim_end_matches(".monitor")]);
+                    }
+                    c.args(["--raw", "--format", "f32", "--latency", "20ms"]);
+                    c.args(["--rate", &RATE.to_string()]);
+                    c.args(["--channels", &CHANNELS.to_string()]);
+                    c.arg("-");
                 }
-                out.extend_from_slice(&r.buf[..r.pos]);
+                Tool::Parec => {
+                    let dev = match sink {
+                        Some(s) if s.ends_with(".monitor") => s.to_string(),
+                        Some(s) => format!("{s}.monitor"),
+                        None => "@DEFAULT_MONITOR@".into(),
+                    };
+                    c.args([
+                        "-d",
+                        &dev,
+                        "--raw",
+                        "--format=float32le",
+                        "--latency-msec=20",
+                    ]);
+                    c.arg(format!("--rate={RATE}"));
+                    c.arg(format!("--channels={CHANNELS}"));
+                }
+            }
+            c.stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+            c
+        }
+    }
+
+    /// Whether `program` is an executable somewhere on PATH.
+    fn on_path(program: &str) -> bool {
+        use std::os::unix::fs::PermissionsExt;
+        std::env::var_os("PATH").is_some_and(|path| {
+            std::env::split_paths(&path).any(|dir| {
+                std::fs::metadata(dir.join(program))
+                    .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+            })
+        })
+    }
+
+    pub struct Capture {
+        child: Child,
+        tool: Tool,
+        /// Recorders not tried yet, in case this one stops straight away.
+        rest: Vec<Tool>,
+        sink: Option<String>,
+        ring: Arc<Mutex<Ring>>,
+        pub rate: f32,
+    }
+
+    impl Capture {
+        pub fn start() -> Result<Capture, String> {
+            let mut tools: Vec<Tool> = Tool::ALL
+                .into_iter()
+                .filter(|t| on_path(t.program()))
+                .collect();
+            if tools.is_empty() {
+                return Err(
+                    "the spectrum needs pw-record (PipeWire) or parec (PulseAudio) to hear what's playing"
+                        .into(),
+                );
+            }
+            let sink = std::env::var("GRIMOIRE_MONITOR")
+                .ok()
+                .filter(|s| !s.is_empty());
+            let ring = Arc::new(Mutex::new(Ring::new()));
+            let tool = tools.remove(0);
+            let child = spawn(tool, sink.as_deref(), &ring)?;
+            Ok(Capture {
+                child,
+                tool,
+                rest: tools,
+                sink,
+                ring,
+                rate: RATE as f32,
+            })
+        }
+
+        pub fn latest(&self, out: &mut Vec<f32>) {
+            match self.ring.lock() {
+                Ok(r) => r.copy_to(out),
+                Err(_) => out.clear(),
+            }
+        }
+
+        /// Still recording? If the recorder has stopped, move on to the next
+        /// one; with none left, say why the last one stopped.
+        pub fn check(&mut self) -> Result<(), String> {
+            loop {
+                let Ok(Some(status)) = self.child.try_wait() else {
+                    return Ok(());
+                };
+                let mut err = String::new();
+                if let Some(mut e) = self.child.stderr.take() {
+                    let _ = e.read_to_string(&mut err);
+                }
+                let why = err
+                    .lines()
+                    .map(str::trim)
+                    .rfind(|l| !l.is_empty())
+                    .map(|l| l.chars().take(90).collect::<String>())
+                    .unwrap_or_else(|| status.to_string());
+                if self.rest.is_empty() {
+                    return Err(format!(
+                        "couldn't listen to system audio: {} said {why}",
+                        self.tool.program()
+                    ));
+                }
+                self.tool = self.rest.remove(0);
+                self.child = spawn(self.tool, self.sink.as_deref(), &self.ring)?;
+            }
+        }
+    }
+
+    impl Drop for Capture {
+        fn drop(&mut self) {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
+    }
+
+    fn spawn(tool: Tool, sink: Option<&str>, ring: &Arc<Mutex<Ring>>) -> Result<Child, String> {
+        let mut child = tool
+            .command(sink)
+            .spawn()
+            .map_err(|e| format!("couldn't start {}: {e}", tool.program()))?;
+        let out = child.stdout.take().expect("stdout is piped");
+        let ring = Arc::clone(ring);
+        std::thread::spawn(move || pump(out, &ring));
+        Ok(child)
+    }
+
+    /// Read interleaved little-endian f32 frames until the child goes away,
+    /// averaging each frame's channels into one sample. Reads can end
+    /// mid-frame; the remainder waits for the rest of it.
+    fn pump(mut out: impl Read, ring: &Mutex<Ring>) {
+        const FRAME: usize = 4 * CHANNELS;
+        let mut buf = vec![0u8; FRAME * 512];
+        let mut have = 0;
+        loop {
+            match out.read(&mut buf[have..]) {
+                Ok(0) | Err(_) => return,
+                Ok(n) => have += n,
+            }
+            let whole = have - have % FRAME;
+            if let Ok(mut r) = ring.lock() {
+                for frame in buf[..whole].as_chunks::<FRAME>().0 {
+                    let sum: f32 = frame
+                        .as_chunks::<4>()
+                        .0
+                        .iter()
+                        .map(|b| f32::from_le_bytes(*b))
+                        .sum();
+                    r.push(sum / CHANNELS as f32);
+                }
+            }
+            buf.copy_within(whole..have, 0);
+            have -= whole;
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        /// Hands out its bytes a few at a time, so frames arrive split.
+        struct Trickle(Vec<u8>, usize);
+        impl Read for Trickle {
+            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                let n = 3.min(buf.len()).min(self.0.len() - self.1);
+                buf[..n].copy_from_slice(&self.0[self.1..self.1 + n]);
+                self.1 += n;
+                Ok(n)
+            }
+        }
+
+        #[test]
+        fn frames_split_across_reads_are_downmixed_whole() {
+            let frames = [(0.5f32, 0.25f32), (-1.0, 1.0), (0.1, 0.3)];
+            let bytes: Vec<u8> = frames
+                .iter()
+                .flat_map(|&(l, r)| [l.to_le_bytes(), r.to_le_bytes()].concat())
+                .collect();
+            let ring = Mutex::new(Ring::new());
+            pump(Trickle(bytes, 0), &ring);
+            let mut out = Vec::new();
+            ring.lock().unwrap().copy_to(&mut out);
+            assert_eq!(out.len(), 3);
+            for (got, (l, r)) in out.iter().zip(frames) {
+                assert!((got - (l + r) / 2.0).abs() < 1e-6, "{got} vs {l},{r}");
+            }
+        }
+
+        fn args(c: &Command) -> Vec<String> {
+            c.get_args()
+                .map(|a| a.to_string_lossy().into_owned())
+                .collect()
+        }
+
+        #[test]
+        fn recorders_listen_to_the_default_output_or_the_one_named() {
+            let pw = args(&Tool::PwRecord.command(None));
+            assert!(pw.contains(&"{ stream.capture.sink = true }".to_string()));
+            assert!(!pw.contains(&"--target".to_string()));
+            assert_eq!(pw.last().map(String::as_str), Some("-"));
+            let pw = args(&Tool::PwRecord.command(Some("desk.monitor")));
+            assert!(pw.windows(2).any(|w| w == ["--target", "desk"]));
+
+            let pa = args(&Tool::Parec.command(None));
+            assert!(pa.windows(2).any(|w| w == ["-d", "@DEFAULT_MONITOR@"]));
+            for named in ["desk", "desk.monitor"] {
+                let pa = args(&Tool::Parec.command(Some(named)));
+                assert!(
+                    pa.windows(2).any(|w| w == ["-d", "desk.monitor"]),
+                    "{named}: {pa:?}"
+                );
             }
         }
     }
 }
 
-#[cfg(not(all(feature = "audio", target_os = "macos")))]
+#[cfg(not(any(all(feature = "audio", target_os = "macos"), target_os = "linux")))]
 mod capture {
     pub struct Capture {
         pub rate: f32,
@@ -494,15 +797,19 @@ mod capture {
 
     impl Capture {
         pub fn start() -> Result<Capture, String> {
-            Err(if cfg!(feature = "audio") {
-                "the spectrum listens through Core Audio, so it needs macOS 14.6 or later for now"
-            } else {
+            Err(if cfg!(all(target_os = "macos", not(feature = "audio"))) {
                 "this build has no audio support"
+            } else {
+                "the spectrum hears system audio on macOS and Linux, not here yet"
             }
             .into())
         }
 
         pub fn latest(&self, _out: &mut Vec<f32>) {}
+
+        pub fn check(&mut self) -> Result<(), String> {
+            Ok(())
+        }
     }
 }
 
