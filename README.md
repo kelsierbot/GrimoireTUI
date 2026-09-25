@@ -4,9 +4,10 @@
 
 <a href="https://ko-fi.com/F2F21E0DK0"><img height="36" style="border:0px;height:36px;" src="https://storage.ko-fi.com/cdn/kofi6.png?v=6" alt="Buy Me a Coffee at ko-fi.com"></a>
 
-A writing desk for novels that lives in your terminal. It knows what a
-manuscript is — parts, chapters, scenes, word targets — and it keeps every word
-of it as plain files you could read with `cat`.
+Grimoire is a cozy little writing desk for your novel, and it lives right in
+your terminal. It understands how a book comes together, from parts and
+chapters down to scenes and word goals, and it keeps every word you write in
+plain files you can open with anything, even `cat`.
 
 <p align="center"><img src="assets/screenshots/themes.webp" alt="Grimoire's desk — the outline under a spellbook, a scene being written, the Pomodoro and the music pane — changing through all nineteen themes, from Rainbow to GitHub Dark" width="100%"></p>
 
