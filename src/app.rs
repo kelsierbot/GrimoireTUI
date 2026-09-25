@@ -105,6 +105,15 @@ enum TreeStep {
         what: String,
         scenes: Vec<(PathBuf, String, String)>,
     },
+    /// A conflict copy settled: what moved (to the trash, or into place as a
+    /// scene of its own) and whole files whose text changed, so one Ctrl-Z
+    /// puts both versions back as they were.
+    Settled {
+        what: String,
+        moves: Vec<(PathBuf, PathBuf)>,
+        texts: Vec<(PathBuf, String, String)>,
+        links: bool,
+    },
 }
 
 /// What an App starts from that doesn't live in the book: the music, theme
@@ -322,6 +331,15 @@ pub enum Overlay {
     },
     /// Deleting is one keypress from gone and there is no undo, so it asks —
     /// by name, with the word count it's about to take with it.
+    /// Every conflict copy in the book, to settle one at a time.
+    Conflicts {
+        sel: usize,
+    },
+    /// One copy, shown beside its scene: take it, keep the scene, or keep both.
+    Settle {
+        copy: PathBuf,
+        sel: usize,
+    },
     Confirm {
         path: PathBuf,
         name: String,
@@ -1236,6 +1254,7 @@ impl App {
         match action {
             Action::Corkboard => self.open_cork(),
             Action::NotesList => self.open_marks(),
+            Action::Conflicts => self.open_conflicts(),
             Action::NextTk => self.next_tk(),
             Action::NextDraft => self.next_draft(),
             Action::EchoWords => self.toggle_echoes(),
@@ -1522,6 +1541,59 @@ impl App {
 
     /// Put each scene a book-wide replace changed back to `to` (from `from`).
     /// A scene edited since is left alone. Returns how many were left.
+    /// Take a settled conflict back (`back`) or settle it again. Backwards the
+    /// texts go back first — at the paths they have after the moves — then the
+    /// moves are reversed; forwards, the other way round. A file that has
+    /// changed since is left as it is rather than written over.
+    fn replay_settled(
+        &mut self,
+        moves: &[(PathBuf, PathBuf)],
+        texts: &[(PathBuf, String, String)],
+        links: bool,
+        back: bool,
+    ) -> Result<()> {
+        let root = self.project.root.clone();
+        let put_texts = |want_before: bool| -> Result<()> {
+            for (path, before, after) in texts {
+                let (expect, write) = if want_before {
+                    (after, before)
+                } else {
+                    (before, after)
+                };
+                let now = std::fs::read_to_string(path).unwrap_or_default();
+                if &now != expect {
+                    anyhow::bail!(
+                        "{} has changed since",
+                        path.file_name().unwrap_or_default().to_string_lossy()
+                    );
+                }
+                project::write_atomic(path, write)?;
+            }
+            Ok(())
+        };
+        if back {
+            put_texts(true)?;
+            let batch: Vec<(PathBuf, PathBuf)> = moves
+                .iter()
+                .rev()
+                .map(|(f, t)| (t.clone(), f.clone()))
+                .collect();
+            if !batch.is_empty() {
+                self.close_if_trashed(&batch);
+                project::apply_moves(&root, &batch, links)?;
+                self.follow_many(&batch);
+            }
+        } else {
+            if !moves.is_empty() {
+                self.close_if_trashed(moves);
+                project::apply_moves(&root, moves, links)?;
+                self.follow_many(moves);
+            }
+            put_texts(false)?;
+        }
+        Ok(())
+    }
+
     fn swap_replaced(&mut self, scenes: &[(PathBuf, String, String)], back: bool) -> usize {
         let mut skipped = 0;
         for (path, before, after) in scenes {
@@ -2510,16 +2582,38 @@ impl App {
             })
         } else {
             let m = self.mod_label();
+            // A scene's conflict copies go with it: versions of it, and a
+            // copy left behind would stand alone as a scene of its own.
+            let copies: Vec<PathBuf> = if path.is_file() {
+                grimoire_core::sync::copies_of(&path)
+                    .into_iter()
+                    .map(|(p, _)| p)
+                    .collect()
+            } else {
+                Vec::new()
+            };
             project::trash(&root, &path).map(|to| {
                 // Undo and history follow it into the trash, so nothing made
                 // later at the same path inherits them.
                 self.follow_paths(&path, &to);
+                let mut batch = vec![(path.clone(), to)];
+                for copy in copies {
+                    if let Ok(went) = project::trash(&root, &copy) {
+                        self.follow_paths(&copy, &went);
+                        batch.push((copy, went));
+                    }
+                }
+                let with = match batch.len() - 1 {
+                    0 => String::new(),
+                    1 => " and its conflict copy".into(),
+                    n => format!(" and its {n} conflict copies"),
+                };
                 self.record(TreeStep::Moved {
-                    what: format!("delete {name}"),
-                    batches: vec![vec![(path.clone(), to)]],
+                    what: format!("delete {name}{with}"),
+                    batches: vec![batch],
                     links: false,
                 });
-                format!(" — {m}Z puts it back")
+                format!("{with} — {m}Z puts it back")
             })
         };
         match done {
@@ -2707,7 +2801,11 @@ impl App {
     // ---- undoing what the tree did ---------------------------------------
 
     fn record(&mut self, step: TreeStep) {
-        self.replace_undoable = matches!(step, TreeStep::Replaced { .. });
+        // A replace across the book or a settled conflict changed the scene
+        // being written as a whole: until something is typed, Ctrl-Z in the
+        // editor takes back that step, not a keystroke.
+        self.replace_undoable =
+            matches!(step, TreeStep::Replaced { .. } | TreeStep::Settled { .. });
         self.replace_redoable = false;
         self.tree_undo.push(step);
         if self.tree_undo.len() > 100 {
@@ -2872,6 +2970,32 @@ impl App {
                 self.replace_undoable = !back;
                 self.replace_redoable = back;
                 (result, TreeStep::Replaced { what, scenes }, None, label)
+            }
+            TreeStep::Settled {
+                what,
+                moves,
+                texts,
+                links,
+            } => {
+                let result = self.replay_settled(&moves, &texts, links, back);
+                self.replace_undoable = !back;
+                self.replace_redoable = back;
+                let show = if back {
+                    moves.first().map(|(from, _)| from.clone())
+                } else {
+                    texts.first().map(|(p, _, _)| p.clone())
+                };
+                (
+                    result,
+                    TreeStep::Settled {
+                        what: what.clone(),
+                        moves,
+                        texts,
+                        links,
+                    },
+                    show,
+                    what,
+                )
             }
         };
         match result {
@@ -3553,6 +3677,7 @@ impl App {
             (row("Music player…", "(F7)"), Action::MusicPlayer),
             // Word, EPUB and Markdown. The project map and a bare Markdown
             // compile are still in the palette.
+            ("Settle conflicts…".into(), Action::Conflicts),
             ("Export…".into(), Action::Export),
             ("Settings…".into(), Action::Settings),
             (row("Close", "(Esc)"), Action::CloseMenu),
@@ -3566,6 +3691,7 @@ impl App {
             Action::FocusMode => writing || self.focus_mode,
             Action::BesidePicker => writing,
             Action::EchoWords => writing || self.echo_on,
+            Action::Conflicts => !self.conflicts().is_empty(),
             _ => true,
         });
         items

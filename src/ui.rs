@@ -350,6 +350,8 @@ fn draw_tree(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
         // exactly how the wrong one gets edited.
         let tag = if n.read_only {
             "read-only"
+        } else if let Some(of) = &n.copy_of {
+            of.source.label()
         } else if n.parked {
             "parked copy"
         } else {
@@ -1187,6 +1189,19 @@ fn draw_status(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
         spans.push(Span::styled(
             format!("  {label}"),
             Style::default().fg(if reached { t.accent } else { t.sun }),
+        ));
+    }
+
+    // Two versions of a scene are waiting to be settled: say so everywhere,
+    // focus mode too, until they are.
+    let conflicts = app.conflicts().len();
+    if conflicts > 0 {
+        spans.push(Span::styled(
+            format!(
+                "  ⚠ {conflicts} conflict{}",
+                if conflicts == 1 { "" } else { "s" }
+            ),
+            Style::default().fg(t.warn),
         ));
     }
 

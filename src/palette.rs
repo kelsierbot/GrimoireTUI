@@ -43,6 +43,8 @@ pub enum Action {
     Timer,
     TimerReset,
     NotesList,
+    /// Every conflict copy in the book, to settle.
+    Conflicts,
     NextTk,
     NextDraft,
     EchoWords,
@@ -216,6 +218,21 @@ pub fn entries(app: &crate::app::App) -> Vec<Entry> {
             Action::MusicToggle,
         ),
     ];
+    // Only while there's something to settle.
+    let conflicts = app.conflicts().len();
+    if conflicts > 0 {
+        v.insert(
+            0,
+            Entry::new(
+                format!(
+                    "Settle conflicts ({conflicts} cop{})",
+                    if conflicts == 1 { "y" } else { "ies" }
+                ),
+                "",
+                Action::Conflicts,
+            ),
+        );
+    }
     if app.music.enabled {
         v.extend([
             Entry::new("Music player", "F7", Action::MusicPlayer),

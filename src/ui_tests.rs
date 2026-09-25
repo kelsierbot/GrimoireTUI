@@ -1037,3 +1037,137 @@ fn a_custom_theme_mixes_one_presets_world_with_anothers_visualizer() {
     assert_eq!(swatches(&d.app.theme), before);
     assert_eq!(d.app.theme.name, "Custom");
 }
+
+// ---- conflict copies: shown, named, settled, undone ----------------------
+
+const DROPBOX_COPY: &str = "01-Scene-One (Josh's conflicted copy 2026-09-25).md";
+
+/// A book whose first scene has a Dropbox conflict copy beside it.
+fn conflicted(tag: &str) -> (PathBuf, PathBuf, PathBuf) {
+    let root = book(tag, true);
+    let scene = first_scene(&root);
+    fs::write(
+        &scene,
+        "---\ntitle: \"Scene One\"\n---\n\nThe ferry left at dawn.\n",
+    )
+    .unwrap();
+    let copy = scene.with_file_name(DROPBOX_COPY);
+    fs::write(
+        &copy,
+        "---\ntitle: \"Scene One\"\n---\n\nThe ferry left at noon, from the laptop.\n",
+    )
+    .unwrap();
+    (root, scene, copy)
+}
+
+fn in_trash(root: &Path, needle: &str) -> bool {
+    fs::read_dir(root.join(".grimoire/trash"))
+        .map(|rd| {
+            rd.flatten()
+                .any(|e| fs::read_to_string(e.path()).is_ok_and(|t| t.contains(needle)))
+        })
+        .unwrap_or(false)
+}
+
+#[test]
+fn a_sync_apps_copy_is_named_in_the_tree_and_the_status_bar_warns() {
+    let (root, _, _) = conflicted("conflict-badge");
+    let d = Desk::open(root, 140, 42);
+    assert!(d.shows("Dropbox copy"), "the tree names whose copy it is");
+    assert!(d.status().contains("⚠ 1 conflict"), "{}", d.status());
+    // and it isn't counted: the book is only the scene's five words
+    assert_eq!(d.app.project.total_words(), 5);
+}
+
+#[test]
+fn settling_takes_the_copy_and_ctrl_z_puts_both_back() {
+    let (root, scene, copy) = conflicted("conflict-take");
+    let mut d = Desk::open(root.clone(), 140, 42);
+    d.app.open_conflicts();
+    d.draw();
+    assert!(d.shows("SETTLE CONFLICTS"));
+    assert!(d.shows("Scene One — Dropbox copy"));
+    d.key(KeyCode::Enter);
+    assert!(matches!(d.app.overlay, Overlay::Settle { .. }));
+    assert!(d.shows("Take the Dropbox copy"));
+    assert!(
+        d.app.beside.as_ref().is_some_and(|b| b.path == copy),
+        "the copy is beside the scene"
+    );
+    assert!(d.shows("at noon"), "and readable there");
+    d.key(KeyCode::Enter); // take it
+    assert!(
+        fs::read_to_string(&scene)
+            .unwrap()
+            .contains("from the laptop")
+    );
+    assert!(!copy.exists() && in_trash(&root, "from the laptop"));
+    assert!(!d.status().contains("conflict"), "{}", d.status());
+    // Ctrl-Z, straight away from the editor: both versions as they were.
+    d.ctrl('z');
+    assert!(fs::read_to_string(&scene).unwrap().contains("left at dawn"));
+    assert!(copy.exists(), "the copy is back beside it");
+    assert!(d.status().contains("⚠ 1 conflict"));
+}
+
+#[test]
+fn keeping_the_scene_sends_the_copy_to_the_trash_and_back() {
+    let (root, scene, copy) = conflicted("conflict-keep");
+    let mut d = Desk::open(root.clone(), 140, 42);
+    d.app.open_conflicts();
+    d.key(KeyCode::Enter);
+    d.key(KeyCode::Char('2'));
+    assert!(fs::read_to_string(&scene).unwrap().contains("left at dawn"));
+    assert!(!copy.exists() && in_trash(&root, "from the laptop"));
+    d.ctrl('z');
+    assert!(copy.exists());
+}
+
+#[test]
+fn keeping_both_makes_a_scene_after_it_that_counts() {
+    let (root, scene, copy) = conflicted("conflict-both");
+    let mut d = Desk::open(root.clone(), 140, 42);
+    d.app.open_conflicts();
+    d.key(KeyCode::Enter);
+    d.key(KeyCode::Char('3'));
+    let kept = scene.with_file_name("02-Scene-One-Dropbox-copy.md");
+    assert!(kept.exists(), "right after the original");
+    assert!(!copy.exists());
+    let title = d
+        .app
+        .project
+        .nodes
+        .iter()
+        .find(|n| n.path == kept)
+        .map(|n| n.title.clone());
+    assert_eq!(title.as_deref(), Some("Scene One — Dropbox copy"));
+    assert_eq!(d.app.project.total_words(), 5 + 8, "and both count now");
+    d.ctrl('z');
+    assert!(copy.exists() && !kept.exists());
+}
+
+#[test]
+fn deleting_a_scene_takes_its_copies_to_the_trash_and_undo_brings_all_back() {
+    let (root, scene, copy) = conflicted("conflict-delete");
+    let mut d = Desk::open(root.clone(), 140, 42);
+    // The tree is on the scene; ask to delete it.
+    let i = d
+        .app
+        .project
+        .nodes
+        .iter()
+        .position(|n| n.path == scene)
+        .unwrap();
+    d.app.reveal(i);
+    d.app.focus = Focus::Tree;
+    d.key(KeyCode::Char('d'));
+    assert!(
+        d.shows("and its Dropbox copy"),
+        "the prompt says the copy goes too"
+    );
+    d.key(KeyCode::Char('y'));
+    assert!(!scene.exists() && !copy.exists());
+    assert!(in_trash(&root, "left at dawn") && in_trash(&root, "from the laptop"));
+    d.ctrl('z');
+    assert!(scene.exists() && copy.exists(), "one undo brings both back");
+}
