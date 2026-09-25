@@ -387,6 +387,13 @@ fn shots() {
     s.key(KeyCode::Esc, none);
     frames.push(s.json("menu", None));
 
+    // The help, opened with F1 from the page: on the topic for writing.
+    let mut s = Shot::new("help", "Catppuccin Mocha", w, h, false);
+    s.key(KeyCode::Tab, none);
+    s.key(KeyCode::F(1), none);
+    assert!(s.shows("HELP"));
+    frames.push(s.json("help", None));
+
     // Click a misspelt word.
     let mut s = Shot::new("spell", "Rosé Pine", w, h, true);
     s.app.load_speller_now();

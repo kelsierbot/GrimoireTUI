@@ -172,9 +172,17 @@ Everything is one `Esc` away:
 
 <p align="center"><img src="assets/screenshots/menu.png" alt="The Esc menu, in Tokyo Night" width="100%"></p>
 
+And every feature is explained inside: `F1` (or `?` outside the page, or
+*Help…* in the menu) opens the help on the topic for where you are — the
+outline, the page, the Pomodoro, the export dialog. Type to search every topic;
+*Every key* lists them all.
+
+<p align="center"><img src="assets/screenshots/help.png" alt="The help in Catppuccin Mocha, opened with F1 from the page: the topics on the left, Writing open on the right" width="100%"></p>
+
 | Key | |
 |---|---|
-| `Esc` | **the menu**, from anywhere — new, rename, delete, export, the writing tools, settings, and *Quit Grimoire* at the bottom (`F1` works too). `Esc` again closes it; with a note or a scene open beside, the first `Esc` closes that |
+| `Esc` | **the menu**, from anywhere — new, rename, delete, export, the writing tools, settings, and *Quit Grimoire* at the bottom. `Esc` again closes it; with a note or a scene open beside, the first `Esc` closes that |
+| `F1` · `?` | **the help** — every feature explained, opened on the topic for where you are. `?` works wherever you aren't typing; on the page it's a question mark |
 | `Ctrl-K` | **find anything** — every action, scene, note and theme by name, with its key |
 | `Tab` / `Shift-Tab` | cycle panes — tree, editor, the open note, Pomodoro, music |
 | `↑ ↓` · `j k` | move in the tree |
