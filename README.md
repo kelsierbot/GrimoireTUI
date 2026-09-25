@@ -3,7 +3,7 @@
 **[grimoire.joshking.ai](https://grimoire.joshking.ai)** · Rust + [Ratatui](https://ratatui.rs) · MIT · macOS, Linux and Windows
 
 A writing desk for novels that lives in your terminal. It knows what a
-manuscript is — pages, chapters, scenes, word targets — and it keeps every word
+manuscript is — parts, chapters, scenes, word targets — and it keeps every word
 of it as plain files you could read with `cat`.
 
 ---
@@ -101,14 +101,14 @@ the-archive/
 ├─ novel.toml                    title, author, word targets, part_label
 ├─ Novel-Format.md               how the book is laid out
 ├─ manuscript/
-│  ├─ 01-Page-One/
+│  ├─ 01-Part-One/
 │  │  ├─ 01-Chapter-One/
 │  │  │  ├─ 01-Scene-One.md      a scene
 │  │  │  ├─ 02-Scene-Two.md
 │  │  │  └─ 03-Scene-Three.md
 │  │  └─ 02-Chapter-Two/ …
-│  ├─ 02-Page-Two/ …
-│  └─ 03-Page-Three/ …
+│  ├─ 02-Part-Two/ …
+│  └─ 03-Part-Three/ …
 ├─ characters/                   the notebook: names here teach the
 ├─ places/                         spellchecker and the codex
 ├─ front-matter/
@@ -129,11 +129,11 @@ and every section and folder folds. A symbol beside each row is off to begin
 with; turn tree icons on in `Esc` → Settings, or from the palette. The pane is headed
 with the book's title.
 
-**A new book arrives with its shape already standing:** three pages of nine
+**A new book arrives with its shape already standing:** three parts of nine
 chapters, three scenes in each — twenty-seven chapters, eighty-one scenes, all
 of them empty. The structure is a suggestion you rearrange; the writing is
 never presumed. `part_label` in `novel.toml` is what this book calls its
-largest division — `Page` to begin with, `Act` or `Book` if you prefer — and
+largest division — `Part` to begin with, `Act` or `Book` if you prefer — and
 the app says your word back everywhere it names one.
 
 **Front matter goes by edition.** Pages in `Manuscript Format` go into the Word
@@ -142,8 +142,7 @@ both. The starter pages are `compile: false` until you set them to `true`.
 
 **Books from earlier versions are brought into this shape once, when they
 open:** Characters, Places and Research move out of `notes/` into sections of
-their own, a book's parts become pages (unless `part_label` names something
-else), missing sections are added, and `[[links]]` follow every move. Nothing
+their own, missing sections are added, and `[[links]]` follow every move. Nothing
 is deleted. A big book opens folded down to the first scene, so launching
 shows you the shape rather than a hundred rows.
 
@@ -167,27 +166,31 @@ heard of.
 
 | Key | |
 |---|---|
-| `Esc` | **the menu**, from anywhere — new, rename, delete, compile, settings, and *Quit Grimoire* at the bottom (`F1` works too). `Esc` again closes it |
+| `Esc` | **the menu**, from anywhere — new, rename, delete, export, the writing tools, settings, and *Quit Grimoire* at the bottom (`F1` works too). `Esc` again closes it; with a note or a scene open beside, the first `Esc` closes that |
 | `Ctrl-K` | **find anything** — every action, scene, note and theme by name, with its key |
 | `Tab` / `Shift-Tab` | cycle panes — tree, editor, the open note, clearing, music |
 | `↑ ↓` · `j k` | move in the tree |
 | `Enter` · `Space` | fold or unfold a section or folder · open a scene |
 | `→` `l` / `←` `h` | expand / collapse, or jump to parent |
-| `n` | new scene — at the end of the selected chapter (a selected page's last chapter); in another section, a note, document or sheet there |
-| `c` | new chapter — named for you ("Chapter Two"), at the end of the page you're in |
-| `p` | new page — named for you ("Page Two", or "Act Two" if `part_label` says so), at the end of the manuscript |
-| `N` | new folder beside the selected one — outside the manuscript; in it, a chapter or page |
+| `n` | new scene — at the end of the selected chapter (a selected part's last chapter); in another section, a note, document or sheet there |
+| `c` | new chapter — named for you ("Chapter Two"), at the end of the part you're in |
+| `p` | new part — named for you ("Part Two", or "Act Two" if `part_label` says so), at the end of the manuscript |
+| `N` | new folder beside the selected one — outside the manuscript; in it, a chapter or part |
 | `r` | rename what's selected — the file is renamed to match and keeps its place |
 | `d` | delete what's selected — asks first, then moves it to `.grimoire/trash` |
 | `Ctrl-Z` `Ctrl-Y` *(in the tree)* | undo · redo a delete, rename, move or new item — a delete comes back from the trash to where it was |
-| `Alt-↑` `Alt-↓` · `K` `J` | move what's selected up or down — a scene or folder crosses chapters and pages at the ends, a section changes places with its neighbour; dragging a row in the tree does the same |
+| `Alt-↑` `Alt-↓` · `K` `J` | move what's selected up or down — a scene or folder crosses chapters and parts at the ends, a section changes places with its neighbour; dragging a row in the tree does the same |
 | `H` | the scene's history — every kept version, what changed, restore any |
 | `b` | the corkboard |
 | `/` | find in the whole book |
 | `Ctrl-F` | find in the scene (`Ctrl-F` again: the whole book) · `Tab` to replace · `Ctrl-R` replace all |
+| `Ctrl-W` · `Ctrl-E` *(in find)* | whole words ↔ inside words · exact case ↔ any case (`Alt-W` / `Alt-C` too) |
 | `Ctrl-Z` `Ctrl-Y` | undo · redo (`Ctrl-Shift-Z` too, where the terminal can send it) |
 | `Ctrl-X` `Ctrl-C` | cut · copy the selection |
-| `Ctrl-O` | open the note for the name under the cursor beside the scene |
+| `Ctrl-O` | open the note for the name under the cursor beside the scene — again to put it away |
+| `v` *(in the tree)* | show the selected scene beside, read-only — `Esc` closes it, `Enter` writes in it |
+| `Ctrl-D` | focus mode — just the prose; again to leave |
+| `Ctrl-T` | notes & TKs — every `%% note %%` and TK in the book; type to filter, `Enter` to go there |
 | `F8` | spelling suggestions for this word, or the next misspelling |
 | `Ctrl-S` | save now — autosave already does, two seconds after you stop typing |
 | `Ctrl-Q` · `q` in the tree | quit, saving everything first |
@@ -197,7 +200,34 @@ heard of.
 | `F4` `F5` `F6` | previous · play-pause · next (with music on) |
 | `F7` | the music player — queue, your playlists, search, and every control (also in the menu, or `Enter` on the music pane) |
 
+## Writing
+
+- **Focus mode** (`Ctrl-D`) hides everything but the prose: centred, no
+  frame, a quiet status line. `Esc` still opens the menu.
+- **A readable line.** Prose wraps at 72 columns, centred in the pane —
+  *Line width* in the menu's Settings cycles 60 / 72 / 80 / 100 / full. In
+  focus mode the line you're writing stays mid-screen (*Typewriter scrolling*);
+  elsewhere you're never drafting on the bottom row.
+- **Notes that never reach the book.** `%% like this %%` (Obsidian's comment
+  syntax, across lines if you like) and `TK` are dimmed as you write, left out
+  of every word count, compile and export, and kept on disk exactly as typed.
+  `Ctrl-T` lists them all.
+- **Sprints and targets.** *Start a sprint…* sets a word goal and minutes and
+  starts the timer; the status bar counts `sprint 212/500 · 14:32`. A scene's
+  `target:` shows as progress in the editor's title.
+- **Revision passes.** *Next scene still in draft* walks the book by status;
+  *Echo words* lights a word used again within forty words.
+- **A scene beside** (`v` in the tree): another scene, read-only, next to the
+  one you're writing, for continuity.
+
 ## Nothing is lost
+
+- **Changes made elsewhere are never overwritten.** Grimoire looks at the book
+  on disk every couple of seconds. An edit from Obsidian, a sync app or the
+  phone is taken in; if you had unsaved words in that scene too, they're kept
+  beside it as *Scene (from this-computer, date)* — a parked copy — and neither
+  version is lost. Scenes added, moved or deleted elsewhere show up by
+  themselves. A file that isn't UTF-8 opens read-only and is never rewritten.
 
 - **Autosave.** A scene is written two seconds after you stop typing, and
   never sits unsaved longer than twenty. Every write goes through a temporary
@@ -205,9 +235,14 @@ heard of.
   window, logging out or `kill` saves first; so does quitting.
 - **Recovery.** If a save fails (a full disk, a file another program has
   locked) or Grimoire crashes, the words go to `.grimoire/recovery/` and the
-  next launch offers them back beside the saved version.
+  next launch offers them back beside the saved version — chosen with the
+  arrows and `Enter`, never by a stray key; declining puts them in the trash.
 - **Undo.** A word at a time, per scene, kept when you switch scenes. Typing
-  over a selection replaces it; a paste is one step.
+  over a selection replaces it; a paste is one step; a replace across the
+  whole book is one step too.
+- **Moves can't strand anything.** A move that can't finish (a locked folder,
+  a sync app holding a file) puts everything back, and anything a crash left
+  mid-move reappears when the book opens.
 - **History.** Every scene keeps dated copies as you work — at most every five
   minutes, plus how it was before today's first change and before anything
   drastic — in `.grimoire/history/`, as plain Markdown. `H` lists them with a
@@ -215,9 +250,10 @@ heard of.
 
 ## Finding and shaping
 
-- **Find and replace** in a scene or across the book, grouped by page and
+- **Find and replace** in a scene or across the book, grouped by part and
   chapter, with a preview before anything is replaced across scenes (each
-  scene's previous version goes to its history first).
+  scene's previous version goes to its history first). Whole words in their
+  exact case unless you say otherwise (`Ctrl-W`, `Ctrl-E`).
 - **Name drift** (palette: *Check names*): spellings one or two letters away
   from a name in your notebook — *Kaelan* where the Characters note says
   *Kaelen* — with where they are, fixed in one go.
@@ -226,7 +262,7 @@ heard of.
   the book's root. On unless turned off (palette).
 - **Moving** a scene or folder renames only the files whose number changes,
   and rewrites `[[links]]` in your notes that pointed at them.
-- **The corkboard** (`b`) shows a page as index cards chapter by chapter:
+- **The corkboard** (`b`) shows a part as index cards chapter by chapter:
   POV (each character in its own colour), status, synopsis, words against
   target. `p` filters to one POV; `s`, `e` and `v` edit the card, changing only
   that line of the scene's frontmatter.
@@ -240,8 +276,8 @@ mentions it. Nothing extra is stored; it's all read from the files.
 
 ## Readers, and other computers
 
-- **Export** (palette): a Word document in standard manuscript format, an
-  EPUB for phones and e-readers, and Markdown — the whole book or chosen pages —
+- **Export** (`Esc` › *Export…*): a Word document in standard manuscript format, an
+  EPUB for phones and e-readers, and Markdown — the whole book or chosen parts —
   into `exports/`. Also `grimoire export [--docx] [--epub] [--md] [--parts 1,3]`.
 - **Resume.** `.grimoire/resume.md` remembers the scene and paragraph you were
   at, so opening the book on any computer the folder reaches lands you there.
@@ -319,9 +355,11 @@ Below the manuscript tree is a forest, and the forest is the timer.
 ```
 
 `←`/`→` cycles the pane through three views: **the clearing**; a **spectrum**
-analyser that listens to whatever your Mac is playing (macOS 14.6+, once your
-terminal is allowed under *Privacy & Security › Screen & System Audio
-Recording › System Audio Recording Only*); and **growth** — a garden where
+analyser that listens to whatever the computer is playing — on a Mac (macOS
+14.6+, once your terminal is allowed under *Privacy & Security › Screen &
+System Audio Recording › System Audio Recording Only*), and on Linux through
+PipeWire's `pw-record` or PulseAudio's `parec` (set `GRIMOIRE_MONITOR=<sink>`
+to hear an output other than the default); and **growth** — a garden where
 every 50 words you write today adds a stem, a leaf or a flower.
 
 The sun's **position is the clock**. It crosses the sky over a twenty-five

@@ -1,5 +1,79 @@
 # Changelog
 
+## 0.4.0
+
+### Keeping every word
+
+- **Changes made elsewhere are never overwritten.** If Obsidian, a sync app or
+  the phone changes a scene while Grimoire is open, Grimoire shows the new
+  version; if you had unsaved words in it too, they're kept beside it as
+  "Scene (from bazzite, …)", marked *parked copy* in the tree. Scenes added,
+  moved or deleted outside Grimoire show up by themselves; a deleted scene is
+  never brought back, and any unsaved words from it go to the trash.
+- **One file that isn't UTF-8 no longer stops a book opening.** It's shown
+  read-only and never rewritten.
+- **The recovered-words box never throws words away on a keystroke:** choose
+  with ↑↓ and `Enter`. "Keep the saved versions" puts the recovered words in
+  the trash rather than deleting them.
+- **Moving a section right after typing** no longer loses the last few
+  seconds of writing.
+- **Two things with the same name deleted in the same second** both stay in
+  the trash.
+- **A move that can't finish** (a locked folder, a sync app holding a file)
+  puts everything back, and anything a crash left mid-move reappears in the
+  tree next time the book opens.
+- **Undoing a move keeps its link fixes**, and a new scene no longer inherits
+  a deleted scene's undo or history.
+- **Find and replace match whole words in their exact case** by default —
+  `Ctrl-W` for inside words, `Ctrl-E` for any case — and one `Ctrl-Z` undoes a
+  replace across the whole book.
+
+### Writing
+
+- **Focus mode** (`Ctrl-D`): just your prose, centred, with a quiet status
+  line. `Esc` still opens the menu; `Ctrl-D` again brings everything back.
+- **A readable line length**: prose wraps at 72 columns, centred. *Line
+  width* in Settings changes it (60 / 72 / 80 / 100 / full).
+- **Typewriter scrolling**: in focus mode the line you're writing stays
+  mid-screen; elsewhere you're never drafting on the bottom row.
+- **Notes that never reach the book**: `%% like this %%` (Obsidian's comment
+  syntax, may cross lines) and TK — dimmed in the editor, left out of every
+  word count, compile and export, kept on disk exactly as typed. **`Ctrl-T`**
+  lists every note and TK in the book; type to filter, `Enter` goes there.
+- **Sprints**: *Start a sprint…* sets a word goal and minutes, starts the
+  timer, and the status bar counts `sprint 212/500 · 14:32`. A scene's
+  `target:` shows as progress in the editor's title.
+- **Revision passes**: *Next scene still in draft*, and *Echo words* (the same
+  word again within forty).
+- **A scene beside**: `v` in the tree shows another scene, read-only, next to
+  the one you're writing. `Esc` closes it; `Enter` switches to writing in it.
+- **An empty scene says how to start.**
+
+### Around the desk
+
+- **Export… is in the menu** — Word, EPUB or Markdown from one dialog, which
+  now fits an 80-column terminal. Compile and the project map are still in
+  `Ctrl-K`.
+- **A new book opens on its Novel Format guide**, written as plain prose.
+- **New books count in parts again** (Part One, `p` new part). Older books
+  keep their folders' names — a book an earlier version switched to pages
+  keeps its pages, and one with its own label (Act, Book) is untouched.
+- **The spectrum works on Linux**: it hears whatever the machine plays through
+  PipeWire (`pw-record`) or PulseAudio (`parec`), only while the view is
+  showing; with neither installed it says so instead of sitting blank.
+  `GRIMOIRE_MONITOR=<sink>` listens to a different output.
+- The menu leaves out *Music player* while music is off; history compares each
+  version with now ("6 words shorter"); resuming an empty scene says it was
+  left open; corkboard cards without a synopsis show the scene's first line; a
+  character note's title names its section.
+
+### Under the hood
+
+- The book's logic lives in `grimoire-core`, shared with the phone app, which
+  now builds from the same repository.
+- Tests run on Linux, macOS and Windows for every change, with clippy and
+  rustfmt enforced.
+
 ## 0.3.6
 
 - **`Esc` closes an open character note** whichever pane you're in — 0.3.5
