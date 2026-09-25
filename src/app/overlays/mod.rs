@@ -43,6 +43,8 @@ impl App {
             Overlay::Sessions { .. } => self.on_sessions_key(key),
             Overlay::SessionDiff { .. } => self.on_session_diff_key(key),
             Overlay::Export { .. } => self.on_export_key(key),
+            Overlay::Look { .. } => self.on_look_key(key),
+            Overlay::Author { .. } => self.on_author_key(key),
             Overlay::Spelling { .. } => self.on_spelling_key(key),
             Overlay::Names { .. } => self.on_names_key(key),
             Overlay::Recover { .. } => self.on_recover_key(key),
@@ -147,6 +149,8 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
         Overlay::Sessions { .. } => session_list::draw_sessions(f, app, area, t),
         Overlay::SessionDiff { .. } => session_list::draw_session_diff(f, app, area, t),
         Overlay::Export { .. } => readers::draw_export(f, app, area, t),
+        Overlay::Look { .. } => readers::draw_look(f, app, area, t),
+        Overlay::Author { .. } => readers::draw_author(f, app, area, t),
         Overlay::Spelling { .. } => spelling::draw_spelling(f, app, area, t),
         Overlay::Cork {
             scope,

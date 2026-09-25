@@ -28,6 +28,10 @@ pub enum Action {
     Icons,
     SpellingSuggestions,
     Export,
+    /// The submission manuscript's look (format, paper, headings…).
+    ManuscriptLook,
+    /// The byline and the title page's contact block.
+    AuthorDetails,
     Sessions,
     SaveSession,
     ProjectMap,
@@ -205,7 +209,17 @@ pub fn entries(app: &crate::app::App) -> Vec<Entry> {
             "F8",
             Action::SpellingSuggestions,
         ),
-        Entry::new("Export for readers (Word, EPUB)", "", Action::Export),
+        Entry::new("Export for readers (Word, PDF, EPUB)", "", Action::Export),
+        Entry::new(
+            "Manuscript look (format, paper, headings)",
+            "",
+            Action::ManuscriptLook,
+        ),
+        Entry::new(
+            "Author details (title page contact block)",
+            "",
+            Action::AuthorDetails,
+        ),
         Entry::new("Writing sessions", "", Action::Sessions),
         Entry::new("Save this session now", "", Action::SaveSession),
         Entry::new("Update project map", "", Action::ProjectMap),

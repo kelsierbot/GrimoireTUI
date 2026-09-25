@@ -1308,3 +1308,121 @@ fn unsaved_words_wait_for_a_file_that_cannot_be_read() {
     assert!(d.app.commit_saves());
     assert!(fs::read_to_string(&scene).unwrap().contains("Kept."));
 }
+
+// ---- export: TKs first, the manuscript's look, the author's details ---------
+
+/// A seen book with words in its first scene, the export dialog open.
+fn export_desk(tag: &str, words: &str) -> Desk {
+    let root = book(tag, true);
+    let scene = first_scene(&root);
+    let text = fs::read_to_string(&scene).unwrap();
+    fs::write(&scene, format!("{text}\n{words}\n")).unwrap();
+    let mut d = Desk::open(root, 120, 40);
+    d.app.open_export();
+    d.draw();
+    d
+}
+
+fn export_rows(d: &Desk) -> (usize, usize, usize, usize) {
+    let Overlay::Export { parts, .. } = &d.app.overlay else {
+        panic!("the export dialog isn't up");
+    };
+    let how_much = 4 + parts.len();
+    (how_much, how_much + 1, how_much + 2, how_much + 3)
+}
+
+fn go_to(d: &mut Desk, row: usize) {
+    for _ in 0..20 {
+        if matches!(d.app.overlay, Overlay::Export { sel, .. } if sel == row) {
+            return;
+        }
+        d.key(KeyCode::Down);
+    }
+    panic!("row {row} not reached");
+}
+
+#[test]
+fn export_says_what_tks_are_left_before_it_writes_anything() {
+    let mut d = export_desk("tk-warn", "She took the TK from her coat.");
+    assert!(d.shows("PDF"), "PDF is on offer");
+    d.typed("x");
+    assert!(d.shows("1 TK is still in the text"), "warned first");
+    assert!(d.shows("took the TK from her coat"));
+    assert!(!d.root.join("exports").exists(), "nothing written yet");
+    d.typed("x");
+    assert!(d.shows("✓ exports/"), "the second x exports anyway");
+    assert!(d.shows("1 TK is left in the text"));
+    assert!(d.root.join("exports").exists());
+}
+
+#[test]
+fn the_look_dialog_saves_to_novel_toml_and_goes_back_to_export() {
+    let mut d = export_desk("look", "Words.");
+    let (_, look, _, _) = export_rows(&d);
+    go_to(&mut d, look);
+    d.key(KeyCode::Enter);
+    assert!(matches!(d.app.overlay, Overlay::Look { .. }));
+    assert!(d.shows("MANUSCRIPT LOOK"));
+    d.key(KeyCode::Right); // Format: Modern → Classic
+    d.key(KeyCode::Down);
+    d.key(KeyCode::Right); // Paper: Letter → A4
+    d.key(KeyCode::Esc);
+    assert!(
+        matches!(d.app.overlay, Overlay::Export { .. }),
+        "back to the export dialog"
+    );
+    let toml = fs::read_to_string(d.root.join("novel.toml")).unwrap();
+    assert!(
+        toml.contains("format = \"classic\"") && toml.contains("paper = \"a4\""),
+        "{toml}"
+    );
+    assert!(toml.contains("part_label"), "the rest of novel.toml stays");
+    assert!(d.shows("Classic (Courier) · A4"));
+}
+
+#[test]
+fn author_details_are_typed_in_and_kept() {
+    let mut d = export_desk("author", "Words.");
+    let (_, _, author, _) = export_rows(&d);
+    assert!(d.shows("not set — the title page wants your name"));
+    go_to(&mut d, author);
+    d.key(KeyCode::Enter);
+    assert!(matches!(d.app.overlay, Overlay::Author { .. }));
+    d.key(KeyCode::Down); // legal name
+    d.typed("Jane Q Smith");
+    for _ in 0..5 {
+        d.key(KeyCode::Down); // to email
+    }
+    d.typed("jane@example.com");
+    d.key(KeyCode::Esc);
+    assert!(matches!(d.app.overlay, Overlay::Export { .. }));
+    assert!(d.shows("Jane Q Smith · jane@example.com"));
+    let toml = fs::read_to_string(d.root.join("novel.toml")).unwrap();
+    assert!(toml.contains("legal_name = \"Jane Q Smith\""), "{toml}");
+    assert!(toml.contains("email = \"jane@example.com\""));
+    // A fresh desk reads them back.
+    let p = Project::load(&d.root).unwrap();
+    assert_eq!(p.meta.contact.legal_name, "Jane Q Smith");
+}
+
+#[test]
+fn how_much_takes_a_number_and_names_the_sample() {
+    let mut d = export_desk("sample", "Words.");
+    let (how_much, ..) = export_rows(&d);
+    go_to(&mut d, how_much);
+    assert!(d.shows("◂ the whole book ▸"));
+    d.typed("2");
+    assert!(
+        d.shows("◂ the first 2 chapters ▸"),
+        "typing a number asks for chapters"
+    );
+    d.key(KeyCode::Right);
+    assert!(d.shows("◂ chapters 1-3 ▸"));
+    d.key(KeyCode::Right);
+    assert!(d.shows("◂ the first 10000 words ▸"));
+    d.typed("x");
+    assert!(
+        d.shows("_First-10000-Words.docx"),
+        "the sample's own file name"
+    );
+}
