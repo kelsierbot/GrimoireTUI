@@ -551,14 +551,17 @@ pub(crate) fn scene_colour(ink: Ink, t: &Theme, night: bool) -> ratatui::style::
         Ink::Snow => t.text,
         Ink::Light => t.sun,
         Ink::Glow(v) => blend(t.foliage, t.bloom, lit(v)),
-        Ink::Band { n, faint } => {
+        // Red outside to violet in, from whatever the theme calls warm,
+        // sun, green, sky and flower — so any palette makes a rainbow.
+        Ink::Band { n, faint, glint } => {
             let c = match n {
                 0 => t.warn,
-                1 => t.sun,
-                2 => t.foliage,
-                3 => t.moon,
-                _ => t.bloom,
+                1 => blend(t.warn, t.sun, 0.5),
+                2 => t.sun,
+                3 => t.foliage,
+                _ => blend(t.moon, t.bloom, 0.4),
             };
+            let c = if glint { blend(c, t.text, 0.55) } else { c };
             if faint { blend(c, t.border, 0.6) } else { c }
         }
         Ink::Accent => t.accent,
