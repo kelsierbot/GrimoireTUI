@@ -362,7 +362,7 @@ fn look_rows(look: &grimoire_core::submission::Manuscript) -> Vec<(&'static str,
     ]
 }
 
-const KEYWORD_ROW: usize = 7;
+pub(super) const KEYWORD_ROW: usize = 7;
 
 impl App {
     pub(super) fn on_look_key(&mut self, key: Key) {

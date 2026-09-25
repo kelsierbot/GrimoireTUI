@@ -1,6 +1,8 @@
 <img src="assets/banner.svg" alt="grimoire — a terminal writing desk for novels" width="820">
 
-**[grimoire.joshking.ai](https://grimoire.joshking.ai)** · Rust + [Ratatui](https://ratatui.rs) · MIT · macOS, Linux and Windows
+**[grimoire.joshking.ai](https://grimoire.joshking.ai)** · Rust + [Ratatui](https://ratatui.rs) · MIT · macOS, Linux and Windows · made by [Catfinity Studios](https://catfinity.com)
+
+<a href="https://ko-fi.com/F2F21E0DK0"><img height="36" style="border:0px;height:36px;" src="https://storage.ko-fi.com/cdn/kofi6.png?v=6" alt="Buy Me a Coffee at ko-fi.com"></a>
 
 A writing desk for novels that lives in your terminal. It knows what a
 manuscript is — parts, chapters, scenes, word targets — and it keeps every word
@@ -172,9 +174,18 @@ Everything is one `Esc` away:
 
 <p align="center"><img src="assets/screenshots/menu.png" alt="The Esc menu, in Tokyo Night" width="100%"></p>
 
+And every feature is explained inside: `F1` (or `?` outside the page, or
+*Help…* in the menu) opens the help on the topic for where you are — the
+outline, the page, the Pomodoro, the export dialog. Type to search every topic;
+*Every key* lists them all. *About Grimoire…* in the menu says which version
+you're running, and who made it (`grimoire --version` from a terminal).
+
+<p align="center"><img src="assets/screenshots/help.png" alt="The help in Catppuccin Mocha, opened with F1 from the page: the topics on the left, Writing open on the right" width="100%"></p>
+
 | Key | |
 |---|---|
-| `Esc` | **the menu**, from anywhere — new, rename, delete, export, the writing tools, settings, and *Quit Grimoire* at the bottom (`F1` works too). `Esc` again closes it; with a note or a scene open beside, the first `Esc` closes that |
+| `Esc` | **the menu**, from anywhere — new, rename, delete, export, the writing tools, settings, and *Quit Grimoire* at the bottom. `Esc` again closes it; with a note or a scene open beside, the first `Esc` closes that |
+| `F1` · `?` | **the help** — every feature explained, opened on the topic for where you are. `?` works wherever you aren't typing; on the page it's a question mark |
 | `Ctrl-K` | **find anything** — every action, scene, note and theme by name, with its key |
 | `Tab` / `Shift-Tab` | cycle panes — tree, editor, the open note, Pomodoro, music |
 | `↑ ↓` · `j k` | move in the tree |
@@ -449,8 +460,8 @@ Grimoire draws on your terminal's own background.
 
 **Rainbow** isn't a flat palette. Everything the others draw in their accent —
 the focused border, titles, the progress bar, the word count — is painted as a
-diagonal sweep of the spectrum that drifts round the wheel about once a
-minute; the Visualizer's bars climb from red to violet; and its Pomodoro is a
+diagonal sweep of the spectrum that flows round the wheel once every
+twelve seconds; the Visualizer's bars climb from red to violet; and its Pomodoro is a
 rainbow over the hills.
 
 Lost Forest is the one written for this app rather than borrowed. It is
@@ -655,6 +666,15 @@ builds every platform and publishes the GitHub release with both installers;
 Linux and runs it. Nothing is published unless every build succeeds.
 
 Issues and pull requests welcome.
+
+## Support Grimoire
+
+Grimoire is free, and a donation is never required — but it is appreciated,
+and it goes toward Grimoire's development.
+
+<a href="https://ko-fi.com/F2F21E0DK0"><img height="36" style="border:0px;height:36px;" src="https://storage.ko-fi.com/cdn/kofi6.png?v=6" alt="Buy Me a Coffee at ko-fi.com"></a>
+
+The same is in the app: *Donate…* in the menu, or `d` in *About Grimoire…*.
 
 ## License
 

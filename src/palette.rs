@@ -71,6 +71,11 @@ pub enum Action {
     /// An older book keeps its writing history in `.git` inside it: move it
     /// to this machine's data folder, where no sync client can damage it.
     MoveHistoryOut,
+    /// The help, on the topic for wherever you are — or on this one.
+    Help,
+    HelpTopic(&'static str),
+    About,
+    Donate,
     Open(std::path::PathBuf),
 }
 
@@ -270,8 +275,20 @@ pub fn entries(app: &crate::app::App) -> Vec<Entry> {
         Entry::new("Start or pause the timer", "F2", Action::Timer),
         Entry::new("Reset the timer", "F3", Action::TimerReset),
         Entry::new("Menu", "Esc", Action::Menu),
+        Entry::new("Help", "F1", Action::Help),
+        Entry::new("About Grimoire", "", Action::About),
+        Entry::new("Donate (Ko-fi)", "", Action::Donate),
         Entry::new("Quit", &format!("{m}Q"), Action::Quit),
     ]);
+    // Every help topic, so "help sync" goes straight to it.
+    for t in crate::help::TOPICS {
+        v.push(Entry {
+            label: format!("Help: {}", t.name),
+            detail: "help".into(),
+            key: String::new(),
+            action: Action::HelpTopic(t.id),
+        });
+    }
 
     // Scenes and notes, by name, with where they live.
     let p = &app.project;
@@ -376,7 +393,12 @@ pub fn filter(all: &[Entry], query: &str) -> Vec<Entry> {
     if query.trim().is_empty() {
         return all
             .iter()
-            .filter(|e| !matches!(e.action, Action::Open(_) | Action::Theme(_)))
+            .filter(|e| {
+                !matches!(
+                    e.action,
+                    Action::Open(_) | Action::Theme(_) | Action::HelpTopic(_)
+                )
+            })
             .cloned()
             .collect();
     }
@@ -389,7 +411,14 @@ pub fn filter(all: &[Entry], query: &str) -> Vec<Entry> {
             let name = score(query, &e.label);
             let after = score(query, &format!("{} {}", e.label, e.detail)).map(|s| s - 20);
             let before = score(query, &format!("{} {}", e.detail, e.label)).map(|s| s - 20);
-            name.max(after).max(before).map(|s| (s, i, e))
+            // A help topic gives way to what it explains: "sprint" starts
+            // one, "help sprint" reads about it.
+            let help = if matches!(e.action, Action::HelpTopic(_)) {
+                30
+            } else {
+                0
+            };
+            name.max(after).max(before).map(|s| (s - help, i, e))
         })
         .collect();
     scored.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));

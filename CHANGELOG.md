@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.5.4 — Help, About and Donate
+
+- **Help inside the app**: 24 topics explaining every feature, from getting
+  started to compiling and sync. `F1` opens it anywhere, `?` wherever you
+  aren't typing, or *Help…* in the menu and `Ctrl-K`. It opens on the topic
+  for where you are, and typing searches every topic.
+- `F1` now opens Help; `Esc` is the menu.
+- **About Grimoire…** says which version you're running and that it's made by
+  Catfinity Studios, with a link to catfinity.com. `grimoire --version` says
+  the same.
+- **Donate…**: Grimoire is free and a donation is never required, but it's
+  appreciated and goes toward Grimoire's development — the box opens the
+  Ko-fi page.
+- Writing sessions: `l` opens a session's changes, like `→`; `h` no longer
+  does.
+
 ## 0.5.3
 
 - **The Rainbow theme's colours flow**: the spectrum across its borders, titles

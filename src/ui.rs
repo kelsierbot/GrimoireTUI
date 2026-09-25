@@ -241,7 +241,7 @@ pub(crate) fn pane_block<'a>(title: &'a str, focused: bool, t: &Theme) -> Block<
 /// from its spine. Drawn above the tree
 /// when the pane is at least this tall, so the art never costs a short
 /// terminal its outline.
-const BOOK_ART: [&str; 7] = [
+pub(crate) const BOOK_ART: [&str; 7] = [
     "    ✧   ·    ✦    ·   ✧",
     "      ______ ☾ ______",
     "    _/      ╲│╱      \\_",
@@ -255,7 +255,7 @@ const BOOK_ART_MIN_TREE: u16 = 24;
 /// Cover in the accent (so Rainbow paints it), pages in dim ink, the moon in
 /// the moon's colour, and sparkles that twinkle on staggered beats like the
 /// clearing's stars.
-fn draw_book_art(f: &mut Frame, area: Rect, t: &Theme, frame: u64) {
+pub(crate) fn draw_book_art(f: &mut Frame, area: Rect, t: &Theme, frame: u64) {
     let width = BOOK_ART
         .iter()
         .map(|l| l.chars().count())

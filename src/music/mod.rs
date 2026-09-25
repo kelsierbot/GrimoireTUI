@@ -653,6 +653,14 @@ impl Music {
             let _ = tx.send(c);
         }
     }
+
+    /// For tests: the commands the keys send, caught instead of played.
+    #[cfg(test)]
+    pub fn catch_commands(&mut self) -> Receiver<Cmd> {
+        let (tx, rx) = mpsc::channel();
+        self.tx = Some(tx);
+        rx
+    }
 }
 
 #[cfg(test)]
