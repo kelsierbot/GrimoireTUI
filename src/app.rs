@@ -77,6 +77,13 @@ pub enum MenuItem {
 
 /// Something done to the book's files from the tree, kept so it can be taken
 /// back.
+/// The recovered-words choices, in the order they're listed.
+pub const RECOVER_CHOICES: [&str; 3] = [
+    "Restore them — the saved versions go into each scene's history",
+    "Keep the saved versions — the recovered words go to the trash",
+    "Decide later — offered again next time",
+];
+
 #[derive(Debug, Clone)]
 enum TreeStep {
     /// Things moved on disk: a delete (to the trash) or a move. Each batch was
@@ -271,6 +278,9 @@ pub enum Overlay {
     /// Words that couldn't be saved last time, offered back on launch.
     Recover {
         items: Vec<recovery::Pending>,
+        /// Which choice is highlighted: see [`RECOVER_CHOICES`]. Only Enter
+        /// acts, so a stray key at launch can't decide for you.
+        sel: usize,
     },
     /// Ctrl-K: find any action, scene, note or theme by name.
     Palette {
@@ -501,7 +511,7 @@ impl App {
             }
             let items = recovery::pending(&app.project);
             if !items.is_empty() {
-                app.overlay = Overlay::Recover { items };
+                app.overlay = Overlay::Recover { items, sel: 0 };
             }
             if let Some(i) = first_scene {
                 app.editor = Editor::from_text(&app.project.nodes[i].body);
@@ -3560,8 +3570,14 @@ impl App {
                 _ => {}
             },
 
-            Overlay::Recover { items } => match key {
-                Key::Char('y') | Key::Char('Y') | Key::Enter => {
+            Overlay::Recover { sel, .. } if matches!(key, Key::Up | Key::Char('k')) => {
+                *sel = sel.saturating_sub(1);
+            }
+            Overlay::Recover { sel, .. } if matches!(key, Key::Down | Key::Char('j')) => {
+                *sel = (*sel + 1).min(RECOVER_CHOICES.len() - 1);
+            }
+            Overlay::Recover { items, sel } => match (key, *sel) {
+                (Key::Enter, 0) => {
                     let items = std::mem::take(items);
                     self.overlay = Overlay::None;
                     let mut restored = 0;
@@ -3586,14 +3602,29 @@ impl App {
                         );
                     }
                 }
-                Key::Char('n') | Key::Char('N') => {
+                (Key::Enter, 1) => {
+                    // Set aside, not destroyed: the recovered copies go to the
+                    // trash, where they can still be opened and copied from.
+                    let root = self.project.root.clone();
+                    let mut failed = 0;
                     for it in items.iter() {
-                        let _ = fs::remove_file(&it.file);
+                        if project::trash(&root, &it.file).is_err() {
+                            failed += 1;
+                        }
                     }
                     self.overlay = Overlay::None;
-                    self.msg = "kept the saved versions".into();
+                    if let Err(e) = self.reload_tree() {
+                        self.msg = format!("couldn't re-read the tree: {e}");
+                    } else if failed > 0 {
+                        self.msg = format!(
+                            "kept the saved versions — {failed} recovered cop{} couldn't be moved and will be offered again",
+                            if failed == 1 { "y" } else { "ies" }
+                        );
+                    } else {
+                        self.msg = "kept the saved versions — the recovered words are in the trash".into();
+                    }
                 }
-                Key::Esc => {
+                (Key::Enter, _) | (Key::Esc, _) => {
                     self.overlay = Overlay::None;
                     self.msg = "left for now — offered again next time".into();
                 }

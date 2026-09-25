@@ -1692,8 +1692,8 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             f.render_widget(Paragraph::new(lines), inner);
         }
 
-        Overlay::Recover { items } => {
-            let h = (items.len() as u16).min(8) + 8;
+        Overlay::Recover { items, sel } => {
+            let h = (items.len() as u16).min(8) + 10;
             let box_area = centred(area, 70, h);
             f.render_widget(Clear, box_area);
             let block = pane_block("RECOVERED WORDS", true, t);
@@ -1713,7 +1713,7 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
                     format!(" · {}", when_label(dt))
                 });
                 lines.push(Line::from(vec![
-                    Span::styled(" ▸ ", Style::default().fg(t.accent)),
+                    Span::styled(" · ", Style::default().fg(t.dim)),
                     Span::styled(it.title.clone(), Style::default().fg(t.accent)),
                     Span::styled(
                         format!(
@@ -1733,22 +1733,26 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
                 )));
             }
             lines.push(Line::from(""));
-            lines.push(Line::from(Span::styled(
-                " Restoring keeps the saved version in each scene's history.",
-                dim,
-            )));
+            for (i, choice) in crate::app::RECOVER_CHOICES.iter().enumerate() {
+                let on = i == *sel;
+                lines.push(Line::from(vec![
+                    Span::styled(if on { " ▸ " } else { "   " }, Style::default().fg(t.accent)),
+                    Span::styled(
+                        choice.to_string(),
+                        if on {
+                            Style::default().fg(t.accent).add_modifier(Modifier::BOLD)
+                        } else {
+                            Style::default().fg(t.text)
+                        },
+                    ),
+                ]));
+            }
             lines.push(Line::from(""));
             lines.push(Line::from(vec![
-                Span::styled(
-                    " y ",
-                    Style::default().fg(t.accent).add_modifier(Modifier::BOLD),
-                ),
-                Span::styled("restore them   ", Style::default().fg(t.text)),
-                Span::styled(
-                    "n ",
-                    Style::default().fg(t.accent).add_modifier(Modifier::BOLD),
-                ),
-                Span::styled("keep the saved versions   ", Style::default().fg(t.text)),
+                Span::styled(" ↑↓", key_style(t)),
+                Span::styled(" choose   ", dim),
+                Span::styled("↵", key_style(t)),
+                Span::styled(" do it   ", dim),
                 Span::styled("esc", key_style(t)),
                 Span::styled(" decide later", dim),
             ]));
