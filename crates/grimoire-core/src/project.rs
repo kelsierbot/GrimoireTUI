@@ -1484,8 +1484,11 @@ fn rename_all(renames: &[(PathBuf, PathBuf)]) -> Result<()> {
         let landed = (|| -> Result<()> {
             if let Some(d) = to.parent() {
                 // Note each folder this creates, so a rollback can take it away.
-                let mut missing: Vec<PathBuf> =
-                    d.ancestors().take_while(|a| !a.exists()).map(Path::to_path_buf).collect();
+                let mut missing: Vec<PathBuf> = d
+                    .ancestors()
+                    .take_while(|a| !a.exists())
+                    .map(Path::to_path_buf)
+                    .collect();
                 fs::create_dir_all(d).with_context(|| format!("creating {}", d.display()))?;
                 made.append(&mut missing);
             }
@@ -1516,7 +1519,11 @@ pub fn restore_stranded(root: &Path) -> Vec<PathBuf> {
     find_stranded(root, &mut found);
     let mut out = Vec::new();
     for tmp in found {
-        let raw = tmp.file_name().unwrap_or_default().to_string_lossy().to_string();
+        let raw = tmp
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
         let rest = &raw[MOVING.len()..];
         // "<i>-<pid>-<name>"; before names rode along it was only "<i>-<pid>".
         let mut parts = rest.splitn(3, '-');
@@ -1539,7 +1546,11 @@ pub fn restore_stranded(root: &Path) -> Vec<PathBuf> {
         };
         let mut n = 1;
         while to.symlink_metadata().is_ok() {
-            let tag = if n == 1 { "recovered".to_string() } else { format!("recovered-{n}") };
+            let tag = if n == 1 {
+                "recovered".to_string()
+            } else {
+                format!("recovered-{n}")
+            };
             to = tmp.with_file_name(format!("{stem}-{tag}{ext}"));
             n += 1;
         }
@@ -2102,13 +2113,19 @@ mod tests {
         assert!(result.is_err(), "the locked folder refuses");
         assert_eq!(fs::read_to_string(src.join("01-A.md")).unwrap(), "scene a");
         assert_eq!(fs::read_to_string(src.join("02-B.md")).unwrap(), "scene b");
-        assert!(!src.join("03-A.md").exists(), "the half that landed went back");
+        assert!(
+            !src.join("03-A.md").exists(),
+            "the half that landed went back"
+        );
         let left: Vec<String> = fs::read_dir(&src)
             .unwrap()
             .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
             .filter(|n| n.starts_with(MOVING))
             .collect();
-        assert!(left.is_empty(), "nothing hidden under a temporary name: {left:?}");
+        assert!(
+            left.is_empty(),
+            "nothing hidden under a temporary name: {left:?}"
+        );
         fs::remove_dir_all(&d).unwrap();
     }
 
@@ -2118,16 +2135,30 @@ mod tests {
         let ch = d.join("manuscript/01-Act-One/01-Chapter-One");
         fs::create_dir_all(&ch).unwrap();
         // A crash between the passes: one scene still under its moving name.
-        fs::write(ch.join(".grimoire-moving-0-4000000-02-Low-Tide.md"), "the tide").unwrap();
+        fs::write(
+            ch.join(".grimoire-moving-0-4000000-02-Low-Tide.md"),
+            "the tide",
+        )
+        .unwrap();
         // Its old name has since been taken by something else.
-        fs::write(ch.join(".grimoire-moving-1-4000000-01-Gravel.md"), "gravel, hidden").unwrap();
+        fs::write(
+            ch.join(".grimoire-moving-1-4000000-01-Gravel.md"),
+            "gravel, hidden",
+        )
+        .unwrap();
         fs::write(ch.join("01-Gravel.md"), "gravel, visible").unwrap();
         // The old form, from before names rode along.
         fs::write(ch.join(".grimoire-moving-2-4000000"), "nameless").unwrap();
         let back = restore_stranded(&d);
         assert_eq!(back.len(), 3, "{back:?}");
-        assert_eq!(fs::read_to_string(ch.join("02-Low-Tide.md")).unwrap(), "the tide");
-        assert_eq!(fs::read_to_string(ch.join("01-Gravel.md")).unwrap(), "gravel, visible");
+        assert_eq!(
+            fs::read_to_string(ch.join("02-Low-Tide.md")).unwrap(),
+            "the tide"
+        );
+        assert_eq!(
+            fs::read_to_string(ch.join("01-Gravel.md")).unwrap(),
+            "gravel, visible"
+        );
         assert_eq!(
             fs::read_to_string(ch.join("01-Gravel-recovered.md")).unwrap(),
             "gravel, hidden"
@@ -2137,7 +2168,10 @@ mod tests {
             "nameless"
         );
         let p = Project::load(&d).unwrap();
-        assert!(p.nodes.iter().any(|n| n.path == ch.join("02-Low-Tide.md")), "it's in the tree");
+        assert!(
+            p.nodes.iter().any(|n| n.path == ch.join("02-Low-Tide.md")),
+            "it's in the tree"
+        );
         fs::remove_dir_all(&d).unwrap();
     }
 
@@ -2163,8 +2197,14 @@ mod tests {
         let first = trash(&d, &a.join("01-Scene-One.md")).unwrap();
         let second = trash(&d, &b.join("01-Scene-One.md")).unwrap();
         assert_ne!(first, second);
-        assert_eq!(fs::read_to_string(&first).unwrap(), "the first chapter's words");
-        assert_eq!(fs::read_to_string(&second).unwrap(), "the second chapter's words");
+        assert_eq!(
+            fs::read_to_string(&first).unwrap(),
+            "the first chapter's words"
+        );
+        assert_eq!(
+            fs::read_to_string(&second).unwrap(),
+            "the second chapter's words"
+        );
         fs::remove_dir_all(&d).unwrap();
     }
 

@@ -1807,6 +1807,10 @@ impl App {
         } else {
             name.trim().to_string()
         };
+        // Brand new: nothing parked or kept for an older thing at this path
+        // (deleted before its history followed it) is this one's.
+        self.undo_stash.retain(|p, _| !p.starts_with(&path));
+        history::set_aside(&self.project.root, &path);
         self.record(TreeStep::Created {
             what,
             path: path.clone(),
@@ -1978,16 +1982,24 @@ impl App {
         let root = self.project.root.clone();
         // Close the editor if what's going is the scene it's showing, or holds it.
         let open_path = self.open.map(|i| self.project.nodes[i].path.clone());
-        if open_path.is_some_and(|p| p.starts_with(&path)) {
+        if let Some(open) = open_path.filter(|p| p.starts_with(&path)) {
+            // Its undo goes with it, so Ctrl-Z on the delete brings that back too.
+            self.undo_stash.insert(open, self.editor.take_history());
             self.open = None;
             self.editor = Editor::from_text("");
             self.focus = Focus::Tree;
         }
         let done = if permanent {
-            project::destroy(&path).map(|_| String::new())
+            project::destroy(&path).map(|_| {
+                self.undo_stash.retain(|p, _| !p.starts_with(&path));
+                String::new()
+            })
         } else {
             let m = self.mod_label();
             project::trash(&root, &path).map(|to| {
+                // Undo and history follow it into the trash, so nothing made
+                // later at the same path inherits them.
+                self.follow_paths(&path, &to);
                 self.record(TreeStep::Moved {
                     what: format!("delete {name}"),
                     batches: vec![vec![(path.clone(), to)]],
@@ -2054,12 +2066,20 @@ impl App {
     /// with the old one.
     fn reload_tree(&mut self) -> Result<()> {
         self.flush();
+        let open_unsaved = self.open.is_some_and(|i| self.project.nodes[i].dirty);
         let unsaved: Vec<(PathBuf, Option<String>, String, String)> = self
             .project
             .nodes
             .iter()
             .filter(|n| n.dirty && n.kind == Kind::Scene)
-            .map(|n| (n.path.clone(), n.front.clone(), n.body.clone(), n.file_text()))
+            .map(|n| {
+                (
+                    n.path.clone(),
+                    n.front.clone(),
+                    n.body.clone(),
+                    n.file_text(),
+                )
+            })
             .collect();
         let collapsed: Vec<(PathBuf, bool)> = self
             .project
@@ -2096,6 +2116,16 @@ impl App {
                 }
             }
         }
+        // With nothing of its own unsaved, the open scene shows what's on disk
+        // now — a move or its undo may have rewritten its [[links]] there, and
+        // the next autosave must not put the old ones back. Undoable.
+        if let Some(i) = self.open
+            && !open_unsaved
+            && self.editor.text() != self.project.nodes[i].body
+        {
+            let body = self.project.nodes[i].body.clone();
+            self.editor.set_text(&body);
+        }
         self.refresh_visible();
         self.refresh_names();
         Ok(())
@@ -2107,7 +2137,11 @@ impl App {
             .iter()
             .take(3)
             .map(|p| {
-                let stem = p.file_stem().unwrap_or_default().to_string_lossy().to_string();
+                let stem = p
+                    .file_stem()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string();
                 stem.trim_start_matches(|c: char| c.is_ascii_digit() || c == '-')
                     .replace('-', " ")
             })
@@ -2376,6 +2410,7 @@ impl App {
                     match pair {
                         Ok(batch) => {
                             self.close_if_trashed(&batch);
+                            self.follow_many(&batch);
                             let t = batch[0].1.clone();
                             (Ok(()), Some(t), None)
                         }
@@ -2385,11 +2420,11 @@ impl App {
                     match &trashed {
                         Some(t) => {
                             let batch = vec![(t.clone(), path.clone())];
-                            (
-                                project::apply_moves(&root, &batch, false),
-                                None,
-                                Some(path.clone()),
-                            )
+                            let result = project::apply_moves(&root, &batch, false);
+                            if result.is_ok() {
+                                self.follow_many(&batch);
+                            }
+                            (result, None, Some(path.clone()))
                         }
                         None => (Ok(()), None, Some(path.clone())),
                     }
@@ -2498,13 +2533,6 @@ impl App {
         if let Err(e) = self.reload_tree() {
             self.msg = format!("moved, but couldn't re-read the tree: {e}");
             return;
-        }
-        // Rewritten links may have changed the open scene on disk.
-        if let Some(i) = self.open
-            && self.editor.text() != self.project.nodes[i].body
-        {
-            let body = self.project.nodes[i].body.clone();
-            self.editor.set_text(&body);
         }
         if let Some(i) = self
             .project
@@ -3644,7 +3672,8 @@ impl App {
                             if failed == 1 { "y" } else { "ies" }
                         );
                     } else {
-                        self.msg = "kept the saved versions — the recovered words are in the trash".into();
+                        self.msg =
+                            "kept the saved versions — the recovered words are in the trash".into();
                     }
                 }
                 (Key::Enter, _) | (Key::Esc, _) => {

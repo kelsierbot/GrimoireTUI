@@ -128,10 +128,37 @@ pub fn follow_all(root: &Path, renames: &[(PathBuf, PathBuf)]) {
         if let Some(parent) = new.parent() {
             let _ = fs::create_dir_all(parent);
         }
-        if !new.exists() {
-            let _ = fs::rename(&tmp, &new);
-        }
+        // History already waiting at the new path belongs to something that
+        // was there once and isn't now: set it aside, so this scene's own
+        // history isn't stranded under a temporary name or mixed with it.
+        set_aside_dir(&new);
+        let _ = fs::rename(&tmp, &new);
     }
+}
+
+/// A new scene is starting at `scene`: any history left there by one that
+/// used the same path before is set aside (kept, never deleted), so the new
+/// scene's list starts empty.
+pub fn set_aside(root: &Path, scene: &Path) {
+    set_aside_dir(&dir_for(root, scene));
+}
+
+fn set_aside_dir(dir: &Path) {
+    if !dir.exists() {
+        return;
+    }
+    let name = dir
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
+    let mut n = 1;
+    let mut to = dir.with_file_name(format!("{name}.orphaned-{n}"));
+    while to.exists() {
+        n += 1;
+        to = dir.with_file_name(format!("{name}.orphaned-{n}"));
+    }
+    let _ = fs::rename(dir, &to);
 }
 
 /// One run of a word diff, for drawing.
@@ -246,6 +273,39 @@ mod tests {
         );
         assert_eq!(versions(&d, &to)[0].text, "kept");
         assert_eq!(versions(&d, &from)[0].text, "other");
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn history_follows_onto_a_path_that_had_history_of_its_own() {
+        let d = root("follow-onto");
+        let from = d.join("manuscript/01-Gravel.md");
+        let to = d.join("manuscript/03-Gravel.md");
+        snapshot(&d, &from, "this scene's past", None).unwrap();
+        // Left behind by a scene that used to be called 03-Gravel.
+        snapshot(&d, &to, "someone else's past", None).unwrap();
+        follow_all(&d, &[(from.clone(), to.clone())]);
+        let v = versions(&d, &to);
+        assert_eq!(v.len(), 1, "only its own history");
+        assert_eq!(v[0].text, "this scene's past");
+        let hidden: Vec<_> = fs::read_dir(d.join(".grimoire/history/manuscript"))
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
+            .filter(|n| n.starts_with(".moving-"))
+            .collect();
+        assert!(hidden.is_empty(), "nothing stranded: {hidden:?}");
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn a_new_scene_at_an_old_path_starts_with_no_history() {
+        let d = root("set-aside");
+        let scene = d.join("manuscript/03-Untitled.md");
+        snapshot(&d, &scene, "the deleted one's words", None).unwrap();
+        set_aside(&d, &scene);
+        assert!(versions(&d, &scene).is_empty());
+        let kept = d.join(".grimoire/history/manuscript/03-Untitled.orphaned-1");
+        assert!(kept.is_dir(), "set aside, not deleted");
         fs::remove_dir_all(&d).unwrap();
     }
 

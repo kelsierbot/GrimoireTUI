@@ -1736,7 +1736,10 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             for (i, choice) in crate::app::RECOVER_CHOICES.iter().enumerate() {
                 let on = i == *sel;
                 lines.push(Line::from(vec![
-                    Span::styled(if on { " ▸ " } else { "   " }, Style::default().fg(t.accent)),
+                    Span::styled(
+                        if on { " ▸ " } else { "   " },
+                        Style::default().fg(t.accent),
+                    ),
                     Span::styled(
                         choice.to_string(),
                         if on {
