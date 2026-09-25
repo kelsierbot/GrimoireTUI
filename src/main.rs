@@ -534,6 +534,9 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
                 },
                 KeyCode::Char('r') => app.replace_all_key(),
                 KeyCode::Char('o') if matches!(app.overlay, Overlay::None) => app.open_codex(),
+                KeyCode::Char('d') if matches!(app.overlay, Overlay::None) => {
+                    app.toggle_focus_mode()
+                }
                 KeyCode::Char('z') if shift => app.redo(),
                 KeyCode::Char('Z') => app.redo(),
                 KeyCode::Char('z') => app.undo(),
@@ -629,6 +632,7 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
             }
             Focus::Editor => app.on_editor_key(key),
             Focus::Codex => app.on_codex_key(key),
+            Focus::Beside => app.on_beside_key(key),
             Focus::Clearing => app.on_clearing_key(key),
             Focus::Music => app.on_music_key(key),
         }

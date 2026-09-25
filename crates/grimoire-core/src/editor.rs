@@ -559,6 +559,26 @@ impl Editor {
             self.scroll = max;
         }
     }
+
+    /// Scroll so at least `below` rows show under the cursor, so a writer
+    /// isn't drafting on the pane's last row. Only ever scrolls down; the
+    /// room shrinks on a pane too short to spare it.
+    pub fn keep_room_below(&mut self, rows: &[VisRow], height: usize, below: usize) {
+        self.clamp_scroll(rows, height);
+        let height = height.max(1);
+        let below = below.min(height.saturating_sub(1) / 2);
+        let (r, _) = self.cursor_vis(rows);
+        if r + below >= self.scroll + height {
+            self.scroll = r + below + 1 - height;
+        }
+    }
+
+    /// Typewriter scrolling: put the cursor's row in the middle of the pane
+    /// (or as near as the top of the scene allows).
+    pub fn centre_on_cursor(&mut self, rows: &[VisRow], height: usize) {
+        let (r, _) = self.cursor_vis(rows);
+        self.scroll = r.saturating_sub(height.max(1) / 2);
+    }
 }
 
 fn char_width(c: char) -> usize {
@@ -589,6 +609,54 @@ mod tests {
 
     fn ed(s: &str) -> Editor {
         Editor::from_text(s)
+    }
+
+    fn numbered(n: usize) -> Editor {
+        ed(&(0..n)
+            .map(|i| format!("line {i}"))
+            .collect::<Vec<_>>()
+            .join("\n"))
+    }
+
+    #[test]
+    fn room_is_kept_below_the_cursor() {
+        let mut e = numbered(40);
+        let rows = e.layout(80);
+        e.cy = 9;
+        // Plain clamping leaves the cursor on the last of 10 rows...
+        e.clamp_scroll(&rows, 10);
+        assert_eq!(e.scroll, 0);
+        // ...keeping room scrolls so three rows show beneath it.
+        e.keep_room_below(&rows, 10, 3);
+        assert_eq!(e.scroll, 3);
+        assert_eq!(e.scroll + 10 - 1 - e.cy, 3);
+        // Moving up inside the view doesn't scroll back.
+        e.cy = 6;
+        e.keep_room_below(&rows, 10, 3);
+        assert_eq!(e.scroll, 3);
+    }
+
+    #[test]
+    fn room_below_shrinks_on_a_short_pane() {
+        let mut e = numbered(40);
+        let rows = e.layout(80);
+        e.cy = 3;
+        e.keep_room_below(&rows, 4, 3);
+        // A four-row pane can spare one row, not three.
+        assert_eq!(e.scroll, 1);
+    }
+
+    #[test]
+    fn typewriter_keeps_the_cursor_mid_pane() {
+        let mut e = numbered(40);
+        let rows = e.layout(80);
+        e.cy = 25;
+        e.centre_on_cursor(&rows, 11);
+        assert_eq!(e.cy - e.scroll, 5);
+        // Near the top there's nothing to scroll past.
+        e.cy = 2;
+        e.centre_on_cursor(&rows, 11);
+        assert_eq!(e.scroll, 0);
     }
 
     #[test]
