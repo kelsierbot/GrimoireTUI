@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.5.1 — compiled for submission
+
+- **Export compiles a manuscript the way Scrivener's Manuscript format does**
+  — William Shunn's modern standard: a title page with your contact block,
+  byline and rounded word count; "Surname / KEYWORD / page" on every page
+  after it; parts and chapters a third of the way down, a part sharing its
+  first chapter's page; `#` between scenes; END.
+- **Manuscript look…**: Modern (Times) or Classic (Courier, underlined
+  italics, straight quotes), Letter or A4, double or 1.5 spacing, five
+  chapter-heading styles, flush or indented first paragraphs, END / THE END /
+  none, and the header keyword.
+- **Author details…**: legal name, byline, address, phone, email and agent,
+  for the title page.
+- **Samples for agents**: chapters X–Y, the first N chapters, or whole scenes
+  up to N words — the title page still gives the whole book's count.
+- **PDF**, through LibreOffice when it's installed.
+- **Typography in every export**: curly quotes and apostrophes, real dashes and
+  ellipses — your files are left as you typed them.
+- **Nothing blank**: empty scenes, chapters and parts are left out, and `#`
+  only ever sits between two written scenes.
+- **TKs stay visible** — they were dropped mid-sentence — and export lists
+  where they are first.
+- **A Prologue or Epilogue keeps its own heading.**
+- Fixed: reordering sections could reduce an unreadable `novel.toml` to one
+  line.
+
 ## 0.5.0 — safe in every sync service
 
 A complete pass over how a book behaves in pCloud, Google Drive, Dropbox and
