@@ -224,9 +224,12 @@ pub struct Node {
     /// The file isn't UTF-8 text. It is shown as read (a best guess), and
     /// never written — saving it would destroy the bytes that couldn't be read.
     pub read_only: bool,
-    /// A version parked beside its scene after a clash ("… (from bazzite,
-    /// …).md"). Shown, never compiled or counted.
+    /// A version parked beside its scene after a clash — Grimoire's own
+    /// ("… (from bazzite, …).md") or a sync app's conflicted copy. Shown,
+    /// never compiled or counted.
     pub parked: bool,
+    /// Whose copy it is and of what, when `parked`.
+    pub copy_of: Option<sync::CopyOf>,
 }
 
 impl Node {
@@ -390,7 +393,7 @@ impl Project {
             let path = area.path(root);
             if area == Area::Format {
                 if path.is_file() {
-                    let idx = p.load_file(&path, 0, area)?;
+                    let idx = p.load_file(&path, 0, area, None)?;
                     p.roots.push(idx);
                 }
                 continue;
@@ -418,6 +421,7 @@ impl Project {
                 stat: None,
                 read_only: false,
                 parked: false,
+                copy_of: None,
             });
             let kids = p.scan(&path, 1, area)?;
             p.nodes[idx].children = kids;
@@ -460,6 +464,15 @@ impl Project {
             })
             .collect();
         entries.sort_by_key(|e| e.file_name());
+        // Conflict copies are told from the files beside them: "Part (1)" is
+        // a copy only where "Part" is there too.
+        let stems: std::collections::HashSet<String> = entries
+            .iter()
+            .map(|e| e.path())
+            .filter(|p| p.extension().and_then(|s| s.to_str()) == Some("md"))
+            .filter_map(|p| p.file_stem().map(|s| s.to_string_lossy().to_string()))
+            .collect();
+        let hint = sync::provider_of(dir);
 
         let mut out = Vec::new();
         for e in entries {
@@ -489,18 +502,68 @@ impl Project {
                     stat: None,
                     read_only: false,
                     parked: false,
+                    copy_of: None,
                 });
                 let kids = self.scan(&path, depth + 1, area)?;
                 self.nodes[idx].children = kids;
                 out.push(idx);
             } else if path.extension().and_then(|s| s.to_str()) == Some("md") {
-                out.push(self.load_file(&path, depth, area)?);
+                let copy = path
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().to_string())
+                    .and_then(|stem| sync::copy_of(&stem, &|x| stems.contains(x), hint));
+                out.push(self.load_file(&path, depth, area, copy)?);
             }
         }
-        Ok(out)
+        Ok(self.copies_after_originals(out))
     }
 
-    fn load_file(&mut self, path: &Path, depth: usize, area: Area) -> Result<usize> {
+    /// Each conflict copy right after the scene it's a copy of, however its
+    /// name happens to sort ("Scene (1)" sorts before "Scene.md"), so the two
+    /// versions are always read side by side.
+    fn copies_after_originals(&self, out: Vec<usize>) -> Vec<usize> {
+        let stem = |i: usize| {
+            self.nodes[i]
+                .path
+                .file_stem()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_default()
+        };
+        let original_of = |i: usize| {
+            self.nodes[i]
+                .copy_of
+                .as_ref()
+                .map(|c| c.original.clone())
+                .filter(|o| {
+                    out.iter()
+                        .any(|&j| self.nodes[j].copy_of.is_none() && stem(j) == *o)
+                })
+        };
+        let mut ordered = Vec::with_capacity(out.len());
+        for &i in &out {
+            if original_of(i).is_some() {
+                continue;
+            }
+            ordered.push(i);
+            if self.nodes[i].kind == Kind::Scene && self.nodes[i].copy_of.is_none() {
+                let me = stem(i);
+                ordered.extend(
+                    out.iter()
+                        .copied()
+                        .filter(|&j| original_of(j).as_deref() == Some(me.as_str())),
+                );
+            }
+        }
+        ordered
+    }
+
+    fn load_file(
+        &mut self,
+        path: &Path,
+        depth: usize,
+        area: Area,
+        copy_of: Option<sync::CopyOf>,
+    ) -> Result<usize> {
         let mut node = Node {
             kind: Kind::Scene,
             area,
@@ -520,7 +583,8 @@ impl Project {
             seen: None,
             stat: None,
             read_only: false,
-            parked: sync::is_conflict_copy(path),
+            parked: copy_of.is_some(),
+            copy_of,
         };
         node.read_disk()?;
         Ok(self.push(node))
@@ -620,7 +684,11 @@ impl Project {
             return Ok(DiskChange::GoneParked(copy));
         }
         let copy = sync::write_conflict_copy(&path, text)?;
-        self.nodes[i].read_disk()?;
+        // The words are safe in the copy now. Whatever happens reading the
+        // disk's version, this scene has nothing unsaved left — or the next
+        // check (every two seconds) would park the same words again.
+        self.nodes[i].dirty = false;
+        let _ = self.nodes[i].read_disk();
         Ok(DiskChange::Parked(copy))
     }
 
@@ -1239,7 +1307,23 @@ pub fn rename(path: &Path, name: &str) -> Result<PathBuf> {
         if target.exists() {
             anyhow::bail!("{} already exists", target.display());
         }
+        let copies = if folder {
+            Vec::new()
+        } else {
+            sync::copies_of(path)
+        };
         fs::rename(path, &target).with_context(|| format!("renaming {}", path.display()))?;
+        // Its conflict copies follow it under the new name.
+        let new_stem = target
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_default();
+        for (copy, c) in copies {
+            let to = parent.join(format!("{new_stem}{}.md", c.suffix));
+            if !to.exists() {
+                let _ = fs::rename(&copy, &to);
+            }
+        }
     }
     // A file that isn't UTF-8 keeps its bytes: renamed, never rewritten.
     if !folder
@@ -1321,8 +1405,9 @@ pub struct Moved {
     pub links: usize,
 }
 
-/// What the tree shows in a folder, in its order: subfolders and `.md` files,
-/// nothing hidden.
+/// What the tree orders in a folder: subfolders and `.md` files, nothing
+/// hidden — and no conflict copies, which aren't places in the book but
+/// versions of one, and travel with their original (see [`with_copies`]).
 fn tree_entries(dir: &Path) -> Vec<PathBuf> {
     let mut v: Vec<PathBuf> = fs::read_dir(dir)
         .map(|rd| {
@@ -1333,8 +1418,44 @@ fn tree_entries(dir: &Path) -> Vec<PathBuf> {
                 .collect()
         })
         .unwrap_or_default();
+    let stems = sync::md_stems(dir);
+    let hint = sync::provider_of(dir);
+    v.retain(|p| {
+        p.is_dir()
+            || p.file_stem().is_none_or(|s| {
+                sync::copy_of(&s.to_string_lossy(), &|x| stems.contains(x), hint).is_none()
+            })
+    });
     v.sort_by_key(|p| p.file_name().map(|n| n.to_os_string()));
     v
+}
+
+/// A scene that moves or is renamed takes its conflict copies with it,
+/// renamed to follow ("01-Scene-One (Josh's conflicted copy).md" becomes
+/// "02-Scene-One (Josh's conflicted copy).md"), so a copy is never left
+/// behind under a number that now belongs to something else.
+fn with_copies(renames: &[(PathBuf, PathBuf)]) -> Vec<(PathBuf, PathBuf)> {
+    let mut out = renames.to_vec();
+    for (from, to) in renames {
+        if !from.is_file() {
+            continue;
+        }
+        let (Some(dir), Some(stem)) = (to.parent(), to.file_stem()) else {
+            continue;
+        };
+        let stem = stem.to_string_lossy().to_string();
+        for (copy, c) in sync::copies_of(from) {
+            let dest = dir.join(format!("{stem}{}.md", c.suffix));
+            // Never onto something already there: a copy left where it was
+            // is still a copy, but a rename onto a file replaces it.
+            let taken = dest.exists() && !out.iter().any(|(f, _)| *f == dest);
+            if taken || out.iter().any(|(f, _)| *f == copy) {
+                continue;
+            }
+            out.push((copy, dest));
+        }
+    }
+    out
 }
 
 /// `07-Low-Tide.md` → (7, 2, "Low-Tide.md").
@@ -1393,6 +1514,7 @@ pub fn move_item(root: &Path, path: &Path, up: bool) -> Result<Moved> {
                 numbering.push((p.clone(), to));
             }
         }
+        numbering = with_copies(&numbering);
         rename_all(&numbering)?;
         rewrite_links(root, &numbering);
     }
@@ -1507,6 +1629,7 @@ pub fn move_item(root: &Path, path: &Path, up: bool) -> Result<Moved> {
         target = to;
     }
 
+    let renames = with_copies(&renames);
     for (_, to) in &renames {
         if to.exists() && !renames.iter().any(|(from, _)| from == to) {
             anyhow::bail!("{} already exists", to.display());
@@ -1617,6 +1740,126 @@ pub fn save_section_order(root: &Path, order: &[Area]) -> Result<()> {
     write_atomic(&path, &out)
 }
 
+// ── settling a conflict copy ────────────────────────────────────────
+
+/// What to do with a conflict copy once both versions have been read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Settle {
+    /// The copy's version becomes the scene; the scene's words go to its
+    /// history first, and the copy to the trash.
+    TakeCopy,
+    /// The scene stays as it is; the copy goes to the trash.
+    KeepOriginal,
+    /// Both stay: the copy becomes a scene of its own, right after the
+    /// original, titled as the copy it was.
+    KeepBoth,
+}
+
+/// What settling did on disk, in the order it did it, so it can be taken
+/// back: files moved (the trash counts), and files whose text changed.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Settled {
+    pub moves: Vec<(PathBuf, PathBuf)>,
+    /// (file, text before, text after) — at the file's path after the moves.
+    pub texts: Vec<(PathBuf, String, String)>,
+    /// Whether `[[links]]` followed the moves.
+    pub links: bool,
+    /// Where the copy is now, if it's still in the book (`KeepBoth`).
+    pub kept: Option<PathBuf>,
+}
+
+/// Settle the conflict copy at `copy`. `seen` is what the original looked
+/// like when the writer read it; taking the copy only goes ahead while the
+/// original still looks that way, so a third version arriving meanwhile is
+/// never overwritten. Nothing is ever deleted: what's let go goes to the
+/// trash, and the original's text to its history.
+pub fn settle(root: &Path, copy: &Path, how: Settle, seen: Option<Fingerprint>) -> Result<Settled> {
+    let of = sync::copy_of_path(copy).context("that isn't a conflict copy")?;
+    let dir = copy.parent().context("it has no folder")?;
+    let original = dir.join(format!("{}.md", of.original));
+    let mut out = Settled::default();
+    match how {
+        Settle::KeepOriginal => {
+            let to = trash(root, copy)?;
+            out.moves.push((copy.to_path_buf(), to));
+        }
+        Settle::TakeCopy => {
+            let theirs =
+                fs::read_to_string(copy).with_context(|| format!("reading {}", copy.display()))?;
+            let ours = fs::read_to_string(&original)
+                .with_context(|| format!("reading {}", original.display()))?;
+            crate::history::snapshot(root, &original, &ours, None)?;
+            let seen = seen.or(Some(Fingerprint::of(&ours)));
+            match sync::save_guarded(&original, &theirs, seen)? {
+                SaveOutcome::Written => {}
+                SaveOutcome::Conflict { .. } => anyhow::bail!(
+                    "{} changed on disk just now — read it again first",
+                    display_title(&original, None)
+                ),
+            }
+            out.texts.push((original.clone(), ours, theirs));
+            let to = trash(root, copy)?;
+            out.moves.push((copy.to_path_buf(), to));
+        }
+        Settle::KeepBoth => {
+            let label = format!("{} copy", of.source.name());
+            let name = match split_number(&original) {
+                Some((n, width, rest)) => {
+                    let rest = rest.strip_suffix(".md").unwrap_or(&rest).to_string();
+                    // Everything after the original moves down one, so the
+                    // copy can stand right after it.
+                    let mut renames: Vec<(PathBuf, PathBuf)> = tree_entries(dir)
+                        .into_iter()
+                        .filter_map(|p| {
+                            let (m, w, r) = split_number(&p)?;
+                            (m > n).then(|| (p.clone(), dir.join(numbered_name(m + 1, w, &r))))
+                        })
+                        .collect();
+                    renames.sort_by_key(|(from, _)| std::cmp::Reverse(from.clone()));
+                    let to = dir.join(numbered_name(
+                        n + 1,
+                        width,
+                        &format!("{rest}-{}.md", file_safe(&label)),
+                    ));
+                    renames.push((copy.to_path_buf(), to.clone()));
+                    (renames, to)
+                }
+                None => {
+                    let to = dir.join(format!("{}-{}.md", of.original, file_safe(&label)));
+                    (vec![(copy.to_path_buf(), to.clone())], to)
+                }
+            };
+            let (renames, to) = name;
+            let renames = with_copies(&renames);
+            for (_, dest) in &renames {
+                if dest.exists() && !renames.iter().any(|(from, _)| from == dest) {
+                    anyhow::bail!("{} already exists", dest.display());
+                }
+            }
+            rename_all(&renames)?;
+            rewrite_links(root, &renames);
+            out.links = true;
+            out.moves = renames;
+            // Titled as what it is, so the tree tells the two apart.
+            if let Ok(before) = fs::read_to_string(&to) {
+                let title = front_title(&before).unwrap_or_else(|| display_title(&original, None));
+                if let Some(after) = retitle(&before, &format!("{title} — {label}")) {
+                    write_atomic(&to, &after)?;
+                    out.texts.push((to.clone(), before, after));
+                }
+            }
+            out.kept = Some(to);
+        }
+    }
+    Ok(out)
+}
+
+/// The `title:` in a file's frontmatter, if it has one.
+fn front_title(raw: &str) -> Option<String> {
+    let (front, _) = split_frontmatter(raw);
+    front.as_deref().and_then(|f| front_get(f, "title"))
+}
+
 /// Carry out moves that were done once before, or take them back (pass them
 /// reversed). Refuses before touching anything if a source has gone or a
 /// destination is taken. `links` rewrites `[[links]]` to follow, as a move or
@@ -1652,6 +1895,7 @@ const MOVING: &str = ".grimoire-moving-";
 /// never collides with itself. All or nothing: if any rename fails, the ones
 /// already made are undone, so nothing is left hidden under a temporary name.
 fn rename_all(renames: &[(PathBuf, PathBuf)]) -> Result<()> {
+    let renames = &with_copies(renames);
     let pid = std::process::id();
     // (where it was, where it waits, where it's going)
     let mut staged: Vec<(PathBuf, PathBuf, PathBuf)> = Vec::new();
@@ -1660,9 +1904,10 @@ fn rename_all(renames: &[(PathBuf, PathBuf)]) -> Result<()> {
             let _ = fs::rename(tmp, from);
         }
     };
+    let host = moving_host();
     for (i, (from, to)) in renames.iter().enumerate() {
         let name = from.file_name().unwrap_or_default().to_string_lossy();
-        let tmp = from.with_file_name(format!("{MOVING}{i}-{pid}-{name}"));
+        let tmp = from.with_file_name(format!("{MOVING}{i}-{pid}~{host}-{name}"));
         if let Err(e) = fs::rename(from, &tmp) {
             unstage(&staged);
             return Err(e).with_context(|| format!("moving {}", from.display()));
@@ -1715,9 +1960,20 @@ pub fn restore_stranded(root: &Path) -> Vec<PathBuf> {
             .to_string_lossy()
             .to_string();
         let rest = &raw[MOVING.len()..];
-        // "<i>-<pid>-<name>"; before names rode along it was only "<i>-<pid>".
+        // "<i>-<pid>~<host>-<name>"; before the machine rode along it was
+        // "<i>-<pid>-<name>", and before that only "<i>-<pid>".
         let mut parts = rest.splitn(3, '-');
-        let (_, pid, name) = (parts.next(), parts.next(), parts.next());
+        let (_, who, name) = (parts.next(), parts.next(), parts.next());
+        let (pid, host) = match who.and_then(|w| w.split_once('~')) {
+            Some((pid, host)) => (Some(pid), Some(host)),
+            None => (who, None),
+        };
+        // Another machine's move, arrived through a sync app: that machine
+        // puts it back itself if it was cut short. Restoring it here would
+        // make a second copy of the scene the moment the move finishes there.
+        if host.is_some_and(|h| h != moving_host()) {
+            continue;
+        }
         if pid
             .and_then(|p| p.parse::<u32>().ok())
             .is_some_and(|p| p != std::process::id() && process_alive(p))
@@ -1749,6 +2005,16 @@ pub fn restore_stranded(root: &Path) -> Vec<PathBuf> {
         }
     }
     out
+}
+
+/// This machine, as it's written into a moving name: letters and digits only,
+/// so the name still splits on its dashes.
+fn moving_host() -> String {
+    let host: String = crate::resume::machine_name()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect();
+    if host.is_empty() { "here".into() } else { host }
 }
 
 fn find_stranded(dir: &Path, out: &mut Vec<PathBuf>) {
@@ -2780,6 +3046,42 @@ mod tests {
                 .unwrap()
                 .contains("Words typed after it went.")
         );
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn a_scene_that_turns_unreadable_is_parked_once_not_every_check() {
+        use std::os::unix::fs::PermissionsExt;
+        let (d, scene) = sync_book("unreadable-park");
+        let mut p = Project::load(&d).unwrap();
+        let i = scene_idx(&p, &scene);
+        p.nodes[i].body = "Mine, unsaved.\n".into();
+        p.nodes[i].dirty = true;
+        // Changed elsewhere and then unreadable: an online-only file gone
+        // offline, say.
+        fs::write(&scene, "---\ntitle: \"Gravel\"\n---\n\nTheirs.\n").unwrap();
+        fs::set_permissions(&scene, fs::Permissions::from_mode(0o000)).unwrap();
+        if fs::read(&scene).is_ok() {
+            // Running as root: permissions don't stop reads, nothing to test.
+            fs::set_permissions(&scene, fs::Permissions::from_mode(0o644)).unwrap();
+            fs::remove_dir_all(&d).unwrap();
+            return;
+        }
+        assert!(matches!(
+            p.check_disk(i, true).unwrap(),
+            DiskChange::Parked(_)
+        ));
+        assert!(!p.nodes[i].dirty, "the words are in the copy now");
+        let _ = p.check_disk(i, true);
+        let _ = p.check_disk(i, true);
+        let copies = fs::read_dir(scene.parent().unwrap())
+            .unwrap()
+            .flatten()
+            .filter(|e| e.file_name().to_string_lossy().contains(" (from "))
+            .count();
+        assert_eq!(copies, 1, "one copy, not one every two seconds");
+        fs::set_permissions(&scene, fs::Permissions::from_mode(0o644)).unwrap();
         fs::remove_dir_all(&d).unwrap();
     }
 

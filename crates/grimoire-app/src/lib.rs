@@ -42,6 +42,10 @@ pub struct Row {
     /// because two rows with the same name and different words is the one
     /// thing guaranteed to get the wrong one edited. (It got me, testing.)
     pub conflict_copy: bool,
+    /// Whose copy: "Dropbox copy", "pCloud copy", "parked copy" (Grimoire's
+    /// own). The row's chip says it, so the writer knows which app kept it.
+    #[serde(default)]
+    pub copy_source: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -193,13 +197,18 @@ pub fn outline(book: &Path) -> Result<Outline> {
         if n.kind != Kind::Scene || !n.in_manuscript || p.in_trash(i) {
             continue;
         }
-        words += n.words();
+        // A conflict copy is shown, never counted: it's a second version of
+        // a scene, not more book.
+        if !n.parked {
+            words += n.words();
+        }
         scenes.push(Row {
             title: n.title.clone(),
             place: place_above(&p, &parents, i),
             path: n.path.clone(),
             words: n.words(),
-            conflict_copy: is_conflict_copy(&n.path),
+            conflict_copy: n.parked,
+            copy_source: n.copy_of.as_ref().map(|c| c.source.label().to_string()),
         });
     }
     Ok(Outline {
@@ -207,12 +216,6 @@ pub fn outline(book: &Path) -> Result<Outline> {
         words,
         scenes,
     })
-}
-
-/// The shape `write_conflict_copy` gives a parked version: "<scene> (from
-/// <machine>, <when>).md". Shared with the terminal app, which parks the same way.
-fn is_conflict_copy(path: &Path) -> bool {
-    sync::is_conflict_copy(path)
 }
 
 /// "Act One › Chapter One" — `place_of` includes the scene itself, which the
@@ -300,10 +303,11 @@ pub fn save_scene(path: &Path, text: &str, front: Option<&str>, seen: &Stamp) ->
 /// now a duplicate that would sit in the outline pretending to be a lost
 /// draft), or because they chose the other device and said to discard these.
 ///
-/// It refuses anything that is not a conflict copy. A bug in a front end
-/// should never be able to ask this function to delete a scene.
+/// It refuses anything that is not a conflict copy — Grimoire's own or a
+/// sync app's — so a bug in a front end can never ask it to remove a scene.
+/// Nothing is deleted: the copy goes to the book's trash.
 pub fn drop_conflict_copy(path: &Path) -> Result<()> {
-    sync::drop_conflict_copy(path)
+    sync::drop_conflict_copy(path).map(|_| ())
 }
 
 /// Where the writer stopped, ready for the one button that matters on a
@@ -718,13 +722,24 @@ mod tests {
         let base = shelf("drop");
         let dir = base.join("book");
         fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("novel.toml"), "title = \"Book\"\n").unwrap();
         let scene = dir.join("01-Scene-One.md");
         let copy = dir.join("01-Scene-One (from sofa, 2026-09-18 11-38).md");
         fs::write(&scene, "the real scene\n").unwrap();
         fs::write(&copy, "what the phone had\n").unwrap();
 
         drop_conflict_copy(&copy).unwrap();
-        assert!(!copy.exists(), "the parked copy is gone");
+        assert!(!copy.exists(), "the parked copy is out of the book");
+        let trashed: Vec<String> = fs::read_dir(dir.join(".grimoire/trash"))
+            .unwrap()
+            .flatten()
+            .map(|e| fs::read_to_string(e.path()).unwrap())
+            .collect();
+        assert_eq!(
+            trashed,
+            ["what the phone had\n"],
+            "put away in the trash, never deleted"
+        );
 
         assert!(
             drop_conflict_copy(&scene).is_err(),
