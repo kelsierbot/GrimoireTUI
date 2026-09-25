@@ -253,6 +253,10 @@ pub struct App {
     /// A background push of saved sessions, and how the last one went.
     backup_rx: Option<std::sync::mpsc::Receiver<sessions::PushOutcome>>,
     pub backup_note: Option<String>,
+    /// A PDF being made from the manuscript, off the main thread.
+    pdf_job: Option<std::sync::mpsc::Receiver<Result<PathBuf, String>>>,
+    /// LibreOffice, looked for the first time the export dialog opens.
+    office: Option<Option<grimoire_core::pdf::Office>>,
     /// Words repeated close together are lit in the open scene.
     pub echo_on: bool,
     /// A writing sprint under way: a word goal while the timer's focus runs.
@@ -296,6 +300,52 @@ pub enum CardField {
 
 /// Width of one index card, border included, plus the gap after it.
 pub const CARD_W: u16 = 30;
+
+/// The export dialog's "How much" choices.
+pub const SAMPLE_KINDS: [&str; 4] = [
+    "the whole book",
+    "the first chapters",
+    "chapters",
+    "the first words",
+];
+
+/// What to type for each kind, to start with.
+pub fn sample_default(kind: usize) -> String {
+    match kind {
+        1 => "3".into(),
+        2 => "1-3".into(),
+        3 => "10000".into(),
+        _ => String::new(),
+    }
+}
+
+/// The export dialog's sample, as an export scope.
+pub fn sample_scope((kind, text): &(usize, String)) -> Result<export::Scope, String> {
+    let digits = |s: &str| {
+        s.trim()
+            .replace(',', "")
+            .parse::<usize>()
+            .ok()
+            .filter(|&n| n > 0)
+    };
+    match kind {
+        1 => digits(text)
+            .map(export::Scope::first)
+            .ok_or_else(|| "how many chapters? type a number".into()),
+        2 => {
+            let t = text.replace('–', "-");
+            let (a, b) = t.split_once('-').unwrap_or((&t, &t));
+            match (digits(a), digits(b)) {
+                (Some(from), Some(to)) if from <= to => Ok(export::Scope::Chapters { from, to }),
+                _ => Err("which chapters? type a range like 1-3".into()),
+            }
+        }
+        3 => digits(text)
+            .map(export::Scope::Words)
+            .ok_or_else(|| "how many words? type a number".into()),
+        _ => Ok(export::Scope::Whole),
+    }
+}
 
 /// Modal state. Only one can be up at a time.
 #[derive(Debug, Clone, PartialEq)]
@@ -429,15 +479,34 @@ pub enum Overlay {
         after: String,
         scroll: usize,
     },
-    /// Export for readers: formats, which acts, then the result.
+    /// Export for readers: formats, which acts, how much, then the result.
     Export {
-        /// Word, EPUB, Markdown.
-        formats: [bool; 3],
+        /// Word, PDF, EPUB, Markdown.
+        formats: [bool; 4],
         /// Each act by path, with its title and whether it's included.
         parts: Vec<(PathBuf, String, bool)>,
+        /// How much: the kind (see [`SAMPLE_KINDS`]) and the number or range
+        /// typed for it.
+        sample: (usize, String),
         sel: usize,
+        /// The TKs found when Export was pressed; pressing it again exports
+        /// anyway.
+        tks: Option<Vec<String>>,
         /// What happened, once it has run: lines to show.
         done: Option<Vec<String>>,
+    },
+    /// How the submission manuscript looks: Scrivener's compile format, as
+    /// rows. `back` is the dialog to return to.
+    Look {
+        sel: usize,
+        look: grimoire_core::submission::Manuscript,
+        back: Option<Box<Overlay>>,
+    },
+    /// The byline and the title page's contact block.
+    Author {
+        sel: usize,
+        fields: Vec<String>,
+        back: Option<Box<Overlay>>,
     },
     /// Suggestions for one misspelt word, plus adding it to the book.
     Spelling {
@@ -629,6 +698,8 @@ impl App {
             sessions_on: false,
             backup_rx: None,
             backup_note: None,
+            pdf_job: None,
+            office: None,
             echo_on: false,
             sprint: None,
             last_disk_check: None,
@@ -1407,6 +1478,8 @@ impl App {
             }
             Action::OpenCodex => self.open_codex(),
             Action::Export => self.open_export(),
+            Action::ManuscriptLook => self.open_look(None),
+            Action::AuthorDetails => self.open_author(None),
             Action::Sessions => self.open_sessions(),
             Action::MoveHistoryOut => self.move_history_out(),
             Action::SaveSession => {
@@ -1801,35 +1874,100 @@ impl App {
 
     pub fn open_export(&mut self) {
         self.flush();
+        if self.office.is_none() {
+            self.office = Some(grimoire_core::pdf::find());
+        }
         let parts = export::parts(&self.project)
             .into_iter()
             .map(|(i, title)| (self.project.nodes[i].path.clone(), title, true))
             .collect();
         self.overlay = Overlay::Export {
-            formats: [true, true, false],
+            formats: [true, false, true, false],
             parts,
+            sample: (0, String::new()),
             sel: 0,
+            tks: None,
             done: None,
         };
     }
 
-    fn run_export(&mut self, formats: [bool; 3], parts: &[(PathBuf, String, bool)]) -> Vec<String> {
-        // Export what's on screen, saved or not; saving first keeps the files
-        // and the export in agreement.
-        self.commit_saves();
+    /// Whether this machine can make a PDF.
+    pub fn has_office(&self) -> bool {
+        matches!(self.office, Some(Some(_)))
+    }
+
+    /// The export the dialog describes, or why it can't run.
+    fn export_options(
+        &self,
+        formats: [bool; 4],
+        parts: &[(PathBuf, String, bool)],
+        sample: &(usize, String),
+    ) -> Result<export::ExportOptions, String> {
+        if !formats.iter().any(|&f| f) {
+            return Err("choose at least one format".into());
+        }
+        if !parts.is_empty() && !parts.iter().any(|p| p.2) {
+            return Err(format!(
+                "choose at least one {}",
+                self.project.meta.part_noun()
+            ));
+        }
         let chosen: Vec<usize> = parts
             .iter()
             .filter(|(_, _, on)| *on)
             .filter_map(|(p, _, _)| self.project.nodes.iter().position(|n| &n.path == p))
             .collect();
         let whole = parts.is_empty() || chosen.len() == parts.len();
-        let opts = export::ExportOptions {
-            docx: formats[0],
-            epub: formats[1],
-            markdown: formats[2],
+        Ok(export::ExportOptions {
+            // A PDF is made from the manuscript, so it comes with one.
+            docx: formats[0] || formats[1],
+            pdf: false,
+            epub: formats[2],
+            markdown: formats[3],
             parts: if whole { None } else { Some(chosen) },
+            scope: sample_scope(sample)?,
+        })
+    }
+
+    /// Export, or first say what TKs are still in: pressed again, it goes.
+    pub(crate) fn export_pressed(&mut self) {
+        let Overlay::Export {
+            formats,
+            parts,
+            sample,
+            tks,
+            ..
+        } = &self.overlay
+        else {
+            return;
         };
-        match export::export(&self.project, &opts) {
+        let (formats, parts, sample, warned) =
+            (*formats, parts.clone(), sample.clone(), tks.is_some());
+        let opts = match self.export_options(formats, &parts, &sample) {
+            Ok(o) => o,
+            Err(why) => {
+                self.msg = why;
+                return;
+            }
+        };
+        self.commit_saves();
+        if !warned
+            && let Ok(found) = export::tks(&self.project, &opts)
+            && !found.is_empty()
+        {
+            if let Overlay::Export { tks, .. } = &mut self.overlay {
+                *tks = Some(found);
+            }
+            return;
+        }
+        let lines = self.run_export(&opts, formats[1]);
+        if let Overlay::Export { done, .. } = &mut self.overlay {
+            *done = Some(lines);
+        }
+    }
+
+    fn run_export(&mut self, opts: &export::ExportOptions, pdf: bool) -> Vec<String> {
+        match export::export(&self.project, opts) {
             Ok(done) => {
                 let mut lines: Vec<String> = done
                     .files
@@ -1840,13 +1978,37 @@ impl App {
                         format!("✓ {}  {}", rel.display(), human_size(size))
                     })
                     .collect();
+                if pdf {
+                    let docx = done
+                        .files
+                        .iter()
+                        .find(|f| f.extension().is_some_and(|e| e == "docx"))
+                        .cloned();
+                    match (self.office.clone().flatten(), docx) {
+                        (Some(office), Some(docx)) => {
+                            let (tx, rx) = std::sync::mpsc::channel();
+                            std::thread::spawn(move || {
+                                let _ = tx.send(
+                                    grimoire_core::pdf::convert(&office, &docx)
+                                        .map_err(|e| format!("{e:#}")),
+                                );
+                            });
+                            self.pdf_job = Some(rx);
+                            lines.push("… the PDF is being made by LibreOffice".into());
+                        }
+                        _ => lines.push(format!(
+                            "couldn't make a PDF: {}",
+                            grimoire_core::pdf::HOW_TO_GET
+                        )),
+                    }
+                }
                 lines.push(String::new());
                 // Shunn rounds, which makes a short book "about 0 words".
                 let rounded = manuscript::rounded_words(done.words);
                 let words = if rounded == 0 {
                     format!("{} words", done.words)
                 } else {
-                    format!("about {rounded} words")
+                    format!("about {} words", manuscript::commas(rounded))
                 };
                 lines.push(format!(
                     "{} chapter{} · {words} · {} manuscript page{}",
@@ -1855,6 +2017,22 @@ impl App {
                     done.pages,
                     if done.pages == 1 { "" } else { "s" },
                 ));
+                if done.empty > 0 {
+                    lines.push(format!(
+                        "{} empty scene{}, chapter{} or part{} left out",
+                        done.empty,
+                        if done.empty == 1 { "" } else { "s" },
+                        if done.empty == 1 { "" } else { "s" },
+                        if done.empty == 1 { "" } else { "s" },
+                    ));
+                }
+                if !done.tks.is_empty() {
+                    lines.push(format!(
+                        "{} TK{} left in the text",
+                        done.tks.len(),
+                        if done.tks.len() == 1 { " is" } else { "s are" }
+                    ));
+                }
                 self.msg = format!(
                     "exported {} file{} to exports/",
                     done.files.len(),
@@ -1863,6 +2041,95 @@ impl App {
                 lines
             }
             Err(e) => vec![format!("couldn't export: {e}")],
+        }
+    }
+
+    /// A PDF finished (or failed) off the main thread: say so, and add it to
+    /// the export dialog if that's still up.
+    pub fn tick_pdf(&mut self) {
+        let Some(rx) = &self.pdf_job else {
+            return;
+        };
+        let line = match rx.try_recv() {
+            Ok(Ok(path)) => {
+                let size = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+                let rel = path.strip_prefix(&self.project.root).unwrap_or(&path);
+                self.msg = format!("PDF ready: {}", rel.display());
+                format!("✓ {}  {}", rel.display(), human_size(size))
+            }
+            Ok(Err(why)) => {
+                self.msg = format!("couldn't make the PDF: {why}");
+                format!("couldn't make the PDF: {why}")
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => return,
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                "couldn't make the PDF: LibreOffice stopped".to_string()
+            }
+        };
+        self.pdf_job = None;
+        if let Overlay::Export {
+            done: Some(lines), ..
+        } = &mut self.overlay
+        {
+            if let Some(slot) = lines.iter_mut().find(|l| l.starts_with("… the PDF")) {
+                *slot = line;
+            } else {
+                lines.insert(0, line);
+            }
+        }
+    }
+
+    // ---- the manuscript's look and the author's details --------------------
+
+    pub fn open_look(&mut self, back: Option<Box<Overlay>>) {
+        self.overlay = Overlay::Look {
+            sel: 0,
+            look: self.project.meta.manuscript.clone(),
+            back,
+        };
+    }
+
+    pub fn open_author(&mut self, back: Option<Box<Overlay>>) {
+        let m = &self.project.meta;
+        let c = &m.contact;
+        let line = |v: &[String], i: usize| v.get(i).cloned().unwrap_or_default();
+        self.overlay = Overlay::Author {
+            sel: 0,
+            fields: vec![
+                m.author.clone(),
+                c.legal_name.clone(),
+                line(&c.address, 0),
+                line(&c.address, 1),
+                line(&c.address, 2),
+                c.phone.clone(),
+                c.email.clone(),
+                line(&c.agent, 0),
+                line(&c.agent, 1),
+            ],
+            back,
+        };
+    }
+
+    /// Write the byline, contact block and look to novel.toml, and take them
+    /// up. False (with a message) if novel.toml couldn't be changed.
+    pub(crate) fn save_submission(
+        &mut self,
+        byline: String,
+        contact: grimoire_core::submission::Contact,
+        look: grimoire_core::submission::Manuscript,
+    ) -> bool {
+        match grimoire_core::submission::save(&self.project.root, &byline, &contact, &look) {
+            Ok(()) => {
+                let m = &mut self.project.meta;
+                m.author = byline;
+                m.contact = contact;
+                m.manuscript = look;
+                true
+            }
+            Err(e) => {
+                self.msg = format!("{e:#}");
+                false
+            }
         }
     }
 
@@ -3868,6 +4135,8 @@ impl App {
                 on_off(self.typewriter, "typewriter scrolling"),
                 Action::Typewriter,
             ),
+            ("Manuscript look…".into(), Action::ManuscriptLook),
+            ("Author details…".into(), Action::AuthorDetails),
             ("Back".into(), Action::MenuBack),
         ]
     }

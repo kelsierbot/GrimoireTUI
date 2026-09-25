@@ -291,9 +291,53 @@ mentions it. Nothing extra is stored; it's all read from the files.
 
 ## Readers, and other computers
 
-- **Export** (`Esc` › *Export…*): a Word document in standard manuscript format, an
-  EPUB for phones and e-readers, and Markdown — the whole book or chosen parts —
-  into `exports/`. Also `grimoire export [--docx] [--epub] [--md] [--parts 1,3]`.
+- **Export** (`Esc` › *Export…*): a Word document in standard manuscript
+  format, the same pages as a PDF, an EPUB for phones and e-readers, and
+  Markdown — the whole book, chosen parts, or the sample an agent asked for
+  (the first N chapters, chapters X–Y, or the first N words) — into
+  `exports/`. Also `grimoire export [--docx] [--pdf] [--epub] [--md]
+  [--parts 1,3] [--chapters 1-3 | --words 10000]`.
+
+### Compiling for submission
+
+Export does what Scrivener's Compile does, with its *Manuscript* format as
+the default — William Shunn's modern standard manuscript format:
+
+- **The title page**: your contact block top left, single-spaced (legal name,
+  address, phone, email, and an agent if you have one — *Author details…* in
+  the export dialog or `Esc` › Settings), "about 82,000 words" top right
+  (rounded to the nearest 100 for a story, 500 for a novella, 1,000 for a
+  novel), the title halfway down as you typed it, and your byline under it.
+- **Every page after it**: Times New Roman 12, double-spaced, one-inch
+  margins, half-inch first-line indents, no space between paragraphs, ragged
+  right, and `Surname / KEYWORD / page` top right — numbered from 1 on the
+  first page of text.
+- **Chapters** open on a new page a third of the way down; a part shares its
+  first chapter's page (the part a third down, the chapter halfway). A
+  Prologue, Epilogue or Interlude keeps its own heading and takes no number.
+  Scene breaks are a centred `#`, and the manuscript ends with END.
+- **Book typography** is done for you: curly quotes and apostrophes (’tis,
+  ’90s), `--` to an em dash, `...` to an ellipsis — in every format, never
+  on disk.
+- **Nothing half-finished goes out quietly**: empty scenes and chapters are
+  left out (no blank pages from a template), `%% notes %%` are removed, and a
+  `TK` stays visible — export lists every one before it writes anything.
+- **Files** are named the way agents ask: `Surname_Title_Manuscript.docx`,
+  plus the sample (`…_Chapters-1-3`).
+
+*Manuscript look…* changes the rest, saved in `novel.toml` under
+`[manuscript]`: Modern (Times New Roman) or Classic (Courier, with
+underlines for italics and typewriter quotes — "Shunn Classic"), US Letter or
+A4 (UK and European agents), double or 1.5 spacing, chapter headings
+(*Chapter One*, *CHAPTER ONE*, *Chapter 1*, *1*, or the chapter's title),
+first paragraphs indented or flush, END / THE END / nothing, the header's
+keyword, and whether a spaced hyphen becomes an em dash (US) or a spaced en
+dash (UK). Always follow an agent's own guidelines where they differ.
+
+**PDF** comes from LibreOffice (free), which converts the Word file page for
+page — Grimoire finds it on your PATH, in the usual install places, or as the
+Flatpak (`flatpak install flathub org.libreoffice.LibreOffice`). Without it,
+the export dialog says so and writes everything else.
 - **Resume.** `.grimoire/resume.md` remembers the scene and paragraph you were
   at, so opening the book on any computer the folder reaches lands you there.
 - **Writing sessions** (palette): turn on history for the book and each

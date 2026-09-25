@@ -187,17 +187,37 @@ fn main() -> Result<()> {
     res
 }
 
-const EXPORT_USAGE: &str = "grimoire export [dir] [--docx] [--epub] [--md] [--parts 1,3]";
+const EXPORT_USAGE: &str = "grimoire export [dir] [--docx] [--pdf] [--epub] [--md] [--parts 1,3] \
+[--chapters 1-3 | --words 10000]";
 
-/// `grimoire export [dir] [--docx] [--epub] [--md] [--parts 1,3]`. With no
-/// format named it writes DOCX and EPUB.
+/// `grimoire export [dir] [--docx] [--pdf] [--epub] [--md] [--parts 1,3]
+/// [--chapters 1-3 | --words 10000]`. With no format named it writes DOCX and
+/// EPUB. A sample (`--chapters`, `--words`) is what an agent asks for.
 fn export_command(mut args: impl Iterator<Item = String>) -> Result<()> {
     let mut dir = None;
-    let (mut docx, mut epub, mut markdown) = (false, false, false);
+    let (mut docx, mut epub, mut markdown, mut pdf) = (false, false, false, false);
+    let mut scope = export::Scope::Whole;
     let mut numbers: Option<Vec<usize>> = None;
     while let Some(a) = args.next() {
         match a.as_str() {
             "--docx" => docx = true,
+            "--pdf" => pdf = true,
+            "--chapters" => {
+                let list = args.next().with_context(|| {
+                    format!("--chapters needs a range, like --chapters 1-3\n\n  {EXPORT_USAGE}")
+                })?;
+                scope = chapter_range(&list)?;
+            }
+            "--words" => {
+                let n = args.next().with_context(|| {
+                    format!("--words needs a number, like --words 10000\n\n  {EXPORT_USAGE}")
+                })?;
+                scope = export::Scope::Words(
+                    n.replace(',', "")
+                        .parse()
+                        .map_err(|_| anyhow::anyhow!("--words takes a number, not '{n}'"))?,
+                );
+            }
             "--epub" => epub = true,
             "--md" | "--markdown" => markdown = true,
             "--parts" => {
@@ -212,7 +232,7 @@ fn export_command(mut args: impl Iterator<Item = String>) -> Result<()> {
             _ => anyhow::bail!("one book at a time — '{a}' is a second folder\n\n  {EXPORT_USAGE}"),
         }
     }
-    if !(docx || epub || markdown) {
+    if !(docx || epub || markdown || pdf) {
         (docx, epub) = (true, true);
     }
 
@@ -251,13 +271,28 @@ fn export_command(mut args: impl Iterator<Item = String>) -> Result<()> {
         &project,
         &export::ExportOptions {
             docx,
+            pdf,
             epub,
             markdown,
             parts,
+            scope,
         },
     )?;
     for f in &out.files {
         println!("Wrote {}", pretty(f));
+    }
+    if let Some(why) = &out.pdf_error {
+        eprintln!("No PDF: {why}");
+    }
+    if !out.tks.is_empty() {
+        eprintln!(
+            "Note: {} TK{} still in the text:",
+            out.tks.len(),
+            if out.tks.len() == 1 { " is" } else { "s are" }
+        );
+        for t in out.tks.iter().take(10) {
+            eprintln!("  {t}");
+        }
     }
     let plural = |n: usize, word: &str| format!("{n} {word}{}", if n == 1 { "" } else { "s" });
     println!(
@@ -267,6 +302,21 @@ fn export_command(mut args: impl Iterator<Item = String>) -> Result<()> {
         plural(out.pages, "page")
     );
     Ok(())
+}
+
+/// "1-3", "3" or "2–5" into a chapter range.
+fn chapter_range(list: &str) -> Result<export::Scope> {
+    let bad = || anyhow::anyhow!("--chapters takes a range like 1-3, not '{list}'");
+    let norm = list.replace('–', "-");
+    let (a, b) = match norm.split_once('-') {
+        Some((a, b)) => (a.trim(), b.trim()),
+        None => (norm.trim(), norm.trim()),
+    };
+    let (from, to): (usize, usize) = (a.parse().map_err(|_| bad())?, b.parse().map_err(|_| bad())?);
+    if from == 0 || to < from {
+        return Err(bad());
+    }
+    Ok(export::Scope::Chapters { from, to })
 }
 
 /// "1,3" or "1-3" into part numbers.
@@ -448,6 +498,7 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
         app.sync_tick();
         app.tick_today();
         app.tick_speller();
+        app.tick_pdf();
         app.tick_backup();
         app.music.drain();
         // The player shows its own notes; anywhere else, the status bar does.
