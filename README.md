@@ -331,6 +331,11 @@ each showing its colour block and hex. Type six hex digits and it applies the
 moment the sixth lands. It starts from whichever theme you were previewing, so
 you can pick the closest preset and adjust from there.
 
+Below the swatches, **Custom mixes and matches**: `pomodoro` and `visualizer`
+each borrow any preset's — Kanagawa's great wave with Synthwave '84's neon
+grid, say — cycled with `←` `→` and previewed in the pane under the tree as
+you go. Entering Custom from a preset starts from that preset's world and look.
+
 Saved to `~/.config/grimoire/theme.toml`. Presets store only their name, so
 they follow any future refinements; Custom stores every swatch.
 

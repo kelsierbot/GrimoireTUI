@@ -957,3 +957,83 @@ fn the_visualizer_names_the_song_truncated_to_the_pane() {
         );
     }
 }
+
+// ---- a custom theme borrows a preset's Pomodoro and Visualizer ------------
+
+/// The Pomodoro/Visualizer pane's glyphs, row by row.
+fn pane_glyphs(d: &Desk) -> Vec<String> {
+    let r = d.app.rect_scene;
+    let buf = d.term.backend().buffer();
+    (r.y..r.y + r.height)
+        .map(|y| (r.x..r.x + r.width).map(|x| buf[(x, y)].symbol()).collect())
+        .collect()
+}
+
+/// The pane as a preset draws it in `mode`, for comparing against.
+fn preset_pane(name: &str, mode: scene::Mode) -> Vec<String> {
+    let mut d = Desk::open(book(&format!("mix-ref-{}", name.len()), true), 120, 35);
+    d.app.theme = theme::presets()
+        .into_iter()
+        .find(|t| t.name == name)
+        .unwrap();
+    d.app.pane_mode = mode;
+    d.draw();
+    pane_glyphs(&d)
+}
+
+#[test]
+fn a_custom_theme_mixes_one_presets_world_with_anothers_visualizer() {
+    let mut d = Desk::open(book("mix", true), 120, 35);
+    // F9, up from the top wraps to Custom…, Enter edits it.
+    d.key(KeyCode::F(9));
+    d.key(KeyCode::Up);
+    d.key(KeyCode::Enter);
+    assert!(matches!(d.app.overlay, Overlay::Custom { .. }));
+    assert!(
+        d.shows("pomodoro") && d.shows("visualizer"),
+        "the pick rows are listed"
+    );
+    // Down past the twelve swatches to the Pomodoro row: the pane shows it.
+    for _ in 0..12 {
+        d.key(KeyCode::Down);
+    }
+    assert_eq!(d.app.pane_mode, scene::Mode::Pomodoro);
+    for _ in 0..20 {
+        if d.app.theme.world() == "Kanagawa" {
+            break;
+        }
+        d.key(KeyCode::Right);
+    }
+    assert_eq!(d.app.theme.world(), "Kanagawa");
+    assert!(d.shows("◂ Kanagawa ▸"));
+    assert_eq!(
+        pane_glyphs(&d),
+        preset_pane("Kanagawa", scene::Mode::Pomodoro),
+        "the pane previews Kanagawa's world"
+    );
+    // The Visualizer row: the pane switches to it, and ← goes back round.
+    d.key(KeyCode::Down);
+    assert_eq!(d.app.pane_mode, scene::Mode::Visualizer);
+    for _ in 0..25 {
+        if d.app.theme.look() == "Synthwave '84" {
+            break;
+        }
+        d.key(KeyCode::Left);
+    }
+    assert_eq!(d.app.theme.look(), "Synthwave '84");
+    assert_eq!(
+        pane_glyphs(&d),
+        preset_pane("Synthwave '84", scene::Mode::Visualizer),
+        "the pane previews Synthwave's visualizer"
+    );
+    // Hex keys do nothing on a pick row; the colours are untouched.
+    let swatches = |t: &theme::Theme| {
+        (0..theme::ROLES.len())
+            .map(|i| t.role(i))
+            .collect::<Vec<_>>()
+    };
+    let before = swatches(&d.app.theme);
+    d.typed("abcdef");
+    assert_eq!(swatches(&d.app.theme), before);
+    assert_eq!(d.app.theme.name, "Custom");
+}
