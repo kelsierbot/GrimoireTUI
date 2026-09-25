@@ -17,7 +17,7 @@ name = "grimoire"
 path = "src/main.rs"
 
 [dependencies]
-grimoire-core = { path = "crates/grimoire-core", version = "0.3" }
+grimoire-core = { path = "crates/grimoire-core", version = "0.4" }
 anyhow = "1.0.104"
 chrono = "0.4.45"
 # Same cpal that rodio already pulls in; used directly for loopback capture.
@@ -58,4 +58,4 @@ members = ["crates/grimoire-core", "crates/grimoire-app"]
 
 # One version for the terminal app and the crates under it; bump it here.
 [workspace.package]
-version = "0.3.6"
+version = "0.4.0"

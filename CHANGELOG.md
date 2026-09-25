@@ -51,6 +51,12 @@
 
 ### Around the desk
 
+- **The Esc menu has the new tools**: focus mode, a scene beside, notes &
+  TKs, next scene in draft, echo words and sprints; Settings has line width
+  and typewriter scrolling. Rows that can't do anything right now are hidden,
+  and the menu scrolls on a short terminal. From the editor, the menu's
+  New/Rename/Delete act on the scene you're writing, as `Ctrl-K`'s always did.
+  Lists answer PgUp/PgDn and Home/End throughout.
 - **Export… is in the menu** — Word, EPUB or Markdown from one dialog, which
   now fits an 80-column terminal. Compile and the project map are still in
   `Ctrl-K`.
