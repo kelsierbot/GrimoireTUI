@@ -31,6 +31,7 @@ const flat = nav.flatMap((g) => g.items);
 const VERSION = 'v0.5';
 const STUDIO = 'https://catfinity.com';
 const KOFI = 'https://ko-fi.com/F2F21E0DK0';
+const GAME = 'https://catfinity.com/catfinity/';
 const DEFAULT_THEME = 'Rainbow';
 ---
 
@@ -161,7 +162,8 @@ const DEFAULT_THEME = 'Rainbow';
             </p>
             <p class="mute">
               Rust and Ratatui. One binary. macOS, Linux and Windows. Made by
-              <a href={STUDIO}>Catfinity Studios</a>.
+              <a href={STUDIO}>Catfinity Studios</a>, the makers of <a href={GAME}>Catfinity</a>,
+              an idle cat RPG for iPhone and Android.
             </p>
           </section>
 
@@ -434,6 +436,13 @@ const DEFAULT_THEME = 'Rainbow';
             <p class="mute">
               In the app it's <em>Donate…</em> in the menu. Thank you for writing with it.
             </p>
+            <p>
+              Another way to help: Grimoire comes from <a href={STUDIO}>Catfinity Studios</a>, and
+              we also make <a href={GAME}>Catfinity</a>, a cozy idle cat RPG. It's free on
+              <a href="https://apps.apple.com/us/app/catfinity-idle-cat-rpg/id6793207198">iPhone</a>
+              and <a href="https://play.google.com/store/apps/details?id=com.catfinity.game">Android</a>,
+              and your cats would love the company.
+            </p>
           </section>
 
           <section id="license" role="tabpanel" aria-labelledby="tab-license">
@@ -498,7 +507,7 @@ const DEFAULT_THEME = 'Rainbow';
           <span class="hint"><kbd>t</kbd> theme</span>
           <span class="hint"><kbd>g</kbd> github</span>
         </span>
-        <span class="right">{VERSION} · MIT · <a href={STUDIO}>Catfinity Studios</a></span>
+        <span class="right">{VERSION} · MIT · <a href={STUDIO}>Catfinity Studios</a><span class="makers"> · makers of <a href={GAME}>Catfinity</a></span></span>
       </footer>
     </div>
 

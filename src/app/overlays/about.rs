@@ -7,6 +7,8 @@ use ratatui::layout::Alignment;
 /// The studio that makes Grimoire, and where to find it.
 pub(crate) const STUDIO: &str = "Catfinity Studios";
 pub(crate) const STUDIO_URL: &str = "https://catfinity.com";
+/// The studio's game, and its page: everyone who opens About meets it.
+pub(crate) const GAME_URL: &str = "https://catfinity.com/catfinity/";
 /// Where a donation goes.
 pub(crate) const KOFI_URL: &str = "https://ko-fi.com/F2F21E0DK0";
 const SITE: &str = "grimoiretui.com";
@@ -20,6 +22,7 @@ impl App {
     pub(super) fn on_about_key(&mut self, key: Key) {
         match key {
             Key::Enter | Key::Char('o') => self.open_studio_site(),
+            Key::Char('c') => self.open_game(),
             Key::Char('d') => self.overlay = Overlay::Donate,
             Key::Char('l') => self.open_help(Some("license")),
             Key::Esc | Key::Char('q') => self.overlay = Overlay::None,
@@ -42,6 +45,15 @@ impl App {
             Err(e) => format!("couldn't open a browser ({e}) — it's {KOFI_URL}"),
         };
         self.last_opened = Some(KOFI_URL.to_string());
+    }
+
+    /// Catfinity, the studio's idle cat RPG, in the browser.
+    pub(crate) fn open_game(&mut self) {
+        self.msg = match open_url(GAME_URL) {
+            Ok(()) => "opening Catfinity, the idle cat RPG".to_string(),
+            Err(e) => format!("couldn't open a browser ({e}) — it's {GAME_URL}"),
+        };
+        self.last_opened = Some(GAME_URL.to_string());
     }
 
     /// The studio's site, in the browser; a click on the link lands here too.
@@ -104,6 +116,11 @@ pub(super) fn draw_about(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             format!("↗ {}", STUDIO_URL.trim_start_matches("https://")),
             accent.add_modifier(Modifier::UNDERLINED),
         ),
+        centre("makers of Catfinity, an idle cat RPG".into(), dim),
+        centre(
+            "↗ play Catfinity on iPhone & Android".into(),
+            accent.add_modifier(Modifier::UNDERLINED),
+        ),
         Line::from(""),
         centre(SITE.into(), dim),
         centre(SOURCE.into(), dim),
@@ -111,7 +128,7 @@ pub(super) fn draw_about(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
         centre("MIT License: free for commercial use,".into(), dim),
         centre("with credit. Donations welcome, never needed.".into(), dim),
         Line::from(""),
-        hint_line(" ↵ catfinity.com   d donate   l license   esc close", t)
+        hint_line(" ↵ studio  c Catfinity  d donate  l license  esc close", t)
             .alignment(Alignment::Center),
     ];
     // The spellbook heads it when there's room.
@@ -136,10 +153,12 @@ pub(super) fn draw_about(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
         inner.width,
         inner.height.saturating_sub(art_h),
     );
-    // Where the link sits, for a click.
+    // Where the links sit, for a click: the studio, then its game.
     let link_row = 7u16;
     app.about_link
         .set(Rect::new(body.x, body.y + link_row, body.width, 1));
+    app.about_game_link
+        .set(Rect::new(body.x, body.y + link_row + 2, body.width, 1));
     lines.truncate(body.height as usize);
     f.render_widget(Paragraph::new(lines), body);
 }

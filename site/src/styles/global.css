@@ -343,7 +343,7 @@ body { transition: background-color 240ms ease, color 240ms ease; }
 }
 .theme-btn { color: var(--mute); margin-right: 1.25rem; }
 .titlebar .right .learn-link { margin-right: 1.25rem; text-decoration: none; }
-@media (max-width: 46rem) { .titlebar .right .learn-link { display: none; } }
+@media (max-width: 46rem) { .titlebar .right .learn-link, .statusbar .makers { display: none; } }
 .theme-btn:hover { color: var(--text); }
 .theme-btn .swatch {
   display: inline-block;

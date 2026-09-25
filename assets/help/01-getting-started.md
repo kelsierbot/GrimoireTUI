@@ -31,7 +31,7 @@ Click a pane to move to it, a chapter to fold it, a scene to open it, and the pr
 
 ## About Grimoire
 
-*About Grimoire…* in the menu (or `Ctrl-K` › *About Grimoire*) shows which version you're running and who made it: Grimoire is made by Catfinity Studios. `Enter`, or a click on the link, opens catfinity.com in your browser, and `l` opens the License topic. From a terminal, `grimoire --version` says the same.
+*About Grimoire…* in the menu (or `Ctrl-K` › *About Grimoire*) shows which version you're running and who made it: Grimoire is made by Catfinity Studios. `Enter`, or a click on the link, opens catfinity.com in your browser, and `l` opens the License topic. Catfinity Studios also makes **Catfinity**, an idle cat RPG for iPhone and Android: `c` in *About Grimoire…* (or a click on its line) opens its page. From a terminal, `grimoire --version` says the same.
 
 ## Donate
 

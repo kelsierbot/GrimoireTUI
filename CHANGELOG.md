@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.7 · Say hello to Catfinity
+
+- *About Grimoire…* now mentions the studio's other work: Catfinity Studios
+  makes **Catfinity**, an idle cat RPG for iPhone and Android. `c` (or a
+  click on its line) opens its page. `grimoire --version` mentions it too.
+
 ## 0.5.6 — grimoiretui.com
 
 - Grimoire has its own home now: **grimoiretui.com**. *About Grimoire…*

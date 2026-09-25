@@ -96,7 +96,7 @@ fn main() -> Result<()> {
 
     if matches!(first.as_deref(), Some("-V") | Some("--version")) {
         println!(
-            "grimoire {} — made by Catfinity Studios · https://catfinity.com",
+            "grimoire {} · made by Catfinity Studios, makers of Catfinity · https://catfinity.com",
             env!("CARGO_PKG_VERSION")
         );
         return Ok(());

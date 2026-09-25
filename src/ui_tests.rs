@@ -2225,6 +2225,27 @@ fn about_says_the_version_and_who_made_it_and_links_to_the_studio() {
 }
 
 #[test]
+fn about_introduces_catfinity_and_links_to_it() {
+    let mut d = Desk::open(book("about-game", true), 120, 40);
+    d.app.open_about();
+    d.draw();
+    assert!(d.shows("makers of Catfinity, an idle cat RPG"));
+    assert!(d.shows("play Catfinity on iPhone & Android"));
+    let r = d.app.about_game_link.get();
+    d.app.on_click(r.x + r.width / 2, r.y);
+    assert_eq!(
+        d.app.last_opened.as_deref(),
+        Some("https://catfinity.com/catfinity/")
+    );
+    d.app.last_opened = None;
+    d.key(KeyCode::Char('c'));
+    assert_eq!(
+        d.app.last_opened.as_deref(),
+        Some("https://catfinity.com/catfinity/")
+    );
+}
+
+#[test]
 fn about_fits_a_short_terminal() {
     let mut d = Desk::open(book("about-short", true), 80, 24);
     d.app.open_about();

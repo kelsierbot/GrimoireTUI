@@ -286,6 +286,8 @@ pub struct App {
     pub help_fit: std::cell::Cell<HelpFit>,
     /// Where the About box's link to the studio sits, for a click.
     pub about_link: std::cell::Cell<Rect>,
+    /// Where About's line for Catfinity, the studio's game, was drawn.
+    pub about_game_link: std::cell::Cell<Rect>,
     /// The last address handed to a browser (tests read it; nothing opens).
     pub last_opened: Option<String>,
 }
@@ -748,6 +750,7 @@ impl App {
             reload_failed: None,
             help_fit: std::cell::Cell::default(),
             about_link: std::cell::Cell::default(),
+            about_game_link: std::cell::Cell::default(),
             last_opened: None,
         })
         .map(|mut app: App| {
@@ -3982,6 +3985,11 @@ impl App {
         // The About box's link opens the studio's site; the Donate box's,
         // the Ko-fi page.
         if matches!(self.overlay, Overlay::About | Overlay::Donate) {
+            let game = self.about_game_link.get();
+            if matches!(self.overlay, Overlay::About) && hit(game, x, y) {
+                self.open_game();
+                return;
+            }
             let r = self.about_link.get();
             if hit(r, x, y) {
                 if matches!(self.overlay, Overlay::About) {

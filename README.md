@@ -1,6 +1,6 @@
 <img src="assets/readme/banner.svg" alt="grimoire — a terminal writing desk for novels" width="100%">
 
-**[grimoiretui.com](https://grimoiretui.com)** · [free classroom curriculum](https://grimoiretui.com/learn/) · Rust + [Ratatui](https://ratatui.rs) · MIT · macOS, Linux and Windows · made by [Catfinity Studios](https://catfinity.com)
+**[grimoiretui.com](https://grimoiretui.com)** · [free classroom curriculum](https://grimoiretui.com/learn/) · Rust + [Ratatui](https://ratatui.rs) · MIT · macOS, Linux and Windows · made by [Catfinity Studios](https://catfinity.com), makers of [Catfinity](https://catfinity.com/catfinity/)
 
 <a href="https://ko-fi.com/F2F21E0DK0"><img height="36" style="border:0px;height:36px;" src="https://storage.ko-fi.com/cdn/kofi6.png?v=6" alt="Buy Me a Coffee at ko-fi.com"></a>
 
@@ -762,6 +762,12 @@ though, and it all goes toward Grimoire's development.
 <a href="https://ko-fi.com/F2F21E0DK0"><img height="36" style="border:0px;height:36px;" src="https://storage.ko-fi.com/cdn/kofi6.png?v=6" alt="Buy Me a Coffee at ko-fi.com"></a>
 
 The same is in the app: *Donate…* in the menu, or `d` in *About Grimoire…*.
+
+Another way to help: Grimoire comes from [Catfinity Studios](https://catfinity.com),
+and we also make **[Catfinity](https://catfinity.com/catfinity/)**, a cozy idle
+cat RPG. It's free on [iPhone](https://apps.apple.com/us/app/catfinity-idle-cat-rpg/id6793207198)
+and [Android](https://play.google.com/store/apps/details?id=com.catfinity.game),
+and in the app, `c` in *About Grimoire…* takes you there.
 
 ## License
 
