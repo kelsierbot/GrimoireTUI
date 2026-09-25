@@ -50,6 +50,12 @@ pub enum Action {
     EndSprint,
     Menu,
     Quit,
+    /// The menu's own rows: open the palette, go into Settings and back out,
+    /// and close the menu.
+    FindAnything,
+    Settings,
+    MenuBack,
+    CloseMenu,
     FocusMode,
     /// Pick a scene to show beside the one being written.
     BesidePicker,
@@ -57,6 +63,21 @@ pub enum Action {
     LineWidth,
     Typewriter,
     Open(std::path::PathBuf),
+}
+
+impl Action {
+    /// Switches a setting on or off (or steps it) rather than going anywhere:
+    /// chosen from Settings, the menu stays open to show the new state.
+    pub fn is_setting_toggle(&self) -> bool {
+        matches!(
+            self,
+            Action::MusicToggle
+                | Action::Spellcheck
+                | Action::Icons
+                | Action::LineWidth
+                | Action::Typewriter
+        )
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
