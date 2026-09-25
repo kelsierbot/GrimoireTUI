@@ -6,7 +6,7 @@
 //! scene with an Obsidian wikilink, so the same file is a working index inside
 //! a vault and a plain readable document outside one.
 //!
-//! Structure borrows from Scrivener, which is what most novelists actually use:
+//! How the book is structured for compiling:
 //!
 //! - **Front matter is a sibling of the draft**, not inside it, so a title page
 //!   compiles into the manuscript without inflating the wordcount.
@@ -125,8 +125,7 @@ pub fn commas(n: usize) -> String {
 
 /// The approximate count a title page gives, the way Shunn and the SFWA's
 /// lengths have it: to the nearest 100 for a story (under 17,500 words), 500
-/// for a novella (under 40,000), 1,000 for a novel. Scrivener's `<$wc100>`,
-/// `<$wc500>` and `<$wc1000>`.
+/// for a novella (under 40,000), 1,000 for a novel.
 pub fn rounded_words(n: usize) -> usize {
     let step = if n < 17_500 {
         100
@@ -355,7 +354,7 @@ pub struct Compiled {
 ///
 /// The walk lives in `export`, which draws DOCX, EPUB and this same Markdown
 /// from one model of the book — so compile and export can't drift apart.
-/// Front matter owns the title page, as in Scrivener: it's emitted verbatim
+/// Front matter owns the title page: it's emitted verbatim
 /// rather than having a generated one stacked on top of it.
 pub fn compile(p: &Project) -> Result<Compiled> {
     p.ensure_whole()?;

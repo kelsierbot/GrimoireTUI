@@ -20,7 +20,7 @@
 
 ## 0.5.1 — compiled for submission
 
-- **Export compiles a manuscript the way Scrivener's Manuscript format does**
+- **Export compiles a submission manuscript in standard manuscript format**
   — William Shunn's modern standard: a title page with your contact block,
   byline and rounded word count; "Surname / KEYWORD / page" on every page
   after it; parts and chapters a third of the way down, a part sharing its

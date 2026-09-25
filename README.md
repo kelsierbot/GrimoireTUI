@@ -304,8 +304,8 @@ mentions it. Nothing extra is stored; it's all read from the files.
 
 ### Compiling for submission
 
-Export does what Scrivener's Compile does, with its *Manuscript* format as
-the default — William Shunn's modern standard manuscript format:
+Export compiles a submission manuscript in William Shunn's modern standard
+manuscript format by default:
 
 <p align="center"><img src="assets/screenshots/manuscript.png" alt="The first three pages of a compiled manuscript: a title page with the contact block and word count, Part One and Chapter One on the opening page, and a page with a centred # scene break" width="100%"></p>
 

@@ -10,7 +10,7 @@
 //! - **Shunn Markdown**, the same text `grimoire compile` writes.
 //!
 //! All of them are drawn from one [`Book`], built by the same walk `compile`
-//! uses — Scrivener's Compile, in short:
+//! uses — in short:
 //!
 //! - a folder holding scenes is a chapter, one holding chapters is a part;
 //! - `compile: false` scenes stay out, and so do empty scenes, chapters with
@@ -1221,7 +1221,7 @@ pub(crate) fn markdown(b: &Book) -> String {
             let _ = writeln!(out, "by {}\n", b.author);
         }
     } else {
-        // Front matter owns the title page — Scrivener's rule too.
+        // Front matter owns the title page.
         for f in &b.front {
             let _ = writeln!(out, "{f}\n");
         }
@@ -3144,7 +3144,7 @@ mod tests {
         fs::remove_dir_all(&d).unwrap();
     }
 
-    // ── the submission manuscript (Shunn, Scrivener's Manuscript format) ──
+    // ── the submission manuscript (Shunn's modern format) ──
 
     fn set_look(d: &Path, extra: &str) {
         let toml = d.join("novel.toml");

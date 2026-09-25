@@ -506,8 +506,7 @@ pub enum Overlay {
         /// What happened, once it has run: lines to show.
         done: Option<Vec<String>>,
     },
-    /// How the submission manuscript looks: Scrivener's compile format, as
-    /// rows. `back` is the dialog to return to.
+    /// How the submission manuscript looks, as rows. `back` is the dialog to return to.
     Look {
         sel: usize,
         look: grimoire_core::submission::Manuscript,

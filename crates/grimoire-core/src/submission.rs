@@ -13,7 +13,7 @@
 //! email = "jane@example.com"
 //! agent = ["Represented by Sam Lee", "Lee Literary"]
 //!
-//! [manuscript]                      # Scrivener's compile format, in words
+//! [manuscript]                      # how the manuscript looks
 //! format = "modern"                 # or "classic" (Courier, underlines)
 //! paper = "letter"                  # or "a4"
 //! spacing = "double"                # or "1.5"

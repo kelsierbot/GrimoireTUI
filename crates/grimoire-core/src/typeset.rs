@@ -14,8 +14,8 @@
 //! that is a scene break (`#`, `***`, `---`) is left exactly as it is; the
 //! caller never passes those in.
 //!
-//! [`plain`] undoes it — Scrivener's "convert to plain text" transformation —
-//! for the classic Courier manuscript, which keeps straight quotes and `--`.
+//! [`plain`] undoes it for the classic Courier manuscript, which keeps
+//! straight quotes and `--`.
 
 use std::borrow::Cow;
 

@@ -1,6 +1,5 @@
-//! The print edition: the book laid out for paper, as Scrivener's
-//! "Paperback Novel" compile format does it, and as KDP and IngramSpark want
-//! a print-ready interior.
+//! The print edition: the book laid out for paper, the way KDP and
+//! IngramSpark want a print-ready interior.
 //!
 //! - **Trim size** is the page: 5 × 8, 5.25 × 8, 5.5 × 8.5 or 6 × 9 inches.
 //! - **Mirrored margins**, the inside one widened by KDP's gutter for the

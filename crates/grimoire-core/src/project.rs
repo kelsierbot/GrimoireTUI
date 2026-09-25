@@ -368,7 +368,7 @@ pub struct Node {
     pub expanded: bool,
     pub children: Vec<usize>,
     pub in_manuscript: bool,
-    /// Scrivener's "include in compile". `compile: false` in frontmatter keeps
+    /// Include in compile. `compile: false` in frontmatter keeps
     /// a scene in the tree but out of the finished manuscript.
     pub compile: bool,
     /// Lives under front-matter/ — compiled first, never counted in the draft.
@@ -602,8 +602,8 @@ impl Project {
         };
 
         // Every section, in order, as a row that folds. The front matter sits
-        // beside the draft, not inside it — Scrivener's arrangement, and the
-        // reason it compiles without inflating the wordcount. The trash is last,
+        // beside the draft, not inside it, which is why it compiles without
+        // inflating the wordcount. The trash is last,
         // and folded: what's been deleted is still on screen, so nothing ever
         // simply disappears, but it counts for nothing and compiles into nothing.
         for area in Area::ordered(&p.meta) {
