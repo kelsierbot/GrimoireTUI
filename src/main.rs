@@ -11,10 +11,13 @@ mod shutdown;
 mod ui;
 mod visualizer;
 
+#[cfg(test)]
+mod ui_tests;
+
 use anyhow::{Context, Result};
 use ratatui::crossterm::event::{
     self, DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
-    Event, KeyCode, KeyEventKind, KeyModifiers, KeyboardEnhancementFlags, MouseButton,
+    Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, KeyboardEnhancementFlags, MouseButton,
     MouseEventKind, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
 };
 use ratatui::crossterm::execute;
@@ -510,168 +513,177 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
             continue;
         }
 
-        // Either modifier drives the shortcuts: Ctrl everywhere, Cmd where the
-        // terminal can actually report it.
-        let sup = k.modifiers.contains(KeyModifiers::SUPER);
-        if sup {
-            // Hard proof this terminal can send Cmd; trust it over the guess.
-            app.super_keys = true;
-        }
-        let ctrl = k.modifiers.contains(KeyModifiers::CONTROL) || sup;
-
-        // The find bar's two switches: ^W / Alt-W whole words, ^E / Alt-C case.
-        if matches!(app.overlay, Overlay::Find { .. } | Overlay::FindBook { .. })
-            && k.modifiers
-                .intersects(KeyModifiers::ALT | KeyModifiers::CONTROL)
-            && let KeyCode::Char(c) = k.code
-        {
-            let alt = k.modifiers.contains(KeyModifiers::ALT);
-            match c.to_ascii_lowercase() {
-                'w' => {
-                    app.toggle_find_opt(true);
-                    continue;
-                }
-                'e' if !alt => {
-                    app.toggle_find_opt(false);
-                    continue;
-                }
-                'c' if alt => {
-                    app.toggle_find_opt(false);
-                    continue;
-                }
-                _ => {}
-            }
-        }
-
-        if ctrl {
-            let shift = k.modifiers.contains(KeyModifiers::SHIFT);
-            match k.code {
-                KeyCode::Char('s') => {
-                    app.save();
-                    confirm_quit = false;
-                }
-                KeyCode::Char('c') => app.copy_selection(),
-                KeyCode::Char('x') => app.cut(),
-                KeyCode::Char('k') if matches!(app.overlay, Overlay::None) => app.open_palette(),
-                KeyCode::Char('f') => match &app.overlay {
-                    Overlay::None => app.open_find(),
-                    // Ctrl-F again widens the search to the whole book.
-                    Overlay::Find { query, .. } => {
-                        let q = query.clone();
-                        app.open_find_book(q);
-                    }
-                    _ => {}
-                },
-                KeyCode::Char('r') => app.replace_all_key(),
-                KeyCode::Char('o') if matches!(app.overlay, Overlay::None) => app.open_codex(),
-                KeyCode::Char('t') if matches!(app.overlay, Overlay::None) => app.open_marks(),
-                KeyCode::Char('d') if matches!(app.overlay, Overlay::None) => {
-                    app.toggle_focus_mode()
-                }
-                KeyCode::Char('z') if shift => app.redo(),
-                KeyCode::Char('Z') => app.redo(),
-                KeyCode::Char('z') => app.undo(),
-                KeyCode::Char('y') => app.redo(),
-                KeyCode::Char('q') if quit_or_arm(app, &mut confirm_quit) => return Ok(()),
-                _ => {}
-            }
-            continue;
-        }
-
-        if confirm_quit {
-            confirm_quit = false;
-            app.msg.clear();
-        }
-
-        // Alt-↑ / Alt-↓ move the selected scene or folder (or the one being
-        // written). Terminals that keep Alt-arrows for themselves: K / J in the tree.
-        if k.modifiers.contains(KeyModifiers::ALT)
-            && matches!(k.code, KeyCode::Up | KeyCode::Down)
-            && matches!(app.overlay, Overlay::None)
-            && matches!(app.focus, Focus::Tree | Focus::Editor)
-        {
-            app.move_selected(k.code == KeyCode::Up);
-            continue;
-        }
-
-        let mut key = match k.code {
-            KeyCode::Char(c) => Key::Char(c),
-            KeyCode::Enter => Key::Enter,
-            KeyCode::Backspace => Key::Backspace,
-            KeyCode::Delete => Key::Delete,
-            KeyCode::Left => Key::Left,
-            KeyCode::Right => Key::Right,
-            KeyCode::Up => Key::Up,
-            KeyCode::Down => Key::Down,
-            KeyCode::Home => Key::Home,
-            KeyCode::End => Key::End,
-            KeyCode::PageUp => Key::PageUp,
-            KeyCode::PageDown => Key::PageDown,
-            KeyCode::Esc => Key::Esc,
-            KeyCode::Tab => Key::Tab,
-            KeyCode::BackTab => Key::BackTab,
-            KeyCode::F(n) => Key::F(n),
-            _ => Key::Other,
-        };
-
-        if !matches!(app.overlay, Overlay::None) {
-            app.on_overlay_key(key);
-            if std::mem::take(&mut app.quit) && quit_or_arm(app, &mut confirm_quit) {
-                return Ok(());
-            }
-            continue;
-        }
-
-        // Esc is the menu, from any pane (F1 too, where a keyboard has one).
-        if key == Key::Esc || key == Key::F(1) {
-            app.escape();
-            continue;
-        }
-
-        if key == Key::F(9) {
-            app.open_theme_picker();
-            continue;
-        }
-
-        // Timer and music work from either pane, so they can't eat keystrokes.
-        if let Key::F(n) = key {
-            app.on_function_key(n);
-            continue;
-        }
-
-        if key == Key::Tab || key == Key::BackTab {
-            app.cycle_focus(key == Key::Tab);
-            continue;
-        }
-
-        match app.focus {
-            Focus::Tree => {
-                key = match key {
-                    Key::Char('j') => Key::Down,
-                    Key::Char('k') => Key::Up,
-                    Key::Char('h') => Key::Left,
-                    Key::Char('l') => Key::Right,
-                    Key::Char('q') => {
-                        if quit_or_arm(app, &mut confirm_quit) {
-                            return Ok(());
-                        }
-                        continue;
-                    }
-                    other => other,
-                };
-                app.on_tree_key(key);
-            }
-            Focus::Editor => app.on_editor_key(key),
-            Focus::Codex => app.on_codex_key(key),
-            Focus::Beside => app.on_beside_key(key),
-            Focus::Clearing => app.on_clearing_key(key),
-            Focus::Music => app.on_music_key(key),
-        }
-
-        if std::mem::take(&mut app.quit) && quit_or_arm(app, &mut confirm_quit) {
+        if on_key(app, k, &mut confirm_quit) {
             return Ok(());
         }
     }
+}
+
+/// One key press, routed the way the running app routes it: the find bar's
+/// switches, Ctrl shortcuts, the overlay on top, Esc, function keys, Tab, and
+/// then the focused pane. True when it means leave (everything is saved by
+/// then, or the second Ctrl-Q said to go anyway).
+fn on_key(app: &mut App, k: KeyEvent, confirm_quit: &mut bool) -> bool {
+    // Either modifier drives the shortcuts: Ctrl everywhere, Cmd where the
+    // terminal can actually report it.
+    let sup = k.modifiers.contains(KeyModifiers::SUPER);
+    if sup {
+        // Hard proof this terminal can send Cmd; trust it over the guess.
+        app.super_keys = true;
+    }
+    let ctrl = k.modifiers.contains(KeyModifiers::CONTROL) || sup;
+
+    // The find bar's two switches: ^W / Alt-W whole words, ^E / Alt-C case.
+    if matches!(app.overlay, Overlay::Find { .. } | Overlay::FindBook { .. })
+        && k.modifiers
+            .intersects(KeyModifiers::ALT | KeyModifiers::CONTROL)
+        && let KeyCode::Char(c) = k.code
+    {
+        let alt = k.modifiers.contains(KeyModifiers::ALT);
+        match c.to_ascii_lowercase() {
+            'w' => {
+                app.toggle_find_opt(true);
+                return false;
+            }
+            'e' if !alt => {
+                app.toggle_find_opt(false);
+                return false;
+            }
+            'c' if alt => {
+                app.toggle_find_opt(false);
+                return false;
+            }
+            _ => {}
+        }
+    }
+
+    if ctrl {
+        let shift = k.modifiers.contains(KeyModifiers::SHIFT);
+        match k.code {
+            KeyCode::Char('s') => {
+                app.save();
+                *confirm_quit = false;
+            }
+            KeyCode::Char('c') => app.copy_selection(),
+            KeyCode::Char('x') => app.cut(),
+            KeyCode::Char('k') if matches!(app.overlay, Overlay::None) => app.open_palette(),
+            KeyCode::Char('f') => match &app.overlay {
+                Overlay::None => app.open_find(),
+                // Ctrl-F again widens the search to the whole book.
+                Overlay::Find { query, .. } => {
+                    let q = query.clone();
+                    app.open_find_book(q);
+                }
+                _ => {}
+            },
+            KeyCode::Char('r') => app.replace_all_key(),
+            KeyCode::Char('o') if matches!(app.overlay, Overlay::None) => app.open_codex(),
+            KeyCode::Char('t') if matches!(app.overlay, Overlay::None) => app.open_marks(),
+            KeyCode::Char('d') if matches!(app.overlay, Overlay::None) => app.toggle_focus_mode(),
+            KeyCode::Char('z') if shift => app.redo(),
+            KeyCode::Char('Z') => app.redo(),
+            KeyCode::Char('z') => app.undo(),
+            KeyCode::Char('y') => app.redo(),
+            KeyCode::Char('q') if quit_or_arm(app, confirm_quit) => return true,
+            _ => {}
+        }
+        return false;
+    }
+
+    if *confirm_quit {
+        *confirm_quit = false;
+        app.msg.clear();
+    }
+
+    // Alt-↑ / Alt-↓ move the selected scene or folder (or the one being
+    // written). Terminals that keep Alt-arrows for themselves: K / J in the tree.
+    if k.modifiers.contains(KeyModifiers::ALT)
+        && matches!(k.code, KeyCode::Up | KeyCode::Down)
+        && matches!(app.overlay, Overlay::None)
+        && matches!(app.focus, Focus::Tree | Focus::Editor)
+    {
+        app.move_selected(k.code == KeyCode::Up);
+        return false;
+    }
+
+    let mut key = match k.code {
+        KeyCode::Char(c) => Key::Char(c),
+        KeyCode::Enter => Key::Enter,
+        KeyCode::Backspace => Key::Backspace,
+        KeyCode::Delete => Key::Delete,
+        KeyCode::Left => Key::Left,
+        KeyCode::Right => Key::Right,
+        KeyCode::Up => Key::Up,
+        KeyCode::Down => Key::Down,
+        KeyCode::Home => Key::Home,
+        KeyCode::End => Key::End,
+        KeyCode::PageUp => Key::PageUp,
+        KeyCode::PageDown => Key::PageDown,
+        KeyCode::Esc => Key::Esc,
+        KeyCode::Tab => Key::Tab,
+        KeyCode::BackTab => Key::BackTab,
+        KeyCode::F(n) => Key::F(n),
+        _ => Key::Other,
+    };
+
+    if !matches!(app.overlay, Overlay::None) {
+        app.on_overlay_key(key);
+        if std::mem::take(&mut app.quit) && quit_or_arm(app, confirm_quit) {
+            return true;
+        }
+        return false;
+    }
+
+    // Esc is the menu, from any pane (F1 too, where a keyboard has one).
+    if key == Key::Esc || key == Key::F(1) {
+        app.escape();
+        return false;
+    }
+
+    if key == Key::F(9) {
+        app.open_theme_picker();
+        return false;
+    }
+
+    // Timer and music work from either pane, so they can't eat keystrokes.
+    if let Key::F(n) = key {
+        app.on_function_key(n);
+        return false;
+    }
+
+    if key == Key::Tab || key == Key::BackTab {
+        app.cycle_focus(key == Key::Tab);
+        return false;
+    }
+
+    match app.focus {
+        Focus::Tree => {
+            key = match key {
+                Key::Char('j') => Key::Down,
+                Key::Char('k') => Key::Up,
+                Key::Char('h') => Key::Left,
+                Key::Char('l') => Key::Right,
+                Key::Char('q') => {
+                    if quit_or_arm(app, confirm_quit) {
+                        return true;
+                    }
+                    return false;
+                }
+                other => other,
+            };
+            app.on_tree_key(key);
+        }
+        Focus::Editor => app.on_editor_key(key),
+        Focus::Codex => app.on_codex_key(key),
+        Focus::Beside => app.on_beside_key(key),
+        Focus::Clearing => app.on_clearing_key(key),
+        Focus::Music => app.on_music_key(key),
+    }
+
+    if std::mem::take(&mut app.quit) && quit_or_arm(app, confirm_quit) {
+        return true;
+    }
+    false
 }
 
 /// Quit, saving everything first; true to leave. A save that fails keeps

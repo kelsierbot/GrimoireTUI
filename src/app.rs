@@ -106,6 +106,28 @@ enum TreeStep {
     },
 }
 
+/// What an App starts from that doesn't live in the book: the music, theme
+/// and settings files in ~/.config, and whether to start its background
+/// work (loading the dictionary, backing up writing sessions).
+pub struct Setup {
+    pub music: music::Config,
+    pub theme: Theme,
+    pub settings: Settings,
+    pub background: bool,
+}
+
+impl Setup {
+    /// What a real launch uses: this user's own config, background work on.
+    pub fn from_config() -> Setup {
+        Setup {
+            music: music::Config::load(),
+            theme: theme::load(),
+            settings: Settings::load(),
+            background: true,
+        }
+    }
+}
+
 pub struct App {
     pub project: Project,
     pub visible: Vec<usize>,
@@ -458,7 +480,13 @@ impl App {
         if self.super_keys { "⌘" } else { "^" }
     }
 
-    pub fn new(mut project: Project) -> Result<Self> {
+    pub fn new(project: Project) -> Result<Self> {
+        Self::with(project, Setup::from_config())
+    }
+
+    /// An App from what [`Setup`] hands it: nothing read from ~/.config, and
+    /// with `background` off no threads started — how the tests build one.
+    pub fn with(mut project: Project, setup: Setup) -> Result<Self> {
         let parents = project.parents();
         // A book no one has opened yet: no day's baseline, nowhere to resume,
         // no words. It opens on the Novel Format guide instead of an empty
@@ -520,7 +548,7 @@ impl App {
             edit_height: 20,
             pomo: Pomodoro::default(),
             pane_mode: Mode::Clearing,
-            music: Music::spawn(music::Config::load()),
+            music: Music::spawn(setup.music),
             viz: Visualizer::new(),
             growth_step: None,
             growth_changed: None,
@@ -535,7 +563,7 @@ impl App {
             rect_music: Rect::default(),
             create_hits: Vec::new(),
             view_hits: Vec::new(),
-            theme: theme::load(),
+            theme: setup.theme,
             overlay: Overlay::None,
             last_edit: None,
             unsaved_since: None,
@@ -548,8 +576,8 @@ impl App {
             find_opts: search::Opts::default(),
             replace_undoable: false,
             replace_redoable: false,
-            spell_on: Settings::load().spellcheck,
-            icons_on: Settings::load().icons,
+            spell_on: setup.settings.spellcheck,
+            icons_on: setup.settings.icons,
             speller: None,
             speller_rx: None,
             tree_drag: None,
@@ -560,8 +588,8 @@ impl App {
             beside: None,
             rect_beside: Rect::default(),
             focus_mode: false,
-            line_width: Settings::load().line_width,
-            typewriter: Settings::load().typewriter,
+            line_width: setup.settings.line_width,
+            typewriter: setup.settings.typewriter,
             rect_prose: Rect::default(),
             side_room: true,
             last_caret: None,
@@ -575,9 +603,13 @@ impl App {
             tree_stale: false,
         })
         .map(|mut app: App| {
-            app.load_speller();
+            if setup.background {
+                app.load_speller();
+            }
             app.rebuild_codex();
-            app.sessions_on = sessions::git_available() && sessions::is_enabled(&app.project.root);
+            app.sessions_on = setup.background
+                && sessions::git_available()
+                && sessions::is_enabled(&app.project.root);
             if app.sessions_on {
                 app.back_up();
             }
