@@ -169,7 +169,7 @@ heard of.
 |---|---|
 | `Esc` | **the menu**, from anywhere — new, rename, delete, export, the writing tools, settings, and *Quit Grimoire* at the bottom (`F1` works too). `Esc` again closes it; with a note or a scene open beside, the first `Esc` closes that |
 | `Ctrl-K` | **find anything** — every action, scene, note and theme by name, with its key |
-| `Tab` / `Shift-Tab` | cycle panes — tree, editor, the open note, clearing, music |
+| `Tab` / `Shift-Tab` | cycle panes — tree, editor, the open note, Pomodoro, music |
 | `↑ ↓` · `j k` | move in the tree |
 | `Enter` · `Space` | fold or unfold a section or folder · open a scene |
 | `→` `l` / `←` `h` | expand / collapse, or jump to parent |
@@ -197,7 +197,7 @@ heard of.
 | `Ctrl-Q` · `q` in the tree | quit, saving everything first |
 | `F2` `F3` | start or pause the timer · reset |
 | `F9` · `t` | themes |
-| `←` `→` | in the clearing pane: switch view |
+| `←` `→` | in the Pomodoro pane: switch between the Pomodoro and the Visualizer |
 | `F4` `F5` `F6` | previous · play-pause · next (with music on) |
 | `F7` | the music player — queue, your playlists, search, and every control (also in the menu, or `Enter` on the music pane) |
 
@@ -311,8 +311,8 @@ Grimoire draws on your terminal's own background.
 **Rainbow** isn't a flat palette. Everything the others draw in their accent —
 the focused border, titles, the progress bar, the word count — is painted as a
 diagonal sweep of the spectrum that drifts round the wheel about once a
-minute; the spectrum view's bars climb from red to violet; and every part of
-the clearing is its own hue.
+minute; the Visualizer's bars climb from red to violet; and its Pomodoro is a
+rainbow over the hills.
 
 Lost Forest is the one written for this app rather than borrowed. It is
 green-led on purpose: `accent` drives focused borders, pane titles, the
@@ -333,7 +333,7 @@ they follow any future refinements; Custom stores every swatch.
 ## Mouse
 
 It's a TUI, but the mouse works. Click a chapter to fold it, a scene to open
-it, anywhere in the prose to put the caret there. Click the clearing to start
+it, anywhere in the prose to put the caret there. Click the Pomodoro to start
 the timer, or the music pane to play and pause. The wheel scrolls whichever
 pane is under the pointer without stealing focus.
 
@@ -346,9 +346,9 @@ Mouse capture does suppress the terminal's *own* drag-to-select. Grimoire's is
 the replacement inside the prose pane; hold `Shift` while dragging if you want
 the terminal's version anywhere else.
 
-## The clearing
+## The Pomodoro
 
-Below the manuscript tree is a forest, and the forest is the timer.
+Below the manuscript tree is a small world, and the world is the timer.
 
 ```
 ┌ writing · 18:04 ───────────┐
@@ -361,21 +361,34 @@ Below the manuscript tree is a forest, and the forest is the timer.
 │   (\_/)            (\_/)   │
 │   (•ᴥ•)    ❀  ✿    (•ᴥ•)   │
 │▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔│
-└────────────────────────────┘
+└──◂ pomodoro visualizer ▸───┘
 ```
 
-`←`/`→` cycles the pane through three views: **the clearing**; a **spectrum**
-analyser that listens to whatever the computer is playing — on a Mac (macOS
-14.6+, once your terminal is allowed under *Privacy & Security › Screen &
-System Audio Recording › System Audio Recording Only*), and on Linux through
-PipeWire's `pw-record` or PulseAudio's `parec` (set `GRIMOIRE_MONITOR=<sink>`
-to hear an output other than the default); and **growth** — a garden where
-every 50 words you write today adds a stem, a leaf or a flower.
+The sun's **position is the clock**. `F2` starts it; it crosses the sky over a
+twenty-five minute writing session, so you read the time remaining off the
+light instead of watching a number count down, and the ground beneath fills
+in behind it. Paused, the sun waits, dimmed. Break time is night: the moon
+rises and the world's night things come out.
 
-The sun's **position is the clock**. It crosses the sky over a twenty-five
-minute session, so you read the time remaining off the light instead of
-watching a number count down. Break time is night: the moon rises, the flowers
-close, and fireflies come out between the rabbits.
+**Every theme has its own world.** Lost Forest's glade and its rabbits (above,
+and for any custom palette); a wizard's tower for Grimoire, its windows lit at
+night; an autumn farm with a turning windmill for Gruvbox; snowy peaks and the
+aurora for Nord; a castle and its bats for Dracula; a lighthouse sweeping the
+sea for Solarized; two cats on a fence for Catppuccin; a skyline and its night
+train for Tokyo Night; a lake in the woods for Everforest; a blossom tree and a
+stone lantern for Rosé Pine; a ringed planet for One Dark; the desert for
+Monokai; the great wave for Kanagawa; hot-air balloons for Ayu Mirage; an owl,
+asleep until dark, for Night Owl; a reef for Palenight; a neon horizon for
+Synthwave '84, where the striped sun itself is the clock; a campsite for GitHub
+Dark; and a rainbow over the hills for Rainbow. All of them move slowly, if at
+all — this sits beside someone writing.
+
+`←`/`→` switches the pane to the **Visualizer**, which listens to whatever the
+computer is playing — on a Mac (macOS 14.6+, once your terminal is allowed
+under *Privacy & Security › Screen & System Audio Recording › System Audio
+Recording Only*), and on Linux through PipeWire's `pw-record` or PulseAudio's
+`parec` (set `GRIMOIRE_MONITOR=<sink>` to hear an output other than the
+default).
 
 ## Music
 
