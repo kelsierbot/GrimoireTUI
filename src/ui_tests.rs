@@ -2234,6 +2234,26 @@ fn about_fits_a_short_terminal() {
 }
 
 #[test]
+fn about_opens_the_license_which_says_commercial_use_is_fine_with_credit() {
+    let mut d = Desk::open(book("license", true), 120, 40);
+    d.app.open_about();
+    d.draw();
+    assert!(d.shows("free for commercial use"));
+    d.key(KeyCode::Char('l'));
+    assert!(matches!(d.app.overlay, Overlay::Help { .. }));
+    assert!(d.shows("commercial work included"));
+    assert!(d.shows("Credit is required"));
+    // Closing the help brings About back.
+    d.key(KeyCode::Esc);
+    assert!(matches!(d.app.overlay, Overlay::About));
+    // Ctrl-K gets there too.
+    d.key(KeyCode::Esc);
+    d.app.run_action(crate::palette::Action::License);
+    d.draw();
+    assert!(d.shows("Credit is required"));
+}
+
+#[test]
 fn donate_says_it_is_never_required_and_links_to_kofi() {
     let mut d = Desk::open(book("donate", true), 120, 40);
     d.key(KeyCode::Esc);

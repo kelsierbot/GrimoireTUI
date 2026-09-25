@@ -18,16 +18,18 @@ plain files you can open with anything, even `cat`.
 
 ## Why it exists
 
-Every open-source novel tool makes one of two mistakes. It traps your
-manuscript in a database, or it's a text editor with no idea what a manuscript
-is.
+Most novel apps make you pick. Some tuck your manuscript away in a database you
+can't open without them. Others are lovely text editors that have no idea what
+a chapter is.
 
-Grimoire does neither. **The directory tree is the outline.** There is no index
-file, so there is nothing central to conflict when you sync across machines.
-Reordering is renaming. Backing up is copying a folder.
+Grimoire wanted both: an app that understands your book, and files that stay
+yours. So **your folders are your outline.** There's no hidden index, which
+means there's nothing for two computers to squabble over when your book syncs.
+Moving a scene is just renaming a file, and backing up is just copying a
+folder.
 
-If this project is abandoned tomorrow you still have your book. That is the
-whole design constraint, and everything else follows from it.
+And if Grimoire ever disappears, your book doesn't. That promise came first,
+and everything else was built around it.
 
 ## Install
 
@@ -736,8 +738,8 @@ Issues and pull requests welcome.
 
 ## Support Grimoire
 
-Grimoire is free, and a donation is never required — but it is appreciated,
-and it goes toward Grimoire's development.
+Grimoire is free, and a donation is never required. It's always appreciated,
+though, and it all goes toward Grimoire's development.
 
 <a href="https://ko-fi.com/F2F21E0DK0"><img height="36" style="border:0px;height:36px;" src="https://storage.ko-fi.com/cdn/kofi6.png?v=6" alt="Buy Me a Coffee at ko-fi.com"></a>
 
@@ -745,4 +747,21 @@ The same is in the app: *Donate…* in the menu, or `d` in *About Grimoire…*.
 
 ## License
 
-MIT © Josh King
+Grimoire is free and open source, under the [MIT License](LICENSE). Here's
+what that means in plain words:
+
+- **Use it for anything, commercial work included.** Write with it, sell what
+  you write, use it at your day job, or build it into something you sell. All
+  of that is welcome.
+- **Credit is required.** If you share Grimoire, or ship something built on its
+  code, keep its copyright notice and license with it, so folks can see where
+  it came from.
+- **Your books are yours.** Everything you write in Grimoire belongs to you,
+  and it never has to mention Grimoire.
+- **A donation is appreciated, never required.** If Grimoire has helped you
+  and you'd like to give something back, there's [Ko-fi](https://ko-fi.com/F2F21E0DK0).
+  It all goes toward Grimoire's development.
+
+The same is in the app: `l` in *About Grimoire…*, or `Ctrl-K` › *License*.
+
+Copyright (c) 2026 Josh King.

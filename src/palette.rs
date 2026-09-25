@@ -76,6 +76,7 @@ pub enum Action {
     HelpTopic(&'static str),
     About,
     Donate,
+    License,
     Open(std::path::PathBuf),
 }
 
@@ -278,6 +279,7 @@ pub fn entries(app: &crate::app::App) -> Vec<Entry> {
         Entry::new("Help", "F1", Action::Help),
         Entry::new("About Grimoire", "", Action::About),
         Entry::new("Donate (Ko-fi)", "", Action::Donate),
+        Entry::new("License", "", Action::License),
         Entry::new("Quit", &format!("{m}Q"), Action::Quit),
     ]);
     // Every help topic, so "help sync" goes straight to it.

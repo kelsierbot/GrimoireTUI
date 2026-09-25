@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.5 — The license, in plain words
+
+- **License** is a new help topic: Grimoire is MIT, so commercial use is
+  welcome, credit is required (keep the copyright notice and license with
+  it), your books are entirely yours, and a donation is appreciated but never
+  required. `l` in *About Grimoire…* opens it, and so does `Ctrl-K` ›
+  *License*.
+- *About Grimoire…* says the same in two lines.
+
 ## 0.5.4 — Help, About and Donate
 
 - **Help inside the app**: 24 topics explaining every feature, from getting

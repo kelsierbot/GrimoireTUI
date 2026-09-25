@@ -22,6 +22,7 @@ const nav = [
   { group: 'get it', items: [
     { id: 'install', label: 'install',      title: 'install' },
     { id: 'donate',  label: 'donate',       title: 'donate' },
+    { id: 'license', label: 'license',      title: 'license' },
     { id: 'status',  label: 'status',       title: 'status' },
   ]},
 ];
@@ -161,22 +162,23 @@ const DEFAULT_THEME = 'Rainbow';
           <section id="why" role="tabpanel" aria-labelledby="tab-why">
             <h2>why</h2>
             <p>
-              Every open-source novel tool makes one of two mistakes. It traps your manuscript in a
-              database, or it is a text editor with no idea what a manuscript is.
+              Most novel apps make you pick. Some tuck your manuscript away in a database you can't
+              open without them. Others are lovely text editors that have no idea what a chapter is.
             </p>
             <p>
-              Grimoire does neither. <strong>The directory tree is the outline.</strong> There is no
-              index file, so there is no central thing to conflict when you sync across machines.
-              Reordering is renaming. Backing up is copying a folder.
+              Grimoire wanted both: an app that understands your book, and files that stay yours.
+              So <strong>your folders are your outline.</strong> There's no hidden index, which
+              means there's nothing for two computers to squabble over when your book syncs. Moving
+              a scene is just renaming a file, and backing up is just copying a folder.
             </p>
             <p>
-              If this project is abandoned tomorrow you still have your book. That is the whole
-              design constraint, and everything else follows from it — including that nothing is
-              ever deleted: autosave, recovery, per-scene history, and a trash you can undo from.
+              And if Grimoire ever disappears, your book doesn't. That promise came first, and
+              everything else was built around it. It's why nothing is ever really deleted, too:
+              there's autosave, recovery, history for every scene, and a trash you can undo from.
             </p>
             <p class="mute">
-              Frontmatter is round-tripped verbatim — Grimoire reads a few keys and never rewrites
-              the block, so Obsidian can own fields it has never heard of.
+              Grimoire only reads a few keys from a scene's frontmatter and never rewrites the
+              block, so Obsidian can keep whatever fields it likes in there.
             </p>
           </section>
 
@@ -397,8 +399,8 @@ const DEFAULT_THEME = 'Rainbow';
           <section id="donate" role="tabpanel" aria-labelledby="tab-donate">
             <h2>donate</h2>
             <p>
-              Grimoire is free, and a donation is <strong>never required</strong> — but it is
-              appreciated, and it goes toward Grimoire's development.
+              Grimoire is free, and a donation is <strong>never required</strong>. It's always
+              appreciated, though, and it all goes toward Grimoire's development.
             </p>
             <p class="kofi">
               <a href={KOFI} target="_blank" rel="noopener noreferrer"><img
@@ -407,6 +409,24 @@ const DEFAULT_THEME = 'Rainbow';
             </p>
             <p class="mute">
               In the app it's <em>Donate…</em> in the menu. Thank you for writing with it.
+            </p>
+          </section>
+
+          <section id="license" role="tabpanel" aria-labelledby="tab-license">
+            <h2>license</h2>
+            <p>
+              Grimoire is free and open source, under the <a href={`${REPO}/blob/main/LICENSE`}>MIT
+              License</a>. Here's what that means in plain words:
+            </p>
+            <ul>
+              <li><strong>Use it for anything, commercial work included.</strong> Write with it, sell what you write, use it at your day job, or build it into something you sell. All of that is welcome.</li>
+              <li><strong>Credit is required.</strong> If you share Grimoire, or ship something built on its code, keep its copyright notice and license with it, so folks can see where it came from.</li>
+              <li><strong>Your books are yours.</strong> Everything you write in Grimoire belongs to you, and it never has to mention Grimoire.</li>
+              <li><strong>A donation is appreciated, never required.</strong> If Grimoire has helped you and you'd like to give something back, there's <a href={KOFI}>Ko-fi</a>. It all goes toward Grimoire's development.</li>
+            </ul>
+            <p class="mute">
+              In the app it's <kbd>l</kbd> in <em>About Grimoire…</em>, or <kbd>Ctrl-K</kbd> ›
+              <em>License</em>. Copyright (c) 2026 Josh King.
             </p>
           </section>
 
@@ -422,7 +442,7 @@ const DEFAULT_THEME = 'Rainbow';
               <li>spellcheck in languages other than English</li>
               <li>Spotify on Windows</li>
             </ul>
-            <p class="mute">MIT. Issues and patches welcome at <a href={REPO}>the repo</a>.</p>
+            <p class="mute">MIT License. Issues and patches welcome at <a href={REPO}>the repo</a>.</p>
           </section>
           </div>
         </div>

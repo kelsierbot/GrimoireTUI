@@ -31,8 +31,8 @@ Click a pane to move to it, a chapter to fold it, a scene to open it, and the pr
 
 ## About Grimoire
 
-*About Grimoire…* in the menu (or `Ctrl-K` › *About Grimoire*) shows which version you're running and who made it: Grimoire is made by Catfinity Studios. `Enter`, or a click on the link, opens catfinity.com in your browser. From a terminal, `grimoire --version` says the same.
+*About Grimoire…* in the menu (or `Ctrl-K` › *About Grimoire*) shows which version you're running and who made it: Grimoire is made by Catfinity Studios. `Enter`, or a click on the link, opens catfinity.com in your browser, and `l` opens the License topic. From a terminal, `grimoire --version` says the same.
 
 ## Donate
 
-Grimoire is free, and a donation is never required — but it is appreciated, and it goes toward Grimoire's development. *Donate…* in the menu (or `Ctrl-K` › *Donate (Ko-fi)*, or `d` in *About Grimoire…*) opens the Ko-fi page in your browser.
+Grimoire is free, and a donation is never required. It's always appreciated, though, and it all goes toward Grimoire's development. *Donate…* in the menu (or `Ctrl-K` › *Donate (Ko-fi)*, or `d` in *About Grimoire…*) opens the Ko-fi page in your browser.

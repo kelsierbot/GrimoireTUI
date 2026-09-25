@@ -21,6 +21,7 @@ impl App {
         match key {
             Key::Enter | Key::Char('o') => self.open_studio_site(),
             Key::Char('d') => self.overlay = Overlay::Donate,
+            Key::Char('l') => self.open_help(Some("license")),
             Key::Esc | Key::Char('q') => self.overlay = Overlay::None,
             _ => {}
         }
@@ -106,9 +107,12 @@ pub(super) fn draw_about(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
         Line::from(""),
         centre(SITE.into(), dim),
         centre(SOURCE.into(), dim),
-        centre("MIT licence".into(), dim),
         Line::from(""),
-        hint_line(" ↵ catfinity.com   d donate   esc close", t).alignment(Alignment::Center),
+        centre("MIT License: free for commercial use,".into(), dim),
+        centre("with credit. Donations welcome, never needed.".into(), dim),
+        Line::from(""),
+        hint_line(" ↵ catfinity.com   d donate   l license   esc close", t)
+            .alignment(Alignment::Center),
     ];
     // The spellbook heads it when there's room.
     let art_h = if area.height >= lines.len() as u16 + 13 {
@@ -116,7 +120,7 @@ pub(super) fn draw_about(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
     } else {
         0
     };
-    let w = 52u16.min(area.width);
+    let w = 56u16.min(area.width);
     let box_area = centred(area, w, lines.len() as u16 + art_h + 2);
     f.render_widget(Clear, box_area);
     let block = pane_block("ABOUT", true, t);

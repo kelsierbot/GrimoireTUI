@@ -1503,6 +1503,7 @@ impl App {
             Action::Help => self.open_help(None),
             Action::About => self.open_about(),
             Action::Donate => self.overlay = Overlay::Donate,
+            Action::License => self.open_help(Some("license")),
             Action::HelpTopic(id) => self.open_help(Some(id)),
             other => self.run_feature(other),
         }

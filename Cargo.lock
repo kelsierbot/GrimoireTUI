@@ -717,7 +717,7 @@ dependencies = [
 
 [[package]]
 name = "grimoire-app"
-version = "0.5.4"
+version = "0.5.5"
 dependencies = [
  "anyhow",
  "chrono",
@@ -728,7 +728,7 @@ dependencies = [
 
 [[package]]
 name = "grimoire-core"
-version = "0.5.4"
+version = "0.5.5"
 dependencies = [
  "anyhow",
  "chrono",
@@ -746,7 +746,7 @@ dependencies = [
 
 [[package]]
 name = "grimoire-tui"
-version = "0.5.4"
+version = "0.5.5"
 dependencies = [
  "anyhow",
  "chrono",
