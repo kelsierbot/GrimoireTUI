@@ -167,7 +167,7 @@ impl Config {
             std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
         }
         let body = format!(
-            "# Music is off until this says true. Turn it on or off from the F1 menu.\n\
+            "# Music is off until this says true. Turn it on or off from the menu (Esc › Settings).\n\
              enabled = {}\nsource = \"{}\"\nhost = \"{}\"\nport = {}\ntoken = \"{}\"\n\
              server = \"{}\"\napi_key = \"{}\"\nuser_id = \"{}\"\n",
             self.enabled,

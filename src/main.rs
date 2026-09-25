@@ -603,12 +603,16 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
                     return Ok(());
                 }
                 app.quit = false;
+                confirm_quit = true;
+                let m = app.mod_label();
+                app.msg = format!("{} · {m}Q to quit anyway", app.msg);
             }
             continue;
         }
 
-        if key == Key::F(1) {
-            app.open_menu();
+        // Esc is the menu, from any pane (F1 too, where a keyboard has one).
+        if key == Key::Esc || key == Key::F(1) {
+            app.escape();
             continue;
         }
 
@@ -659,6 +663,9 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
                 return Ok(());
             }
             app.quit = false;
+            confirm_quit = true;
+            let m = app.mod_label();
+            app.msg = format!("{} · {m}Q to quit anyway", app.msg);
         }
     }
 }

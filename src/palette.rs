@@ -122,7 +122,7 @@ pub fn entries(app: &crate::app::App) -> Vec<Entry> {
     v.extend([
         Entry::new("Start or pause the timer", "F2", Action::Timer),
         Entry::new("Reset the timer", "F3", Action::TimerReset),
-        Entry::new("Menu", "F1", Action::Menu),
+        Entry::new("Menu", "Esc", Action::Menu),
         Entry::new("Quit", &format!("{m}Q"), Action::Quit),
     ]);
 

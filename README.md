@@ -126,7 +126,7 @@ the-archive/
 The tree shows each of those as a section — Novel Format, Manuscript,
 Characters, Places, Front Matter, Notes, Research, Template Sheets, Trash —
 and every section and folder folds. A symbol beside each row is off to begin
-with; turn tree icons on in `F1` → Settings, or from the palette. The pane is headed
+with; turn tree icons on in `Esc` → Settings, or from the palette. The pane is headed
 with the book's title.
 
 **A new book arrives with its shape already standing:** three pages of nine
@@ -167,6 +167,7 @@ heard of.
 
 | Key | |
 |---|---|
+| `Esc` | **the menu**, from anywhere — new, rename, delete, compile, settings, and *Quit Grimoire* at the bottom (`F1` works too). `Esc` again closes it |
 | `Ctrl-K` | **find anything** — every action, scene, note and theme by name, with its key |
 | `Tab` / `Shift-Tab` | cycle panes — tree, editor, the open note, clearing, music |
 | `↑ ↓` · `j k` | move in the tree |
@@ -190,12 +191,11 @@ heard of.
 | `F8` | spelling suggestions for this word, or the next misspelling |
 | `Ctrl-S` | save now — autosave already does, two seconds after you stop typing |
 | `Ctrl-Q` · `q` in the tree | quit, saving everything first |
-| `Esc` | leave the editor |
 | `F2` `F3` | start or pause the timer · reset |
 | `F9` · `t` | themes |
 | `←` `→` | in the clearing pane: switch view |
 | `F4` `F5` `F6` | previous · play-pause · next (with music on) |
-| `F7` | the music player — queue, your playlists, search, and every control (also `F1`, or `Enter` on the music pane) |
+| `F7` | the music player — queue, your playlists, search, and every control (also in the menu, or `Enter` on the music pane) |
 
 ## Nothing is lost
 
@@ -331,9 +331,9 @@ close, and fireflies come out between the rabbits.
 
 ## Music
 
-Music is **off until you turn it on** — from the menu (`F1` → *Turn music on*)
+Music is **off until you turn it on** — from the menu (`Esc` → Settings → *Turn music on*)
 or the palette. Setting a source up turns it on too. Four sources, chosen from
-the menu (`F1` → Music source) and remembered.
+the menu (`Esc` → Settings → Music source) and remembered.
 
 | Source | How it works | Setup |
 |---|---|---|

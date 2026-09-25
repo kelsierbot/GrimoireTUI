@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.5
+
+- **`Esc` opens the menu**, from any pane — no more reaching for `F1`, which
+  many keyboards only send with `Fn` held (it still works). `Esc` again closes
+  it and puts you back where you were, so it no longer drops you from the
+  editor into the tree; `Shift-Tab` does that. A selection in the editor, or
+  an open note beside it, is closed by the first `Esc`.
+- **Quit Grimoire** is in the menu, at the bottom. It saves everything first,
+  like `Ctrl-Q`.
+
 ## 0.3.4
 
 - **"today" always moves when you write.** It's the day's net change in the

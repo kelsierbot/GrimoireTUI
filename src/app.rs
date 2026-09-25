@@ -72,6 +72,7 @@ pub enum MenuItem {
     Spellcheck,
     Icons,
     Back,
+    Quit,
 }
 
 /// Something done to the book's files from the tree, kept so it can be taken
@@ -469,7 +470,7 @@ impl App {
     /// never collide with typing.
     pub fn on_function_key(&mut self, n: u8) {
         if matches!(n, 4..=7) && !self.music.enabled {
-            self.msg = "music is off — turn it on from the menu (F1)".into();
+            self.msg = "music is off — turn it on from the menu (Esc › Settings)".into();
             return;
         }
         match n {
@@ -2292,10 +2293,6 @@ impl App {
                     self.editor.down(&rows);
                 }
             }
-            Key::Esc => {
-                self.flush();
-                self.focus = Focus::Tree;
-            }
             _ => {}
         }
         if matches!(
@@ -2345,7 +2342,6 @@ impl App {
                 self.pomo.reset();
                 self.msg = "timer reset".into();
             }
-            Key::Esc => self.focus = Focus::Tree,
             _ => {}
         }
     }
@@ -2356,7 +2352,6 @@ impl App {
             Key::Char(' ') => self.music.send(music::Cmd::PlayPause),
             Key::Right | Key::Char('l') | Key::Char('n') => self.music.send(music::Cmd::Next),
             Key::Left | Key::Char('h') | Key::Char('p') => self.music.send(music::Cmd::Prev),
-            Key::Esc => self.focus = Focus::Tree,
             _ => {}
         }
     }
@@ -2514,7 +2509,8 @@ impl App {
             ("Compile manuscript".into(), MenuItem::Compile),
             (row("Music player…".into(), "(F7)"), MenuItem::Player),
             ("Settings…".into(), MenuItem::Settings),
-            ("Close".into(), MenuItem::Close),
+            (row("Close".into(), "(Esc)"), MenuItem::Close),
+            (row("Quit Grimoire".into(), &format!("({m}Q)")), MenuItem::Quit),
         ]
     }
 
@@ -2533,6 +2529,17 @@ impl App {
 
     pub fn open_menu(&mut self) {
         self.overlay = Overlay::Menu { sel: 0 };
+    }
+
+    /// Esc with nothing on top: the menu, from any pane. What's in the way
+    /// goes first — a selection in the editor, or the codex — so a second Esc
+    /// opens it. Closing the menu leaves you in the pane you were in.
+    pub fn escape(&mut self) {
+        match self.focus {
+            Focus::Editor if self.editor.has_selection() => self.editor.clear_selection(),
+            Focus::Codex => self.on_codex_key(Key::Esc),
+            _ => self.open_menu(),
+        }
     }
 
     pub fn open_player(&mut self) {
@@ -2633,6 +2640,10 @@ impl App {
                 self.overlay = Overlay::Menu { sel };
             }
             MenuItem::Close => self.overlay = Overlay::None,
+            MenuItem::Quit => {
+                self.overlay = Overlay::None;
+                self.quit = true;
+            }
         }
     }
 
@@ -3383,14 +3394,14 @@ impl App {
                     .map(|(k, w)| format!("{k} {w}"))
                     .collect();
                 format!(
-                    "Tab pane  ↵ fold  {}  r rename  d delete  {m}Z undo  H history  F1 menu  {m}Q quit ",
+                    "Tab pane  ↵ fold  {}  r rename  d delete  {m}Z undo  H history  Esc menu  {m}Q quit ",
                     keys.join("  ")
                 )
             }
-            Focus::Editor => format!("Tab pane  Esc tree  {m}K find anything  {m}Z undo  F8 spelling  F1 menu  {m}Q quit "),
+            Focus::Editor => format!("Tab pane  {m}K find anything  {m}Z undo  F8 spelling  Esc menu  {m}Q quit "),
             Focus::Codex => "Tab pane  ↑↓ scenes  ↵ go there  o open the note  PgDn scroll  esc close ".into(),
-            Focus::Clearing => format!("Tab pane  ←→ view  ↵ start/pause  r reset  {m}Q quit "),
-            Focus::Music => format!("Tab pane  ↵ open player  space pause  ←→ track  {m}Q quit "),
+            Focus::Clearing => format!("Tab pane  ←→ view  ↵ start/pause  r reset  Esc menu  {m}Q quit "),
+            Focus::Music => format!("Tab pane  ↵ open player  space pause  ←→ track  Esc menu  {m}Q quit "),
         }
     }
 }

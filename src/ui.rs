@@ -523,7 +523,7 @@ fn draw_music(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
                 Style::default().fg(t.dim),
             )),
             Line::from(Span::styled(
-                "F1 to switch source",
+                "Esc › Settings to switch source",
                 Style::default().fg(t.border),
             )),
         ],
@@ -1466,7 +1466,7 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
                 }
                 other => {
                     let why = match other {
-                        MusicState::NoToken => "not set up yet: F1 › Music source, then run grimoire music-setup".to_string(),
+                        MusicState::NoToken => "not set up yet: Esc › Settings › Music source, then run grimoire music-setup".to_string(),
                         MusicState::Offline => format!("{} isn't running. Open it and this fills in.", app.music.source.label()),
                         _ => "nothing playing. Pick something below.".to_string(),
                     };
