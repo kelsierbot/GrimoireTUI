@@ -626,10 +626,10 @@ pub fn set_front(front: Option<&str>, key: &str, value: &str) -> String {
 
 /// `01-the-archive.md` -> `The Archive`, unless frontmatter names it.
 fn display_title(path: &Path, front: Option<&str>) -> String {
-    if let Some(f) = front {
-        if let Some(t) = front_get(f, "title") {
-            return t;
-        }
+    if let Some(f) = front
+        && let Some(t) = front_get(f, "title")
+    {
+        return t;
     }
     let stem = path
         .file_stem()

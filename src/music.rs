@@ -1501,12 +1501,12 @@ impl Backend for Local {
                 _ => return Err(anyhow!("{why}")),
             }
         }
-        if self.player.queue_len() == 0 {
-            if let Err(e) = self.player.ensure_queue() {
-                self.failed = Some(e.to_string());
-                self.retry_at = Some(std::time::Instant::now() + RETRY_AFTER);
-                return Err(e);
-            }
+        if self.player.queue_len() == 0
+            && let Err(e) = self.player.ensure_queue()
+        {
+            self.failed = Some(e.to_string());
+            self.retry_at = Some(std::time::Instant::now() + RETRY_AFTER);
+            return Err(e);
         }
         self.player.advance_if_finished();
 

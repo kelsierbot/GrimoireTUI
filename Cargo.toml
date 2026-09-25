@@ -1,6 +1,6 @@
 [package]
 name = "grimoire-tui"
-version = "0.3.6"
+version.workspace = true
 edition = "2024"
 description = "A terminal writing desk for novels"
 authors = ["Josh King"]
@@ -17,7 +17,7 @@ name = "grimoire"
 path = "src/main.rs"
 
 [dependencies]
-grimoire-core = { path = "crates/grimoire-core", version = "0.3.4" }
+grimoire-core = { path = "crates/grimoire-core", version = "0.3" }
 anyhow = "1.0.104"
 chrono = "0.4.45"
 # Same cpal that rodio already pulls in; used directly for loopback capture.
@@ -66,3 +66,7 @@ audio = ["dep:rodio", "dep:cpal"]
 
 [workspace]
 members = ["crates/grimoire-core", "crates/grimoire-app"]
+
+# One version for the terminal app and the crates under it; bump it here.
+[workspace.package]
+version = "0.3.6"

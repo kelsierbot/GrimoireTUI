@@ -4,6 +4,10 @@
 //! time remaining off the light rather than a countdown. Break time is night:
 //! the moon comes up and the fireflies come out.
 
+// The scene is a character grid; indexing it by column reads better than
+// zipped iterators.
+#![allow(clippy::needless_range_loop)]
+
 use std::time::{Duration, Instant};
 
 pub const W: usize = 28;
@@ -178,10 +182,9 @@ pub fn render(phase: Phase, progress: f64, frame: u64) -> Vec<Vec<Cell>> {
     for (i, &x) in star_seats.iter().enumerate() {
         let y = i % 2;
         // Twinkle on staggered periods so it never looks like a metronome.
-        let on = (frame / (6 + i as u64 % 4)) % 3 != 0;
-        if night && on {
-            g[y][x] = ('·', Ink::Star);
-        } else if !night && i % 3 == 0 && on {
+        let on = !(frame / (6 + i as u64 % 4)).is_multiple_of(3);
+        // All six at night; by day, every third drifts past.
+        if on && (night || i % 3 == 0) {
             g[y][x] = ('·', Ink::Star);
         }
     }
@@ -222,22 +225,22 @@ pub fn render(phase: Phase, progress: f64, frame: u64) -> Vec<Vec<Cell>> {
     // ── rabbits ───────────────────────────────────────────────────────
     // Ears flick and heads turn on slow, mutually-prime cycles, so the two
     // of them never move in lockstep.
-    let ears_a = if ((frame + 5) / 9) % 7 == 0 {
+    let ears_a = if ((frame + 5) / 9).is_multiple_of(7) {
         "(\\ /)"
     } else {
         "(\\_/)"
     };
-    let ears_b = if ((frame + 31) / 11) % 9 == 0 {
+    let ears_b = if ((frame + 31) / 11).is_multiple_of(9) {
         "(\\ /)"
     } else {
         "(\\_/)"
     };
-    let face_a = if ((frame + 13) / 23) % 5 == 0 {
+    let face_a = if ((frame + 13) / 23).is_multiple_of(5) {
         "(-ᴥ-)"
     } else {
         "(•ᴥ•)"
     };
-    let face_b = if ((frame + 44) / 17) % 6 == 0 {
+    let face_b = if ((frame + 44) / 17).is_multiple_of(6) {
         "(-ᴥ-)"
     } else {
         "(•ᴥ•)"
@@ -256,7 +259,7 @@ pub fn render(phase: Phase, progress: f64, frame: u64) -> Vec<Vec<Cell>> {
             (CANOPY_BASE + 1, 10),
         ];
         for (i, &(fy, fx)) in seats.iter().enumerate() {
-            if (frame / (5 + i as u64 * 3)) % 4 != 0 && fy < H && fx < W {
+            if !(frame / (5 + i as u64 * 3)).is_multiple_of(4) && fy < H && fx < W {
                 g[fy][fx] = ('˙', Ink::Star);
             }
         }
@@ -650,10 +653,10 @@ pub fn render_growth(today: usize, target: usize, glint: bool, frame: u64) -> Ve
         }
     }
 
-    if let (true, Some((y, x))) = (glint, newest) {
-        if frame % 2 == 0 {
-            g[y][x] = ('✦', Ink::Moon);
-        }
+    if let (true, Some((y, x))) = (glint, newest)
+        && frame.is_multiple_of(2)
+    {
+        g[y][x] = ('✦', Ink::Moon);
     }
 
     for x in 0..W {

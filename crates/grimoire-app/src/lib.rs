@@ -163,7 +163,7 @@ pub fn books(base: &Path) -> Vec<Book> {
             scenes,
         });
     }
-    out.sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase()));
+    out.sort_by_key(|a| a.title.to_lowercase());
     out
 }
 
@@ -229,14 +229,11 @@ fn place_above(p: &Project, parents: &[Option<usize>], idx: usize) -> String {
 pub fn read_scene(path: &Path) -> Result<Scene> {
     let raw = fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     let (front, body) = grimoire_core::project::split_frontmatter(&raw);
-    let title = front
-        .as_deref()
-        .and_then(|f| front_title(f))
-        .unwrap_or_else(|| {
-            path.file_stem()
-                .map(|s| s.to_string_lossy().to_string())
-                .unwrap_or_default()
-        });
+    let title = front.as_deref().and_then(front_title).unwrap_or_else(|| {
+        path.file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_default()
+    });
     Ok(Scene {
         path: path.to_path_buf(),
         title,
@@ -485,7 +482,7 @@ pub mod shelf {
             }
             out.push(describe(&path, name));
         }
-        out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        out.sort_by_key(|a| a.name.to_lowercase());
         Ok(out)
     }
 

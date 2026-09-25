@@ -1,6 +1,6 @@
 [package]
 name = "grimoire-core"
-version = "0.3.4"
+version.workspace = true
 edition = "2024"
 description = "The book on disk behind Grimoire: project, editor, history, export, search"
 authors = ["Josh King"]

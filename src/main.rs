@@ -367,10 +367,10 @@ fn find_project(arg: Option<PathBuf>) -> Result<(PathBuf, Option<String>)> {
     if is_project(&cwd) {
         return Ok((cwd, None));
     }
-    if let Some(last) = last_opened() {
-        if is_project(&last) {
-            return Ok((last, None));
-        }
+    if let Some(last) = last_opened()
+        && is_project(&last)
+    {
+        return Ok((last, None));
     }
 
     let root = default_root();
@@ -423,9 +423,7 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
     loop {
         // Closing the window or being told to stop: save, then go.
         if shutdown::requested() {
-            if !app.try_quit() {
-                app.rescue();
-            }
+            save_or_rescue(app);
             shutdown::done();
             return Ok(());
         }
@@ -452,9 +450,7 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
         // If the terminal itself goes away, drawing to it or reading from it
         // fails: save what there is before reporting that.
         if let Err(e) = terminal.draw(|f| ui::draw(f, app)) {
-            if !app.try_quit() {
-                app.rescue();
-            }
+            save_or_rescue(app);
             return Err(e.into());
         }
 
@@ -469,15 +465,11 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
                 continue;
             }
             Ok(Err(e)) => {
-                if !app.try_quit() {
-                    app.rescue();
-                }
+                save_or_rescue(app);
                 return Err(e.into());
             }
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                if !app.try_quit() {
-                    app.rescue();
-                }
+                save_or_rescue(app);
                 return Ok(());
             }
         };
@@ -546,15 +538,7 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
                 KeyCode::Char('Z') => app.redo(),
                 KeyCode::Char('z') => app.undo(),
                 KeyCode::Char('y') => app.redo(),
-                KeyCode::Char('q') => {
-                    // Quitting saves. Only a save that fails asks twice.
-                    if confirm_quit || app.try_quit() {
-                        return Ok(());
-                    }
-                    confirm_quit = true;
-                    let m = app.mod_label();
-                    app.msg = format!("{} · {m}Q again to quit anyway", app.msg);
-                }
+                KeyCode::Char('q') if quit_or_arm(app, &mut confirm_quit) => return Ok(()),
                 _ => {}
             }
             continue;
@@ -598,14 +582,8 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
 
         if !matches!(app.overlay, Overlay::None) {
             app.on_overlay_key(key);
-            if app.quit {
-                if app.try_quit() {
-                    return Ok(());
-                }
-                app.quit = false;
-                confirm_quit = true;
-                let m = app.mod_label();
-                app.msg = format!("{} · {m}Q to quit anyway", app.msg);
+            if std::mem::take(&mut app.quit) && quit_or_arm(app, &mut confirm_quit) {
+                return Ok(());
             }
             continue;
         }
@@ -640,12 +618,9 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
                     Key::Char('h') => Key::Left,
                     Key::Char('l') => Key::Right,
                     Key::Char('q') => {
-                        if app.try_quit() {
+                        if quit_or_arm(app, &mut confirm_quit) {
                             return Ok(());
                         }
-                        confirm_quit = true;
-                        let m = app.mod_label();
-                        app.msg = format!("{} · {m}Q to quit anyway", app.msg);
                         continue;
                     }
                     other => other,
@@ -658,14 +633,29 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
             Focus::Music => app.on_music_key(key),
         }
 
-        if app.quit {
-            if app.try_quit() {
-                return Ok(());
-            }
-            app.quit = false;
-            confirm_quit = true;
-            let m = app.mod_label();
-            app.msg = format!("{} · {m}Q to quit anyway", app.msg);
+        if std::mem::take(&mut app.quit) && quit_or_arm(app, &mut confirm_quit) {
+            return Ok(());
         }
+    }
+}
+
+/// Quit, saving everything first; true to leave. A save that fails keeps
+/// Grimoire open and arms `armed`, so the next Ctrl-Q leaves anyway — the
+/// words that couldn't be written are in recovery by then.
+fn quit_or_arm(app: &mut App, armed: &mut bool) -> bool {
+    if *armed || app.try_quit() {
+        return true;
+    }
+    *armed = true;
+    let m = app.mod_label();
+    app.msg = format!("{} · {m}Q again to quit anyway", app.msg);
+    false
+}
+
+/// Leaving for any reason but a key (the window closed, the terminal broke):
+/// save what can be saved and keep the rest in recovery.
+fn save_or_rescue(app: &mut App) {
+    if !app.try_quit() {
+        app.rescue();
     }
 }

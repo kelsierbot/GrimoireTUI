@@ -169,7 +169,7 @@ fn edition_of(p: &Project, n: &Node) -> Option<Edition> {
 }
 
 /// The front-matter pages that go into `edition`, in order.
-fn front_pages<'a>(p: &'a Project, edition: Edition) -> Vec<&'a str> {
+fn front_pages(p: &Project, edition: Edition) -> Vec<&str> {
     p.nodes
         .iter()
         .filter(|n| n.kind == Kind::Scene && n.front_matter && n.compile)

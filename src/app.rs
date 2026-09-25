@@ -443,7 +443,7 @@ impl App {
             sel: 0,
             tree_scroll: 0,
             open: None,
-            editor: Editor::from_str(""),
+            editor: Editor::from_text(""),
             focus: Focus::Tree,
             baseline,
             baseline_date: today_string(),
@@ -504,7 +504,7 @@ impl App {
                 app.overlay = Overlay::Recover { items };
             }
             if let Some(i) = first_scene {
-                app.editor = Editor::from_str(&app.project.nodes[i].body);
+                app.editor = Editor::from_text(&app.project.nodes[i].body);
                 app.open = Some(i);
                 if let Some(pos) = app.visible.iter().position(|&v| v == i) {
                     app.sel = pos;
@@ -583,7 +583,7 @@ impl App {
             let path = self.project.nodes[i].path.clone();
             self.undo_stash.insert(path, self.editor.take_history());
         }
-        self.editor = Editor::from_str(&self.project.nodes[idx].body);
+        self.editor = Editor::from_text(&self.project.nodes[idx].body);
         if let Some(h) = self.undo_stash.remove(&self.project.nodes[idx].path) {
             self.editor.set_history(h);
         }
@@ -1291,7 +1291,7 @@ impl App {
             return;
         };
         self.reveal(i);
-        self.editor = Editor::from_str(&self.project.nodes[i].body);
+        self.editor = Editor::from_text(&self.project.nodes[i].body);
         self.open = Some(i);
         self.editor.place(r.line, r.column);
         self.focus = Focus::Editor;
@@ -1970,7 +1970,7 @@ impl App {
         let open_path = self.open.map(|i| self.project.nodes[i].path.clone());
         if open_path.is_some_and(|p| p.starts_with(&path)) {
             self.open = None;
-            self.editor = Editor::from_str("");
+            self.editor = Editor::from_text("");
             self.focus = Focus::Tree;
         }
         let done = if permanent {
@@ -2393,7 +2393,7 @@ impl App {
             .any(|(from, to)| to.starts_with(&bin) && open.starts_with(from))
         {
             self.open = None;
-            self.editor = Editor::from_str("");
+            self.editor = Editor::from_text("");
             self.focus = Focus::Tree;
         }
     }
@@ -2635,10 +2635,10 @@ impl App {
                 if n.kind != Kind::Scene && n.expanded {
                     self.project.nodes[idx].expanded = false;
                     self.refresh_visible();
-                } else if let Some(p) = self.parents[idx] {
-                    if let Some(pos) = self.visible.iter().position(|&v| v == p) {
-                        self.sel = pos;
-                    }
+                } else if let Some(p) = self.parents[idx]
+                    && let Some(pos) = self.visible.iter().position(|&v| v == p)
+                {
+                    self.sel = pos;
                 }
             }
             // Space is a second Enter here — folding is the most repeated
@@ -3020,10 +3020,11 @@ impl App {
         else {
             return;
         };
-        if *tab == Tab::Queue && *follow {
-            if let Some(i) = self.music.queue.iter().position(|it| it.current) {
-                *sel = i;
-            }
+        if *tab == Tab::Queue
+            && *follow
+            && let Some(i) = self.music.queue.iter().position(|it| it.current)
+        {
+            *sel = i;
         }
         if self
             .player_fetched

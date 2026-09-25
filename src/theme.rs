@@ -351,6 +351,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::needless_range_loop)]
     fn role_get_set_covers_every_index() {
         let mut t = default_theme();
         for i in 0..ROLES.len() {

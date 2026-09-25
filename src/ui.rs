@@ -488,7 +488,10 @@ enum Piece {
 /// Lay out the switcher in `width` cells: the pieces to draw, and each
 /// clickable one's (offset, width, view). Names drop from the right before
 /// they'd run into the corner; the arrows always stay.
-fn view_switch(current: Mode, width: u16) -> (Vec<(u16, u16, Mode)>, Vec<(String, Piece)>) {
+/// Clickable (offset, width, view) spans, and the labelled pieces to draw.
+type Switcher = (Vec<(u16, u16, Mode)>, Vec<(String, Piece)>);
+
+fn view_switch(current: Mode, width: u16) -> Switcher {
     let mut hits = vec![(0, 1, current.prev())];
     let mut spans = vec![("◂".to_string(), Piece::Arrow)];
     let mut x = 1u16;
@@ -1287,7 +1290,7 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
                         let when = s.when.format("%a %-d %b %-I:%M %P").to_string();
                         let row = Line::from(vec![
                             Span::styled(
-                                if i == 0 { " ● " } else { " ● " },
+                                " ● ",
                                 Style::default().fg(if i == 0 { t.sun } else { t.border }),
                             ),
                             Span::styled(
@@ -2781,7 +2784,7 @@ fn thousands(n: usize) -> String {
     let s = n.to_string();
     let mut out = String::new();
     for (i, c) in s.chars().enumerate() {
-        if i > 0 && (s.len() - i) % 3 == 0 {
+        if i > 0 && (s.len() - i).is_multiple_of(3) {
             out.push(',');
         }
         out.push(c);

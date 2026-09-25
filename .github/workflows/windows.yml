@@ -24,7 +24,7 @@ jobs:
           rustc --version
 
       - name: Test
-        run: cargo test --locked
+        run: cargo test --workspace --locked
 
       - name: Clipboard keeps Unicode intact (real Windows clipboard)
         run: cargo test --locked -- --ignored clipboard

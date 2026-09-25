@@ -66,7 +66,7 @@ pub struct Editor {
 }
 
 impl Editor {
-    pub fn from_str(s: &str) -> Self {
+    pub fn from_text(s: &str) -> Self {
         let mut lines: Vec<String> = s.split('\n').map(|l| l.to_string()).collect();
         if lines.is_empty() {
             lines.push(String::new());
@@ -588,7 +588,7 @@ mod tests {
     use super::*;
 
     fn ed(s: &str) -> Editor {
-        Editor::from_str(s)
+        Editor::from_text(s)
     }
 
     #[test]
