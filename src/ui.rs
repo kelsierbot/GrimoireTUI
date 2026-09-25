@@ -2107,9 +2107,15 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             let inner = block.inner(box_area);
             f.render_widget(block, box_area);
 
+            // A short terminal shows the rows around the highlight rather
+            // than cutting off the end of the menu.
+            let room = (inner.height as usize).saturating_sub(2).max(1);
+            let start = (*sel + 1).saturating_sub(room);
             let mut lines: Vec<Line> = items
                 .iter()
                 .enumerate()
+                .skip(start)
+                .take(room)
                 .map(|(i, label)| {
                     let on = i == *sel;
                     Line::from(vec![

@@ -3437,37 +3437,65 @@ impl App {
     /// The menu, in the book's own words — it offers a new act if that is what
     /// this book calls its parts. Preferences live one level down, in Settings.
     pub fn menu(&self) -> Vec<(String, Action)> {
-        let row = |label: String, key: &str| format!("{label:<20}{key}");
+        let row = |label: &str, key: &str| format!("{label:<26}{key}");
         let m = self.mod_label();
+        let on_off =
+            |on: bool, what: &str| format!("Turn {what} {}", if on { "off" } else { "on" });
+        let writing = self.open.is_some();
         let mut items = vec![
             (
-                row("Find anything…".into(), &format!("({m}K)")),
+                row("Find anything…", &format!("({m}K)")),
                 Action::FindAnything,
             ),
-            (row("New scene…".into(), "(n)"), Action::NewScene),
-            (row("New chapter…".into(), "(c)"), Action::NewChapter),
+            // Making and unmaking.
+            (row("New scene…", "(n)"), Action::NewScene),
+            (row("New chapter…", "(c)"), Action::NewChapter),
             (
-                row(format!("New {}…", self.project.meta.part_noun()), "(p)"),
+                row(&format!("New {}…", self.project.meta.part_noun()), "(p)"),
                 Action::NewPart,
             ),
-            (row("New folder…".into(), "(N)"), Action::NewFolder),
-            (row("Rename…".into(), "(r)"), Action::Rename),
-            (row("Delete…".into(), "(d)"), Action::Delete),
+            (row("New folder…", "(N)"), Action::NewFolder),
+            (row("Rename…", "(r)"), Action::Rename),
+            (row("Delete…", "(d)"), Action::Delete),
+            // Writing and revising.
+            (
+                row(
+                    if self.focus_mode {
+                        "Leave focus mode"
+                    } else {
+                        "Focus mode"
+                    },
+                    &format!("({m}D)"),
+                ),
+                Action::FocusMode,
+            ),
+            (row("Open a scene beside…", "(v)"), Action::BesidePicker),
+            (row("Notes & TKs…", &format!("({m}T)")), Action::NotesList),
+            (row("Next scene still in draft", ""), Action::NextDraft),
+            (on_off(self.echo_on, "echo words"), Action::EchoWords),
+            if self.sprint.is_some() {
+                ("Stop the sprint".into(), Action::EndSprint)
+            } else {
+                ("Start a sprint…".into(), Action::StartSprint)
+            },
+            (row("Music player…", "(F7)"), Action::MusicPlayer),
             // Word, EPUB and Markdown. The project map and a bare Markdown
             // compile are still in the palette.
             ("Export…".into(), Action::Export),
-            (row("Music player…".into(), "(F7)"), Action::MusicPlayer),
             ("Settings…".into(), Action::Settings),
-            (row("Close".into(), "(Esc)"), Action::CloseMenu),
-            (
-                row("Quit Grimoire".into(), &format!("({m}Q)")),
-                Action::Quit,
-            ),
+            (row("Close", "(Esc)"), Action::CloseMenu),
+            (row("Quit Grimoire", &format!("({m}Q)")), Action::Quit),
         ];
-        // Nothing to play with music off; Settings is where it comes back on.
-        if !self.music.enabled {
-            items.retain(|(_, a)| *a != Action::MusicPlayer);
-        }
+        // Rows that couldn't do anything right now aren't offered: nothing to
+        // play with music off (Settings is where it comes back on), and the
+        // writing tools want a scene open.
+        items.retain(|(_, a)| match a {
+            Action::MusicPlayer => self.music.enabled,
+            Action::FocusMode => writing || self.focus_mode,
+            Action::BesidePicker => writing,
+            Action::EchoWords => writing || self.echo_on,
+            _ => true,
+        });
         items
     }
 
@@ -3481,6 +3509,17 @@ impl App {
             (on_off(self.music.enabled, "music"), Action::MusicToggle),
             (on_off(self.spell_on, "spellcheck"), Action::Spellcheck),
             (on_off(self.icons_on, "tree icons"), Action::Icons),
+            (
+                match self.line_width {
+                    0 => "Line width: the whole pane".to_string(),
+                    w => format!("Line width: {w} columns"),
+                },
+                Action::LineWidth,
+            ),
+            (
+                on_off(self.typewriter, "typewriter scrolling"),
+                Action::Typewriter,
+            ),
             ("Back".into(), Action::MenuBack),
         ]
     }
