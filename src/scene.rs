@@ -117,11 +117,13 @@ impl Pomodoro {
 
     pub fn label(&self) -> String {
         match self.phase {
-            Phase::Idle => "press F2 to begin".into(),
+            // "focus" is focus mode's word (Ctrl-D); the timer's working
+            // stretch is just writing.
+            Phase::Idle => "F2 timer".into(),
             _ => {
                 let r = self.remaining().as_secs();
                 let tag = if self.phase == Phase::Focus {
-                    "focus"
+                    "writing"
                 } else {
                     "break"
                 };

@@ -127,7 +127,8 @@ The tree shows each of those as a section — Novel Format, Manuscript,
 Characters, Places, Front Matter, Notes, Research, Template Sheets, Trash —
 and every section and folder folds. A symbol beside each row is off to begin
 with; turn tree icons on in `Esc` → Settings, or from the palette. The pane is headed
-with the book's title.
+with the book's title and, when the window is tall enough to spare the rows,
+an open spellbook with light rising from its spine.
 
 **A new book arrives with its shape already standing:** three parts of nine
 chapters, three scenes in each — twenty-seven chapters, eighty-one scenes, all
@@ -350,7 +351,7 @@ the terminal's version anywhere else.
 Below the manuscript tree is a forest, and the forest is the timer.
 
 ```
-┌ focus · 18:04 ─────────────┐
+┌ writing · 18:04 ───────────┐
 │  ·                         │
 │         ☀        ·         │
 │    ▲      ▲       ▲        │

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.2
+
+- **A spellbook heads the tree**: an open grimoire, light rising from its
+  spine, sparkles twinkling above it — in your theme's colours, and in every
+  colour under Rainbow. It steps aside on short windows so the outline keeps
+  its rows.
+- **Focus mode says where it is**: `^D focus mode` sits right after `Esc menu`
+  in the status bar, and the idle timer's title reads `F2 timer · ^D focus
+  mode`. The running timer now says `writing · 18:04` rather than `focus`, so
+  "focus" only ever means focus mode.
+
 ## 0.4.1
 
 - **Ten new themes**: Rosé Pine, One Dark, Monokai, Kanagawa, Ayu Mirage,

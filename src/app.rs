@@ -3801,6 +3801,12 @@ impl App {
         } else {
             "Esc menu"
         };
+        // Focus mode needs a scene to show; where there is one, say how.
+        let focus = if self.open.is_some() {
+            format!("  {m}D focus mode")
+        } else {
+            String::new()
+        };
         match self.focus {
             Focus::Tree => {
                 let sel = self.visible.get(self.sel).copied();
@@ -3809,7 +3815,7 @@ impl App {
                     .map(|(k, w)| format!("{k} {w}"))
                     .collect();
                 format!(
-                    "{esc}  Tab pane  ↵ fold  {}  r rename  d delete  {m}Z undo  H history  {m}Q quit ",
+                    "{esc}{focus}  Tab pane  ↵ fold  {}  r rename  d delete  {m}Z undo  H history  {m}Q quit ",
                     keys.join("  ")
                 )
             }
@@ -3817,14 +3823,16 @@ impl App {
                 format!("{esc}  {m}D leave focus  {m}K find anything  {m}Z undo  {m}Q quit ")
             }
             Focus::Editor => {
-                format!("{esc}  Tab pane  {m}K find anything  {m}Z undo  F8 spelling  {m}Q quit ")
+                format!(
+                    "{esc}{focus}  Tab pane  {m}K find anything  {m}Z undo  F8 spelling  {m}Q quit "
+                )
             }
             Focus::Beside => "Esc close  Tab pane  ↑↓ PgDn scroll  ↵ write in this one ".into(),
             Focus::Codex => {
                 "Esc close  Tab pane  ↑↓ scenes  ↵ go there  o open the note  PgDn scroll ".into()
             }
             Focus::Clearing => {
-                format!("{esc}  Tab pane  ←→ view  ↵ start/pause  r reset  {m}Q quit ")
+                format!("{esc}{focus}  Tab pane  ←→ view  ↵ start/pause  r reset  {m}Q quit ")
             }
             Focus::Music => {
                 format!("{esc}  Tab pane  ↵ open player  space pause  ←→ track  {m}Q quit ")

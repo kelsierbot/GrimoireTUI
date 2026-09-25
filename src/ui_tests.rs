@@ -520,3 +520,60 @@ fn the_theme_picker_scrolls_on_a_short_terminal() {
     d.key(KeyCode::Esc);
     assert_eq!(d.app.theme.name, "Grimoire", "Esc puts the old theme back");
 }
+
+// ---- the book at the top of the tree, and where focus mode is ----------------
+
+#[test]
+fn a_tall_tree_is_headed_by_the_spellbook_and_clicks_still_land() {
+    let mut d = Desk::open(book("art-tall", true), 120, 42);
+    assert!(d.shows("`───────────┴───────────'"), "the book is drawn");
+    let rows = d.rows();
+    let art = rows.iter().position(|r| r.contains("┴")).unwrap();
+    let novel = rows
+        .iter()
+        .position(|r| r.contains("Novel Format"))
+        .unwrap();
+    assert!(novel > art, "the tree starts below the book");
+    // Clicking Scene Two's row opens Scene Two, not whatever is a book's
+    // height further down the list.
+    let left = |r: &String| r.chars().take(30).collect::<String>();
+    let y = rows
+        .iter()
+        .position(|r| left(r).contains("Scene Two"))
+        .unwrap() as u16;
+    let x = rows[y as usize].chars().position(|c| c == 'S').unwrap() as u16;
+    d.app.on_click(x, y);
+    d.draw();
+    let open = d.app.open.map(|i| d.app.project.nodes[i].title.clone());
+    assert_eq!(open.as_deref(), Some("Scene Two"));
+}
+
+#[test]
+fn a_short_tree_keeps_its_rows_and_skips_the_book() {
+    let d = Desk::open(book("art-short", true), 80, 24);
+    assert!(!d.shows("┴───"), "no book on a short terminal");
+    assert!(
+        d.rows()[1].contains("Novel Format"),
+        "the tree starts at the top"
+    );
+}
+
+#[test]
+fn focus_mode_is_named_where_it_can_be_used() {
+    let mut d = Desk::open(book("focus-hint", true), 140, 42);
+    assert!(
+        d.shows("F2 timer · ^D focus mode"),
+        "the idle timer says where focus mode is"
+    );
+    d.key(KeyCode::Tab);
+    assert_eq!(d.app.focus, Focus::Editor);
+    assert!(
+        d.status().contains("Esc menu  ^D focus mode"),
+        "{}",
+        d.status()
+    );
+    // Running, the timer is "writing", so "focus" only ever means focus mode.
+    d.key(KeyCode::F(2));
+    assert!(d.shows("writing · "), "timer label while running");
+    assert!(!d.rows().iter().any(|r| r.contains("┌ focus ·")));
+}
