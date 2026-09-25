@@ -227,7 +227,12 @@ fn place_above(p: &Project, parents: &[Option<usize>], idx: usize) -> String {
 
 /// Open one scene for editing: prose in `text`, frontmatter set aside.
 pub fn read_scene(path: &Path) -> Result<Scene> {
-    let raw = fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+    // One read: the text shown and the stamp that guards the next save are
+    // the same version. Two reads could take the text from one version and
+    // the stamp from the next, and the save would then pass over it.
+    let bytes = fs::read(path).with_context(|| format!("reading {}", path.display()))?;
+    let seen = Stamp::of(Some(Fingerprint::of_bytes(&bytes)));
+    let raw = String::from_utf8(bytes).with_context(|| format!("reading {}", path.display()))?;
     let (front, body) = grimoire_core::project::split_frontmatter(&raw);
     let title = front.as_deref().and_then(front_title).unwrap_or_else(|| {
         path.file_stem()
@@ -239,7 +244,7 @@ pub fn read_scene(path: &Path) -> Result<Scene> {
         title,
         text: body,
         front,
-        seen: Stamp::of(Fingerprint::read(path)),
+        seen,
     })
 }
 
@@ -281,10 +286,17 @@ fn whole_file(front: Option<&str>, body: &str) -> String {
 pub fn save_scene(path: &Path, text: &str, front: Option<&str>, seen: &Stamp) -> Result<Saved> {
     let whole = whole_file(front, text);
     match sync::save_guarded(path, &whole, seen.fingerprint())? {
-        SaveOutcome::Written => Ok(Saved::Ok {
-            seen: Stamp::of(Fingerprint::read(path)),
-            words: grimoire_core::notes::count_words(text),
-        }),
+        SaveOutcome::Written => {
+            #[cfg(test)]
+            tests::after_write(path);
+            Ok(Saved::Ok {
+                // What this device wrote — never a fresh read, which could be
+                // the desktop's words landing a moment later. Stamped with
+                // those, the next save here would pass over them.
+                seen: Stamp::of(Some(Fingerprint::of(&whole))),
+                words: grimoire_core::notes::count_words(text),
+            })
+        }
         SaveOutcome::Conflict { on_disk } => {
             let kept = sync::write_conflict_copy(path, &whole)?;
             // the writer is comparing two versions of their prose, so show
@@ -526,13 +538,62 @@ pub mod shelf {
                 // across devices rename fails; a phone's private folder and a
                 // vault on shared storage are exactly that case
                 Err(_) => {
-                    copy_dir(&book.path, &target)?;
-                    fs::remove_dir_all(&book.path)?;
+                    move_by_copy(&book.path, &target)?;
                     moved += 1;
                 }
             }
         }
         Ok(moved)
+    }
+
+    /// Copy `from` to `to`, then take away from `from` only what the copy
+    /// holds byte for byte. A file a sync client drops in, or changes, while
+    /// the copy runs is copied then; one that keeps changing is left behind,
+    /// and so is its folder, renamed to say so — nothing is removed that
+    /// isn't safe at `to`. True when nothing was left behind.
+    pub(crate) fn move_by_copy(from: &Path, to: &Path) -> Result<bool> {
+        copy_dir(from, to)?;
+        let left = take_copied(from, to)?;
+        if left == 0 {
+            // only empty folders remain
+            let _ = fs::remove_dir_all(from);
+            return Ok(true);
+        }
+        let name = from
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
+        let kept = from.with_file_name(format!("{name} (left behind while moving)"));
+        if !kept.exists() {
+            let _ = fs::rename(from, &kept);
+        }
+        Ok(false)
+    }
+
+    /// Remove each file of `from` whose bytes `to` already holds (copying it
+    /// first if it arrived or changed after the copy). Returns how many
+    /// files stayed.
+    fn take_copied(from: &Path, to: &Path) -> Result<usize> {
+        let mut left = 0;
+        for entry in fs::read_dir(from)?.flatten() {
+            let path = entry.path();
+            let target = to.join(entry.file_name());
+            if path.is_dir() {
+                fs::create_dir_all(&target)?;
+                left += take_copied(&path, &target)?;
+                let _ = fs::remove_dir(&path); // only if now empty
+                continue;
+            }
+            if fs::read(&target).ok() != fs::read(&path).ok() {
+                fs::copy(&path, &target)?;
+            }
+            if fs::read(&target).ok() == fs::read(&path).ok() {
+                fs::remove_file(&path)?;
+            } else {
+                left += 1;
+            }
+        }
+        Ok(left)
     }
 
     fn copy_dir(from: &Path, to: &Path) -> Result<()> {
@@ -544,6 +605,8 @@ pub mod shelf {
                 copy_dir(&path, &target)?;
             } else {
                 fs::copy(&path, &target)?;
+                #[cfg(test)]
+                super::tests::copied(&path);
             }
         }
         Ok(())
@@ -553,6 +616,102 @@ pub mod shelf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::RefCell;
+
+    type Hook = Box<dyn Fn(&Path)>;
+
+    thread_local! {
+        /// Runs right after a save lands, before its stamp is taken: where a
+        /// desktop (or a sync client) writing a moment later would fall.
+        static AFTER_WRITE: RefCell<Option<Hook>> = RefCell::new(None);
+        /// Runs after each file a shelf move copies.
+        static COPIED: RefCell<Option<Hook>> = RefCell::new(None);
+    }
+
+    pub(super) fn after_write(path: &Path) {
+        AFTER_WRITE.with(|h| {
+            if let Some(f) = h.borrow().as_ref() {
+                f(path)
+            }
+        });
+    }
+
+    pub(super) fn copied(path: &Path) {
+        COPIED.with(|h| {
+            if let Some(f) = h.borrow().as_ref() {
+                f(path)
+            }
+        });
+    }
+
+    #[test]
+    fn a_desktop_save_just_after_the_phones_is_never_written_over() {
+        let base = shelf("gap");
+        let book = create_book(&base, "The Gap").unwrap();
+        let scene = outline(&book.path).unwrap().scenes[0].path.clone();
+        let s = read_scene(&scene).unwrap();
+        let desk = scene.clone();
+        AFTER_WRITE.with(|h| {
+            *h.borrow_mut() = Some(Box::new(move |_| {
+                fs::write(&desk, "---\ntitle: \"Scene One\"\n---\n\ndesktop words\n").unwrap();
+            }))
+        });
+        let first = save_scene(&scene, "phone words\n", s.front.as_deref(), &s.seen).unwrap();
+        AFTER_WRITE.with(|h| *h.borrow_mut() = None);
+        let Saved::Ok { seen, .. } = first else {
+            panic!("the first save goes through: {first:?}")
+        };
+        let second = save_scene(&scene, "phone words, again\n", s.front.as_deref(), &seen).unwrap();
+        assert!(matches!(second, Saved::Conflict { .. }), "{second:?}");
+        assert!(
+            fs::read_to_string(&scene)
+                .unwrap()
+                .contains("desktop words"),
+            "the desktop's words are still the scene"
+        );
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn a_file_that_changes_or_arrives_while_the_shelf_moves_is_kept() {
+        let base = shelf("mid-copy");
+        let from = base.join("private");
+        let to = base.join("vault");
+        let book = create_book(&from, "Moving Day").unwrap();
+        let scene = outline(&book.path).unwrap().scenes[0].path.clone();
+        let late = book.path.join("manuscript").join("arrived-while-moving.md");
+        let (s2, l2) = (scene.clone(), late.clone());
+        COPIED.with(|h| {
+            *h.borrow_mut() = Some(Box::new(move |p| {
+                // The moment the scene is copied, sync brings newer words for
+                // it, and a new file lands beside it.
+                if p == s2 {
+                    fs::write(&s2, "---\ntitle: \"Scene One\"\n---\n\nnewest words\n").unwrap();
+                    fs::write(&l2, "arrived mid-copy\n").unwrap();
+                }
+            }))
+        });
+        let target = to.join(book.path.file_name().unwrap());
+        let clean = shelf::move_by_copy(&book.path, &target).unwrap();
+        COPIED.with(|h| *h.borrow_mut() = None);
+        let rel = scene.strip_prefix(&book.path).unwrap();
+        assert!(
+            fs::read_to_string(target.join(rel))
+                .unwrap()
+                .contains("newest words"),
+            "the newest words made it across"
+        );
+        assert_eq!(
+            fs::read_to_string(target.join("manuscript/arrived-while-moving.md")).unwrap(),
+            "arrived mid-copy\n"
+        );
+        assert!(clean, "nothing was left behind");
+        assert!(
+            !book.path.exists(),
+            "and the old place is gone only once it's all across"
+        );
+        fs::remove_dir_all(&base).unwrap();
+    }
 
     fn shelf(tag: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("grimoire-app-{}-{}", tag, std::process::id()));
