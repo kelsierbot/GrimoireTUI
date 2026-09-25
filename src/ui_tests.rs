@@ -1308,3 +1308,26 @@ fn unsaved_words_wait_for_a_file_that_cannot_be_read() {
     assert!(d.app.commit_saves());
     assert!(fs::read_to_string(&scene).unwrap().contains("Kept."));
 }
+
+// ---- the paperback in the export dialog ------------------------------------
+
+#[test]
+fn the_export_dialog_offers_a_paperback_and_its_trim() {
+    let mut d = Desk::open(book("paperback-row", true), 120, 35);
+    d.app.open_export();
+    d.draw();
+    assert!(d.shows("[ ] Paperback"), "offered, off by default");
+    assert!(
+        d.shows("◂ 6 × 9 in ▸"),
+        "the trim from novel.toml's default"
+    );
+    d.key(KeyCode::Down);
+    d.key(KeyCode::Down);
+    assert!(d.status().contains("trim size") || d.shows("←→ trim size"));
+    d.key(KeyCode::Right);
+    assert!(d.shows("◂ 5 × 8 in ▸"), "→ changes the trim");
+    assert!(d.shows("[x] Paperback"), "and ticks it");
+    d.key(KeyCode::Left);
+    d.key(KeyCode::Left);
+    assert!(d.shows("◂ 5.5 × 8.5 in ▸"), "← goes back round");
+}

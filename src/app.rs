@@ -431,8 +431,10 @@ pub enum Overlay {
     },
     /// Export for readers: formats, which acts, then the result.
     Export {
-        /// Word, EPUB, Markdown.
-        formats: [bool; 3],
+        /// Word, EPUB, Paperback, Markdown.
+        formats: [bool; 4],
+        /// The paperback's trim size, ←/→ on its row.
+        trim: grimoire_core::export_print::Trim,
         /// Each act by path, with its title and whether it's included.
         parts: Vec<(PathBuf, String, bool)>,
         sel: usize,
@@ -1805,15 +1807,23 @@ impl App {
             .into_iter()
             .map(|(i, title)| (self.project.nodes[i].path.clone(), title, true))
             .collect();
+        let trim =
+            grimoire_core::export_print::Layout::from_meta(&self.project.meta.paperback).trim;
         self.overlay = Overlay::Export {
-            formats: [true, true, false],
+            formats: [true, true, false, false],
+            trim,
             parts,
             sel: 0,
             done: None,
         };
     }
 
-    fn run_export(&mut self, formats: [bool; 3], parts: &[(PathBuf, String, bool)]) -> Vec<String> {
+    fn run_export(
+        &mut self,
+        formats: [bool; 4],
+        trim: grimoire_core::export_print::Trim,
+        parts: &[(PathBuf, String, bool)],
+    ) -> Vec<String> {
         // Export what's on screen, saved or not; saving first keeps the files
         // and the export in agreement.
         self.commit_saves();
@@ -1826,7 +1836,9 @@ impl App {
         let opts = export::ExportOptions {
             docx: formats[0],
             epub: formats[1],
-            markdown: formats[2],
+            paperback: formats[2],
+            markdown: formats[3],
+            trim: Some(trim),
             parts: if whole { None } else { Some(chosen) },
         };
         match export::export(&self.project, &opts) {
@@ -1840,6 +1852,7 @@ impl App {
                         format!("✓ {}  {}", rel.display(), human_size(size))
                     })
                     .collect();
+                lines.extend(done.notes.iter().cloned());
                 lines.push(String::new());
                 // Shunn rounds, which makes a short book "about 0 words".
                 let rounded = manuscript::rounded_words(done.words);
@@ -2611,6 +2624,7 @@ impl App {
             }
             return match n.area {
                 grimoire_core::project::Area::FrontMatter
+                | grimoire_core::project::Area::BackMatter
                 | grimoire_core::project::Area::Format => "document",
                 grimoire_core::project::Area::Templates => "sheet",
                 _ => "note",

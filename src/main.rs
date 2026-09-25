@@ -30,7 +30,7 @@ use std::time::{Duration, Instant};
 
 use app::{App, Focus, Key, Overlay};
 use grimoire_core::project::{self, Project};
-use grimoire_core::{export, manuscript};
+use grimoire_core::{export, export_print, manuscript};
 
 /// How often we wake to repaint. Also the animation clock.
 const TICK: Duration = Duration::from_millis(250);
@@ -99,8 +99,9 @@ fn main() -> Result<()> {
         println!("  grimoire index              refresh project.md, the project map");
         println!("  grimoire compile            assemble the manuscript");
         println!("  grimoire export [dir]       DOCX + EPUB into exports/; pick formats");
-        println!("                              with --docx --epub --md, and parts");
-        println!("                              with --parts 1,3");
+        println!("                              with --docx --epub --paperback --md,");
+        println!("                              a trim with --trim 6x9, parts with");
+        println!("                              --parts 1,3");
         println!("  grimoire music-setup <src>  connect music: youtube-music |");
         println!("                              spotify | jellyfin | plex");
         println!("  grimoire music-auth         re-pair only");
@@ -187,19 +188,34 @@ fn main() -> Result<()> {
     res
 }
 
-const EXPORT_USAGE: &str = "grimoire export [dir] [--docx] [--epub] [--md] [--parts 1,3]";
+const EXPORT_USAGE: &str =
+    "grimoire export [dir] [--docx] [--epub] [--paperback] [--md] [--trim 6x9] [--parts 1,3]";
 
-/// `grimoire export [dir] [--docx] [--epub] [--md] [--parts 1,3]`. With no
-/// format named it writes DOCX and EPUB.
+/// `grimoire export [dir] [--docx] [--epub] [--paperback] [--md] [--trim 6x9]
+/// [--parts 1,3]`. With no format named it writes DOCX and EPUB.
 fn export_command(mut args: impl Iterator<Item = String>) -> Result<()> {
     let mut dir = None;
-    let (mut docx, mut epub, mut markdown) = (false, false, false);
+    let (mut docx, mut epub, mut markdown, mut paperback) = (false, false, false, false);
+    let mut trim = None;
     let mut numbers: Option<Vec<usize>> = None;
+    let parse_trim = |s: &str| {
+        export_print::Trim::parse(s).with_context(|| {
+            format!("--trim takes 5x8, 5.25x8, 5.5x8.5 or 6x9, not '{s}'\n\n  {EXPORT_USAGE}")
+        })
+    };
     while let Some(a) = args.next() {
         match a.as_str() {
             "--docx" => docx = true,
             "--epub" => epub = true,
             "--md" | "--markdown" => markdown = true,
+            "--paperback" | "--print" => paperback = true,
+            "--trim" => {
+                let t = args.next().with_context(|| {
+                    format!("--trim needs a size, like --trim 6x9\n\n  {EXPORT_USAGE}")
+                })?;
+                trim = Some(parse_trim(&t)?);
+            }
+            s if s.starts_with("--trim=") => trim = Some(parse_trim(&s["--trim=".len()..])?),
             "--parts" => {
                 let list = args.next().with_context(|| {
                     format!("--parts needs numbers, like --parts 1,3\n\n  {EXPORT_USAGE}")
@@ -212,7 +228,7 @@ fn export_command(mut args: impl Iterator<Item = String>) -> Result<()> {
             _ => anyhow::bail!("one book at a time — '{a}' is a second folder\n\n  {EXPORT_USAGE}"),
         }
     }
-    if !(docx || epub || markdown) {
+    if !(docx || epub || markdown || paperback) {
         (docx, epub) = (true, true);
     }
 
@@ -253,11 +269,16 @@ fn export_command(mut args: impl Iterator<Item = String>) -> Result<()> {
             docx,
             epub,
             markdown,
+            paperback,
+            trim,
             parts,
         },
     )?;
     for f in &out.files {
         println!("Wrote {}", pretty(f));
+    }
+    for n in &out.notes {
+        println!("  {n}");
     }
     let plural = |n: usize, word: &str| format!("{n} {word}{}", if n == 1 { "" } else { "s" });
     println!(

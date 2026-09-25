@@ -2,10 +2,14 @@
 
 use super::*;
 
+/// The Paperback's row among the formats.
+const PAPERBACK: usize = 2;
+
 impl App {
     pub(super) fn on_export_key(&mut self, key: Key) {
         let Overlay::Export {
             formats,
+            trim,
             parts,
             sel,
             done,
@@ -17,14 +21,24 @@ impl App {
             self.overlay = Overlay::None;
             return;
         }
-        // Rows: three formats, each act, then the export button.
-        if list_nav(key, sel, 3 + parts.len() + 1, LIST) {
+        // Rows: four formats, each act, then the export button.
+        let n = formats.len();
+        if list_nav(key, sel, n + parts.len() + 1, LIST) {
             return;
         }
         match key {
-            Key::Char(' ') | Key::Enter if *sel < 3 => formats[*sel] = !formats[*sel],
-            Key::Char(' ') | Key::Enter if *sel < 3 + parts.len() => {
-                let p = &mut parts[*sel - 3];
+            // The paperback's trim size, on its row.
+            Key::Right | Key::Char('l') if *sel == PAPERBACK => {
+                *trim = trim.next();
+                formats[PAPERBACK] = true;
+            }
+            Key::Left | Key::Char('h') if *sel == PAPERBACK => {
+                *trim = trim.prev();
+                formats[PAPERBACK] = true;
+            }
+            Key::Char(' ') | Key::Enter if *sel < n => formats[*sel] = !formats[*sel],
+            Key::Char(' ') | Key::Enter if *sel < n + parts.len() => {
+                let p = &mut parts[*sel - n];
                 p.2 = !p.2;
             }
             Key::Enter | Key::Char('x') => {
@@ -33,8 +47,8 @@ impl App {
                 } else if !parts.is_empty() && !parts.iter().any(|p| p.2) {
                     self.msg = format!("choose at least one {}", self.project.meta.part_noun());
                 } else {
-                    let (f, p) = (*formats, parts.clone());
-                    let lines = self.run_export(f, &p);
+                    let (f, t, p) = (*formats, *trim, parts.clone());
+                    let lines = self.run_export(f, t, &p);
                     if let Overlay::Export { done, .. } = &mut self.overlay {
                         *done = Some(lines);
                     }
@@ -49,6 +63,7 @@ impl App {
 pub(super) fn draw_export(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
     let Overlay::Export {
         formats,
+        trim,
         parts,
         sel,
         done,
@@ -56,7 +71,8 @@ pub(super) fn draw_export(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
     else {
         return;
     };
-    let h = (3 + parts.len() as u16 + 10).min(area.height);
+    let n = formats.len();
+    let h = (n as u16 + parts.len() as u16 + 10).min(area.height);
     let box_area = centred(area, area.width.saturating_sub(4).clamp(40, 76), h);
     f.render_widget(Clear, box_area);
     let block = pane_block("EXPORT FOR READERS", true, t);
@@ -125,9 +141,17 @@ pub(super) fn draw_export(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
         "for phones and e-readers",
         &mut lines,
     );
+    let pdf_note = format!("◂ {} ▸  print-ready DOCX + PDF", trim.label());
     row(
-        2,
-        formats[2],
+        PAPERBACK,
+        formats[PAPERBACK],
+        "Paperback".into(),
+        &pdf_note,
+        &mut lines,
+    );
+    row(
+        3,
+        formats[3],
         "Markdown".into(),
         "the plain compiled text",
         &mut lines,
@@ -139,11 +163,11 @@ pub(super) fn draw_export(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             Style::default().fg(t.text).add_modifier(Modifier::BOLD),
         )));
         for (i, (_, title, on)) in parts.iter().enumerate() {
-            row(3 + i, *on, title.clone(), "", &mut lines);
+            row(n + i, *on, title.clone(), "", &mut lines);
         }
     }
     lines.push(Line::from(""));
-    let button = 3 + parts.len();
+    let button = n + parts.len();
     let on = *sel == button;
     let b = Line::from(vec![
         Span::styled(
@@ -162,7 +186,11 @@ pub(super) fn draw_export(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
         lines.push(Line::from(""));
     }
     lines.push(hint_line(
-        " ↑↓ choose   space/↵ tick   x export   esc close",
+        if *sel == PAPERBACK {
+            " ←→ trim size   space/↵ tick   x export   esc close"
+        } else {
+            " ↑↓ choose   space/↵ tick   x export   esc close"
+        },
         t,
     ));
     f.render_widget(Paragraph::new(lines), inner);
