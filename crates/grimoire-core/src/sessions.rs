@@ -6,6 +6,14 @@
 //! keeps the binary lean, and it keeps the promise that the book is plain
 //! files: the history is an ordinary repository any git client can open.
 //!
+//! The repository lives outside the book, in this machine's data folder
+//! (`paths::data_dir()/sessions/<book-id>.git`), with the book as its work
+//! tree. A book is as likely as not in Dropbox, Google Drive, pCloud or Box,
+//! and a `.git` folder synced between two machines corrupts: each commits,
+//! the client makes conflicted copies of the index and refs, and history
+//! stops. Kept outside, each machine has its own history of the same book.
+//! Older books with `.git` inside keep working; [`move_history_out`] moves it.
+//!
 //! Nothing here may leave git waiting for an answer nobody can give. Every
 //! call runs with no terminal prompt, no askpass, no editor and no stdin, and
 //! every call has a deadline after which git (and anything it started, such as
@@ -74,20 +82,198 @@ pub fn git_available() -> bool {
     *AVAILABLE.get_or_init(probe_git)
 }
 
-/// Whether session history is on for this book: the book folder is itself the
-/// root of a git work tree. A book that merely sits somewhere inside another
+/// Whether session history is on for this book: it has a repository of its
+/// own on this machine, or (older books) the book folder is itself the root
+/// of a git work tree. A book that merely sits somewhere inside another
 /// repository doesn't count — its sessions would land in someone else's history.
 pub fn is_enabled(root: &Path) -> bool {
-    if !root.join(".git").exists() || !git_available() {
+    if !git_available() {
         return false;
     }
-    let Ok(Some(top)) = git(root, ["rev-parse", "--show-toplevel"]).lookup() else {
-        return false;
+    match store(root) {
+        Store::Outside(_) => git(root, ["rev-parse", "--git-dir"])
+            .lookup()
+            .is_ok_and(|d| d.is_some()),
+        Store::InBook => {
+            let Ok(Some(top)) = git(root, ["rev-parse", "--show-toplevel"]).lookup() else {
+                return false;
+            };
+            match (fs::canonicalize(root), fs::canonicalize(&top)) {
+                (Ok(a), Ok(b)) => a == b,
+                _ => false,
+            }
+        }
+        Store::None => false,
+    }
+}
+
+/// Where a book's writing history is kept.
+#[derive(Debug, Clone, PartialEq)]
+enum Store {
+    /// This machine's repository for the book, outside it.
+    Outside(PathBuf),
+    /// `.git` inside the book, as older versions made it.
+    InBook,
+    None,
+}
+
+fn store(root: &Path) -> Store {
+    if root.join(".git").exists() {
+        return Store::InBook;
+    }
+    match outside_dir(root) {
+        Some(d) if d.join("HEAD").is_file() && claims(&d, root) => Store::Outside(d),
+        _ => Store::None,
+    }
+}
+
+/// This machine's repository for `root`, if the book has an id yet.
+pub fn outside_dir(root: &Path) -> Option<PathBuf> {
+    let id = fs::read_to_string(id_file(root)).ok()?;
+    let id = id.trim();
+    (!id.is_empty() && id.chars().all(|c| c.is_ascii_alphanumeric())).then(|| {
+        crate::paths::data_dir()
+            .join("sessions")
+            .join(format!("{id}.git"))
+    })
+}
+
+fn id_file(root: &Path) -> PathBuf {
+    root.join(".grimoire").join("book-id")
+}
+
+/// Give the book an id if it has none, or a new one if `fresh`. Kept in
+/// `.grimoire/book-id`; where that syncs, each machine still keeps its own
+/// repository under the same id in its own data folder.
+fn assign_id(root: &Path, fresh: bool) -> Result<()> {
+    if !fresh && outside_dir(root).is_some() {
+        return Ok(());
+    }
+    let seed = format!(
+        "{:?}{}{}",
+        std::time::SystemTime::now(),
+        std::process::id(),
+        root.display()
+    );
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in seed.bytes() {
+        h = (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3);
+    }
+    let path = id_file(root);
+    if let Some(d) = path.parent() {
+        fs::create_dir_all(d).with_context(|| format!("creating {}", d.display()))?;
+    }
+    fs::write(&path, format!("{h:016x}\n")).with_context(|| format!("writing {}", path.display()))
+}
+
+/// The repository records which folder it's the history of. A book copied
+/// to another folder carries the same id: that copy doesn't get to commit
+/// into the original's history (it gets its own when turned on). A book
+/// that was moved, leaving no original behind, takes its history with it.
+fn claims(dir: &Path, root: &Path) -> bool {
+    let marker = dir.join("grimoire-book");
+    let here = fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+    let Ok(there) = fs::read_to_string(&marker) else {
+        return true;
     };
-    match (fs::canonicalize(root), fs::canonicalize(&top)) {
-        (Ok(a), Ok(b)) => a == b,
-        _ => false,
+    let there = PathBuf::from(there.trim());
+    if there == here {
+        return true;
     }
+    let original_still_there = fs::read_to_string(id_file(&there)).ok()
+        == fs::read_to_string(id_file(root)).ok()
+        && there.is_dir();
+    if original_still_there {
+        return false;
+    }
+    let _ = fs::write(&marker, here.to_string_lossy().as_bytes());
+    true
+}
+
+/// Whether this book still keeps its history in `.git` inside it.
+pub fn history_in_book(root: &Path) -> bool {
+    root.join(".git").is_dir()
+}
+
+/// Move an older book's history out of it: copy `.git` to this machine's
+/// data folder, check the copy (`git fsck`, the same HEAD), then move the
+/// book's `.git` into the Grimoire trash as `.git-moved-out-<time>` — never
+/// deleted, and hidden from the tree, where a repository's insides would only
+/// be clutter. Only `.git` is
+/// touched; the writing isn't. A damaged history isn't moved: it's left where
+/// it is, and the error says so.
+pub fn move_history_out(root: &Path) -> Result<PathBuf> {
+    require_git()?;
+    let inside = root.join(".git");
+    if !inside.is_dir() {
+        bail!("this book's writing history isn't inside it");
+    }
+    let check = git(root, ["fsck", "--no-progress", "--connectivity-only"]).run();
+    match check {
+        Ok(out) if out.success => {}
+        Ok(out) => bail!(
+            "the writing history inside the book is damaged ({}); it's left where it is and \
+             your writing is untouched",
+            summary(&out.stderr)
+        ),
+        Err(f) => bail!(f.describe("fsck")),
+    }
+    let head_before = head_commit(root)?;
+    let mut dir = match outside_dir(root) {
+        Some(d) if !d.exists() => d,
+        _ => {
+            assign_id(root, true)?;
+            outside_dir(root).context("giving the book an id")?
+        }
+    };
+    if dir.exists() {
+        assign_id(root, true)?;
+        dir = outside_dir(root).context("giving the book an id")?;
+    }
+    copy_tree(&inside, &dir)?;
+    let copy = |args: &[&str]| {
+        git(root, args.iter().copied())
+            .env("GIT_DIR", &dir)
+            .env("GIT_WORK_TREE", root)
+            .lookup()
+    };
+    let sound = copy(&["fsck", "--no-progress", "--connectivity-only"]).is_ok_and(|r| r.is_some())
+        && copy(&["rev-parse", "--verify", "-q", "HEAD^{commit}"])
+            .ok()
+            .flatten()
+            == head_before;
+    if !sound {
+        // Only our own fresh copy is removed; the book's `.git` is as it was.
+        let _ = fs::remove_dir_all(&dir);
+        bail!("the copy of the writing history didn't check out; nothing was moved");
+    }
+    let here = fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+    fs::write(dir.join("grimoire-book"), here.to_string_lossy().as_bytes())?;
+    let trash = root.join(".grimoire").join("trash");
+    fs::create_dir_all(&trash).with_context(|| format!("creating {}", trash.display()))?;
+    let stamp = Local::now().format("%Y-%m-%d_%H%M%S");
+    let mut to = trash.join(format!(".git-moved-out-{stamp}"));
+    let mut n = 2;
+    while to.exists() {
+        to = trash.join(format!(".git-moved-out-{stamp}-{n}"));
+        n += 1;
+    }
+    fs::rename(&inside, &to).with_context(|| format!("moving {}", inside.display()))?;
+    Ok(dir)
+}
+
+fn copy_tree(from: &Path, to: &Path) -> Result<()> {
+    fs::create_dir_all(to).with_context(|| format!("creating {}", to.display()))?;
+    for e in fs::read_dir(from).with_context(|| format!("reading {}", from.display()))? {
+        let e = e?;
+        let (src, dst) = (e.path(), to.join(e.file_name()));
+        if e.file_type()?.is_dir() {
+            copy_tree(&src, &dst)?;
+        } else {
+            fs::copy(&src, &dst).with_context(|| format!("copying {}", src.display()))?;
+        }
+    }
+    Ok(())
 }
 
 /// Turn session history on: make the book a repository if it isn't one, keep
@@ -105,7 +291,27 @@ pub fn enable(root: &Path) -> Result<()> {
             args.extend(["-c".into(), "init.defaultBranch=main".into()]);
         }
         args.extend(["init".into(), "-q".into()]);
-        git(root, args).stdout()?;
+        if store(root) == Store::InBook {
+            // An older book's own `.git` that git doesn't take as this book's
+            // repository: made so, as it always was.
+            git(root, args).stdout()?;
+        } else {
+            // A new history, outside the book (see the module comment). A
+            // copied book's id belongs to the original: take a fresh one.
+            let taken = outside_dir(root).is_some_and(|d| d.exists());
+            assign_id(root, taken)?;
+            let dir = outside_dir(root).context("giving the book an id")?;
+            if let Some(parent) = dir.parent() {
+                fs::create_dir_all(parent)
+                    .with_context(|| format!("creating {}", parent.display()))?;
+            }
+            git(root, args)
+                .env("GIT_DIR", &dir)
+                .env("GIT_WORK_TREE", root)
+                .stdout()?;
+            let here = fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+            fs::write(dir.join("grimoire-book"), here.to_string_lossy().as_bytes())?;
+        }
         if !is_enabled(root) {
             bail!("git init didn't make {} a repository", root.display());
         }
@@ -1063,12 +1269,18 @@ where
     I: IntoIterator<Item = S>,
     S: Into<OsString>,
 {
-    Git {
+    let g = Git {
         dir: dir.to_path_buf(),
         args: args.into_iter().map(Into::into).collect(),
         env: Vec::new(),
         input: None,
         timeout: LOCAL_TIMEOUT,
+    };
+    // A book whose history is kept outside it: point git there, with the
+    // book as the work tree.
+    match store(dir) {
+        Store::Outside(repo) => g.env("GIT_DIR", repo).env("GIT_WORK_TREE", dir),
+        _ => g,
     }
 }
 
@@ -1276,6 +1488,11 @@ mod tests {
     }
 
     fn temp_dir(tag: &str) -> PathBuf {
+        // Histories kept outside books land in a test folder, never the
+        // machine's own data folder.
+        crate::paths::set_data_dir(
+            std::env::temp_dir().join(format!("grimoire-sessions-data-{}", std::process::id())),
+        );
         let d =
             std::env::temp_dir().join(format!("grimoire-sessions-{tag}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&d);
@@ -1346,6 +1563,126 @@ mod tests {
         write(&d, ".grimoire/resume.md", "Act One, Scene One\n");
         write(&d, ".gitignore", ".grimoire/\n");
         Some(d)
+    }
+
+    /// Every file of the writing — everything but `.git` and `.grimoire` —
+    /// byte for byte, to prove history work never touched it.
+    fn writing(root: &Path) -> BTreeSet<(String, Vec<u8>)> {
+        fn walk(root: &Path, dir: &Path, out: &mut BTreeSet<(String, Vec<u8>)>) {
+            for e in fs::read_dir(dir).unwrap().flatten() {
+                let p = e.path();
+                let name = e.file_name().to_string_lossy().to_string();
+                if name == ".git" || name == ".grimoire" {
+                    continue;
+                }
+                if p.is_dir() {
+                    walk(root, &p, out);
+                } else {
+                    let rel = p.strip_prefix(root).unwrap().to_string_lossy().to_string();
+                    out.insert((rel, fs::read(&p).unwrap()));
+                }
+            }
+        }
+        let mut out = BTreeSet::new();
+        walk(root, root, &mut out);
+        out
+    }
+
+    #[test]
+    fn a_new_history_lives_outside_the_book() {
+        let Some(d) = book("outside") else { return };
+        enable(&d).unwrap();
+        assert!(
+            !d.join(".git").exists(),
+            "nothing a sync client could corrupt"
+        );
+        let repo = outside_dir(&d).expect("the book has an id");
+        assert!(repo.join("HEAD").is_file(), "{}", repo.display());
+        assert!(repo.starts_with(crate::paths::data_dir()));
+        write(&d, A1, &scene(40));
+        assert!(commit_session(&d, tuesday_evening()).unwrap().is_some());
+        assert_eq!(sessions(&d, 10).unwrap().len(), 2);
+        assert!(!d.join(".git").exists());
+        cleanup(&[&d, &repo]);
+    }
+
+    #[test]
+    fn an_older_books_history_moves_out_and_the_writing_is_untouched() {
+        let Some(d) = book("move-out") else { return };
+        run(&d, &["init", "-q", "."]);
+        enable(&d).unwrap();
+        write(&d, A1, &scene(30));
+        commit_session(&d, tuesday_evening()).unwrap();
+        assert!(history_in_book(&d));
+        let before = writing(&d);
+        let count = sessions(&d, 10).unwrap().len();
+
+        let repo = move_history_out(&d).unwrap();
+        assert!(!d.join(".git").exists(), "moved out");
+        assert!(!history_in_book(&d));
+        let trashed: Vec<String> = fs::read_dir(d.join(".grimoire/trash"))
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .collect();
+        assert!(
+            trashed.iter().any(|n| n.starts_with(".git-moved-out-")),
+            "kept in the trash: {trashed:?}"
+        );
+        assert_eq!(writing(&d), before, "the writing is byte-identical");
+        assert!(is_enabled(&d));
+        assert_eq!(
+            sessions(&d, 10).unwrap().len(),
+            count,
+            "every session came along"
+        );
+        write(&d, A2, &scene(20));
+        assert!(commit_session(&d, tuesday_evening()).unwrap().is_some());
+        assert!(!d.join(".git").exists(), "and new ones land outside");
+        cleanup(&[&d, &repo]);
+    }
+
+    #[test]
+    fn a_damaged_history_is_left_where_it_is_and_nothing_is_touched() {
+        let Some(d) = book("damaged") else { return };
+        run(&d, &["init", "-q", "."]);
+        enable(&d).unwrap();
+        // What a sync client can leave: an object the commit needs, gone.
+        let tree = run(&d, &["rev-parse", "HEAD^{tree}"]);
+        let obj = d.join(".git/objects").join(&tree[..2]).join(&tree[2..]);
+        fs::remove_file(&obj).unwrap();
+        let before = writing(&d);
+        let err = move_history_out(&d).unwrap_err().to_string();
+        assert!(err.contains("damaged"), "{err}");
+        assert!(d.join(".git").is_dir(), "left where it is");
+        assert_eq!(writing(&d), before, "the writing is byte-identical");
+        assert!(
+            outside_dir(&d).is_none_or(|r| !r.exists()),
+            "nothing half-made outside"
+        );
+        cleanup(&[&d]);
+    }
+
+    #[test]
+    fn a_copied_book_keeps_out_of_the_originals_history() {
+        let Some(a) = book("original") else { return };
+        enable(&a).unwrap();
+        let repo_a = outside_dir(&a).unwrap();
+        let b = temp_dir("copy");
+        copy_tree(&a, &b).unwrap();
+        assert!(!is_enabled(&b), "the copy isn't the original's history");
+        enable(&b).unwrap();
+        let repo_b = outside_dir(&b).unwrap();
+        assert_ne!(repo_a, repo_b, "a history of its own");
+        write(&b, A1, &scene(50));
+        commit_session(&b, tuesday_evening()).unwrap();
+        assert_eq!(
+            sessions(&a, 10).unwrap().len(),
+            1,
+            "the original's history is as it was"
+        );
+        assert_eq!(sessions(&b, 10).unwrap().len(), 2);
+        cleanup(&[&a, &b, &repo_a, &repo_b]);
     }
 
     /// A fixed local time; the label reads the wall clock, so no time zone

@@ -249,6 +249,10 @@ pub struct App {
     /// Files were added, removed or parked on disk: re-read the tree as soon
     /// as nothing unsaved is at risk.
     tree_stale: bool,
+    /// The sync service the book's folder is in, if any (said at launch).
+    pub cloud: Option<grimoire_core::cloud::Client>,
+    /// The book still keeps its writing history in `.git` inside it.
+    pub history_in_book: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -604,6 +608,8 @@ impl App {
             sprint: None,
             last_disk_check: None,
             tree_stale: false,
+            cloud: None,
+            history_in_book: false,
         })
         .map(|mut app: App| {
             if setup.background {
@@ -632,8 +638,50 @@ impl App {
                     "a new book — this is how it's laid out · Tab to read, Esc for the menu".into();
             }
             app.resume_where_left();
+            app.note_where_it_syncs(setup.background);
             app
         })
+    }
+
+    /// Say quietly which sync service the book is in — and, once per book,
+    /// that writing history kept inside a synced folder is at risk, with the
+    /// way out. Only on a real launch (`announce`); tests start silent.
+    pub(crate) fn note_where_it_syncs(&mut self, announce: bool) {
+        let root = self.project.root.clone();
+        self.cloud = grimoire_core::cloud::detect(&root);
+        self.history_in_book = sessions::history_in_book(&root);
+        let Some(client) = self.cloud.filter(|_| announce) else {
+            return;
+        };
+        let told = root.join(".grimoire").join("history-notice");
+        if self.history_in_book && !told.exists() {
+            self.msg = format!(
+                "writing history is inside this {} folder, where sync can damage it — \
+                 Esc › Move writing history out (your writing is safe either way)",
+                client.label()
+            );
+            let _ = fs::create_dir_all(root.join(".grimoire"));
+            let _ = fs::write(&told, "shown\n");
+        } else if self.msg.is_empty() {
+            self.msg = format!("in {} — conflicts are caught and kept", client.label());
+        } else {
+            self.msg = format!("{} · in {}", self.msg, client.label());
+        }
+    }
+
+    fn move_history_out(&mut self) {
+        let root = self.project.root.clone();
+        match sessions::move_history_out(&root) {
+            Ok(dir) => {
+                self.history_in_book = false;
+                self.sessions_on = sessions::is_enabled(&root);
+                self.msg = format!(
+                    "writing history moved out of the book to {} (the old copy is in the trash)",
+                    dir.display()
+                );
+            }
+            Err(e) => self.msg = format!("history not moved: {e}"),
+        }
     }
 
     /// Function keys drive the timer and the music, from either pane, so they
@@ -1247,6 +1295,7 @@ impl App {
             Action::OpenCodex => self.open_codex(),
             Action::Export => self.open_export(),
             Action::Sessions => self.open_sessions(),
+            Action::MoveHistoryOut => self.move_history_out(),
             Action::SaveSession => {
                 if !self.sessions_on {
                     self.open_sessions();
@@ -3558,6 +3607,7 @@ impl App {
             // Word, EPUB and Markdown. The project map and a bare Markdown
             // compile are still in the palette.
             ("Export…".into(), Action::Export),
+            ("Move writing history out…".into(), Action::MoveHistoryOut),
             ("Settings…".into(), Action::Settings),
             (row("Close", "(Esc)"), Action::CloseMenu),
             (row("Quit Grimoire", &format!("({m}Q)")), Action::Quit),
@@ -3570,6 +3620,8 @@ impl App {
             Action::FocusMode => writing || self.focus_mode,
             Action::BesidePicker => writing,
             Action::EchoWords => writing || self.echo_on,
+            // Only while a synced book still keeps its history inside it.
+            Action::MoveHistoryOut => self.history_in_book && self.cloud.is_some(),
             _ => true,
         });
         items

@@ -1037,3 +1037,73 @@ fn a_custom_theme_mixes_one_presets_world_with_anothers_visualizer() {
     assert_eq!(swatches(&d.app.theme), before);
     assert_eq!(d.app.theme.name, "Custom");
 }
+
+// ---- a book in a synced folder -----------------------------------------------
+
+#[test]
+fn a_synced_book_with_history_inside_offers_to_move_it_out() {
+    if std::process::Command::new("git")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        eprintln!("skipping: no git");
+        return;
+    }
+    let pid = std::process::id();
+    let base = std::env::temp_dir().join(format!("grimoire-ui-synced-{pid}"));
+    let _ = fs::remove_dir_all(&base);
+    grimoire_core::paths::set_data_dir(base.join("data"));
+    let root = base.join("Dropbox/Salt");
+    fs::create_dir_all(&root).unwrap();
+    project::scaffold(&root).unwrap();
+    fs::create_dir_all(root.join(".grimoire")).unwrap();
+    fs::write(root.join(".grimoire/progress.toml"), "").unwrap();
+    let ok = std::process::Command::new("git")
+        .args(["init", "-q", "."])
+        .current_dir(&root)
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .status()
+        .is_ok_and(|s| s.success());
+    assert!(ok && root.join(".git").is_dir());
+
+    let mut d = Desk::open(root.clone(), 120, 40);
+    assert_eq!(d.app.cloud, Some(grimoire_core::cloud::Client::Dropbox));
+    assert!(d.app.history_in_book);
+    // A real launch says so, once per book.
+    d.app.msg.clear();
+    d.app.note_where_it_syncs(true);
+    assert!(
+        d.app
+            .msg
+            .contains("writing history is inside this Dropbox folder"),
+        "{}",
+        d.app.msg
+    );
+    d.app.msg.clear();
+    d.app.note_where_it_syncs(true);
+    assert_eq!(
+        d.app.msg, "in Dropbox — conflicts are caught and kept",
+        "only once"
+    );
+    d.draw();
+    d.key(KeyCode::Esc);
+    assert!(d.shows("Move writing history out…"), "offered in the menu");
+    for _ in 0..30 {
+        if d.rows()
+            .iter()
+            .any(|r| r.contains("▸ Move writing history out"))
+        {
+            break;
+        }
+        d.key(KeyCode::Down);
+    }
+    d.key(KeyCode::Enter);
+    assert!(!root.join(".git").exists(), "moved out: {}", d.status());
+    assert!(!d.app.history_in_book);
+    assert!(d.status().contains("moved out"), "{}", d.status());
+    d.key(KeyCode::Esc);
+    assert!(!d.shows("Move writing history out…"), "no longer offered");
+    drop(d);
+    let _ = fs::remove_dir_all(&base);
+}
