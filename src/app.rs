@@ -27,6 +27,9 @@ use grimoire_core::sessions;
 use grimoire_core::settings::Settings;
 use grimoire_core::spell;
 
+mod aids;
+pub use aids::{MarkRow, Sprint, filter_marks as aids_filter};
+
 /// Save a couple of seconds after typing stops…
 const AUTOSAVE_IDLE: Duration = Duration::from_secs(2);
 /// …and never let unsaved words sit longer than this, however fast you type.
@@ -195,6 +198,10 @@ pub struct App {
     /// A background push of saved sessions, and how the last one went.
     backup_rx: Option<std::sync::mpsc::Receiver<sessions::PushOutcome>>,
     pub backup_note: Option<String>,
+    /// Words repeated close together are lit in the open scene.
+    pub echo_on: bool,
+    /// A writing sprint under way: a word goal while the timer's focus runs.
+    pub sprint: Option<Sprint>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -271,6 +278,20 @@ pub enum Overlay {
     /// Words that couldn't be saved last time, offered back on launch.
     Recover {
         items: Vec<recovery::Pending>,
+    },
+    /// Ctrl-T: every `%% note %%` and TK in the book, to jump to.
+    Marks {
+        query: String,
+        sel: usize,
+        rows: Vec<MarkRow>,
+    },
+    /// Starting a sprint: how many words, how many minutes.
+    Sprint {
+        words: String,
+        minutes: String,
+        on_minutes: bool,
+        /// The field still shows its suggestion; the first digit replaces it.
+        fresh: bool,
     },
     /// Ctrl-K: find any action, scene, note or theme by name.
     Palette {
@@ -491,6 +512,8 @@ impl App {
             sessions_on: false,
             backup_rx: None,
             backup_note: None,
+            echo_on: false,
+            sprint: None,
         })
         .map(|mut app: App| {
             app.load_speller();
@@ -527,6 +550,7 @@ impl App {
             3 => {
                 self.pomo.reset();
                 self.msg = "timer reset".into();
+                self.end_sprint("timer reset, sprint stopped");
             }
             4 => self.music.send(music::Cmd::Prev),
             5 => self.music.send(music::Cmd::PlayPause),
@@ -694,6 +718,9 @@ impl App {
         let after = self.project.total_words();
         if after != before {
             self.set_baseline((self.baseline + after).saturating_sub(before));
+            if let Some(s) = &mut self.sprint {
+                s.start = (s.start + after).saturating_sub(before);
+            }
         }
     }
 
@@ -908,6 +935,15 @@ impl App {
     fn run_feature(&mut self, action: Action) {
         match action {
             Action::Corkboard => self.open_cork(),
+            Action::NotesList => self.open_marks(),
+            Action::NextTk => self.next_tk(),
+            Action::NextDraft => self.next_draft(),
+            Action::EchoWords => self.toggle_echoes(),
+            Action::StartSprint => self.start_sprint_dialog(),
+            Action::EndSprint => {
+                self.pomo.reset();
+                self.end_sprint("sprint stopped");
+            }
             Action::OpenCodex => self.open_codex(),
             Action::Export => self.open_export(),
             Action::Sessions => self.open_sessions(),
@@ -1623,8 +1659,12 @@ impl App {
         };
         self.focus = Focus::Editor;
         let (cy, cx) = (self.editor.cy, self.editor.cx);
-        let here = speller
-            .misspellings(&self.editor.lines[cy])
+        // Notes and TKs are the writer's own shorthand, not prose to correct.
+        let marks = grimoire_core::notes::line_spans(&self.editor.lines);
+        let bad = |l: usize| {
+            App::misspellings_outside_marks(speller.misspellings(&self.editor.lines[l]), &marks[l])
+        };
+        let here = bad(cy)
             .into_iter()
             .find(|&(a, b)| cx >= a && cx <= b)
             .map(|(a, b)| (cy, a, b));
@@ -1632,12 +1672,7 @@ impl App {
             let lines = &self.editor.lines;
             (0..lines.len())
                 .map(|k| (cy + k) % lines.len())
-                .flat_map(|l| {
-                    speller
-                        .misspellings(&lines[l])
-                        .into_iter()
-                        .map(move |(a, b)| (l, a, b))
-                })
+                .flat_map(|l| bad(l).into_iter().map(move |(a, b)| (l, a, b)))
                 .find(|&(l, a, _)| (l, a) > (cy, cx) || l < cy)
         });
         let Some((line, start, end)) = target else {
@@ -3173,6 +3208,9 @@ impl App {
         match &mut self.overlay {
             Overlay::None => {}
 
+            Overlay::Marks { .. } => self.on_marks_key(key),
+            Overlay::Sprint { .. } => self.on_sprint_key(key),
+
             Overlay::Palette {
                 query,
                 sel,
@@ -4044,6 +4082,12 @@ fn today_string() -> String {
     chrono::Local::now().format("%Y-%m-%d").to_string()
 }
 
+/// How words are counted, recorded beside the baseline. 2: `%% notes %%` and
+/// TKs aren't words. A baseline written under an older rule is moved by what
+/// the new rule takes out of the book as it stands, so upgrading mid-day
+/// doesn't make "today" jump.
+const COUNT_RULE: u32 = 2;
+
 fn load_baseline(project: &Project) -> Result<usize> {
     let today = today_string();
     let dir = project.root.join(".grimoire");
@@ -4053,14 +4097,28 @@ fn load_baseline(project: &Project) -> Result<usize> {
     if let Ok(s) = fs::read_to_string(&path) {
         let mut date = String::new();
         let mut baseline = total;
+        let mut rule = 1;
         for line in s.lines() {
             if let Some(v) = line.strip_prefix("date = ") {
                 date = v.trim().trim_matches('"').to_string();
             } else if let Some(v) = line.strip_prefix("baseline = ") {
                 baseline = v.trim().parse().unwrap_or(total);
+            } else if let Some(v) = line.strip_prefix("rule = ") {
+                rule = v.trim().parse().unwrap_or(1);
             }
         }
         if date == today {
+            if rule < COUNT_RULE {
+                // Rule 1 counted every whitespace-separated word.
+                let before: usize = project
+                    .nodes
+                    .iter()
+                    .filter(|n| n.kind == Kind::Scene && n.in_manuscript)
+                    .map(|n| n.body.split_whitespace().count())
+                    .sum();
+                baseline = (baseline + total).saturating_sub(before);
+                write_baseline(&dir, &path, &today, baseline);
+            }
             return Ok(baseline);
         }
     }
@@ -4071,7 +4129,10 @@ fn load_baseline(project: &Project) -> Result<usize> {
 
 fn write_baseline(dir: &Path, path: &Path, today: &str, total: usize) {
     let _ = fs::create_dir_all(dir);
-    let _ = fs::write(path, format!("date = \"{today}\"\nbaseline = {total}\n"));
+    let _ = fs::write(
+        path,
+        format!("date = \"{today}\"\nbaseline = {total}\nrule = {COUNT_RULE}\n"),
+    );
 }
 
 /// Hand text to whatever clipboard tool this machine has.
@@ -4143,6 +4204,41 @@ mod clipboard_tests {
             .output()
             .unwrap();
         assert_eq!(String::from_utf8_lossy(&out.stdout).trim_end(), line);
+    }
+}
+
+#[cfg(test)]
+mod today_tests {
+    use super::*;
+
+    /// A book whose one scene holds 11 words of prose and a 2-word note:
+    /// 15 words the old way, counting the note and its fences.
+    fn book(tag: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("grimoire-today-{tag}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&d);
+        let scene = d.join("manuscript/01-Chapter-One/01-Scene.md");
+        fs::create_dir_all(scene.parent().unwrap()).unwrap();
+        fs::write(&scene, "a b c d e f g h i j %% x y %% k\n").unwrap();
+        d
+    }
+
+    #[test]
+    fn a_new_counting_rule_mid_day_leaves_today_where_it_was() {
+        let d = book("rule");
+        let p = Project::load(&d).unwrap();
+        assert_eq!(p.total_words(), 11);
+        // This morning, counted the old way, the book stood at 12: today +3.
+        fs::create_dir_all(d.join(".grimoire")).unwrap();
+        fs::write(
+            d.join(".grimoire/progress.toml"),
+            format!("date = \"{}\"\nbaseline = 12\n", today_string()),
+        )
+        .unwrap();
+        let baseline = load_baseline(&p).unwrap();
+        assert_eq!(p.total_words() as i64 - baseline as i64, 3);
+        // Written back under the new rule, so it isn't moved twice.
+        assert_eq!(load_baseline(&p).unwrap(), baseline);
+        let _ = fs::remove_dir_all(&d);
     }
 }
 

@@ -17,6 +17,7 @@ pub mod paths;
 pub mod project;
 pub mod recovery;
 pub mod resume;
+pub mod revision;
 pub mod search;
 pub mod sessions;
 pub mod settings;

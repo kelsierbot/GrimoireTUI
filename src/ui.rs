@@ -637,7 +637,10 @@ fn draw_music(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
 
 fn draw_editor(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
     let focused = app.focus == Focus::Editor;
-    let title = app.open_title();
+    let mut title = app.open_title();
+    if let Some((words, target)) = app.scene_target() {
+        title = format!("{title} · {} / {}", thousands(words), thousands(target));
+    }
     let block = pane_block(&title, focused, t).padding(Padding::new(2, 2, 0, 0));
     let inner = block.inner(area);
     app.rect_editor = inner;
@@ -674,6 +677,14 @@ fn draw_editor(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
         std::collections::HashMap::new();
     let mut line_names: std::collections::HashMap<usize, Vec<(usize, usize, usize)>> =
         std::collections::HashMap::new();
+    // Notes and TKs, which may run across lines, and echoing words when on.
+    let marks = grimoire_core::notes::line_spans(&app.editor.lines);
+    let echoes = if app.echo_on {
+        grimoire_core::revision::echoes(&app.editor.lines, &app.echo_skip())
+    } else {
+        Vec::new()
+    };
+    let echo_bg = blend(t.border, t.moon, 0.35);
     let visible: Vec<Line> = rows
         .iter()
         .skip(app.editor.scroll)
@@ -698,6 +709,22 @@ fn draw_editor(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
             for &(s, e, _) in names.iter() {
                 paint(s, e, &|st| st.fg(t.accent));
             }
+            // Notes to yourself, quiet; TKs, gaps to come back to, in the sun.
+            for &(s, e, kind) in &marks[r.line] {
+                match kind {
+                    grimoire_core::notes::MarkKind::Note => {
+                        paint(s, e, &|st| st.fg(t.dim).add_modifier(Modifier::ITALIC))
+                    }
+                    grimoire_core::notes::MarkKind::Tk => {
+                        paint(s, e, &|st| st.fg(t.sun).add_modifier(Modifier::BOLD))
+                    }
+                }
+            }
+            if let Some(ec) = echoes.get(r.line) {
+                for &(s, e) in ec {
+                    paint(s, e, &|st| st.bg(echo_bg));
+                }
+            }
             if let Some(q) = find {
                 let hits = line_matches.entry(r.line).or_insert_with(|| {
                     grimoire_core::search::matches(&app.editor.lines[r.line], q)
@@ -708,9 +735,9 @@ fn draw_editor(f: &mut Frame, app: &mut App, area: Rect, t: &Theme) {
             }
             // Misspellings: a warn-coloured underline, never on the word being typed.
             if app.spell_on {
-                let bad = line_spelling
-                    .entry(r.line)
-                    .or_insert_with(|| app.misspellings(r.line));
+                let bad = line_spelling.entry(r.line).or_insert_with(|| {
+                    App::misspellings_outside_marks(app.misspellings(r.line), &marks[r.line])
+                });
                 for &(s, e) in bad.iter() {
                     paint(s, e, &|st| {
                         st.underline_color(t.warn)
@@ -863,6 +890,13 @@ fn draw_status(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
         ),
     ];
 
+    if let Some((label, reached)) = app.sprint_label() {
+        spans.push(Span::styled(
+            format!("  {label}"),
+            Style::default().fg(if reached { t.accent } else { t.sun }),
+        ));
+    }
+
     // Autosave keeps this quiet: a dim note while a change waits to be
     // written, a brief tick once it is, and red only when saving failed.
     let dirty = app.project.dirty_count();
@@ -916,6 +950,13 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
     match &app.overlay {
         Overlay::None => {}
 
+        Overlay::Marks { query, sel, rows } => draw_marks(f, area, query, *sel, rows, t),
+        Overlay::Sprint {
+            words,
+            minutes,
+            on_minutes,
+            ..
+        } => draw_sprint(f, area, words, minutes, *on_minutes, t),
         Overlay::Palette {
             query,
             sel,
@@ -1791,7 +1832,7 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
                 .find(|n| &n.path == scene)
                 .map(|n| n.body.clone())
                 .unwrap_or_default();
-            let now_words = current.split_whitespace().count() as i64;
+            let now_words = grimoire_core::notes::count_words(&current) as i64;
 
             // The versions, newest first.
             let room = list_area.height.saturating_sub(3) as usize;
@@ -2361,6 +2402,136 @@ fn draw_overlay(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             f.render_widget(Paragraph::new(lines), inner);
         }
     }
+}
+
+/// Ctrl-T: every note and TK in the book, filtered by what's typed.
+fn draw_marks(
+    f: &mut Frame,
+    area: Rect,
+    query: &str,
+    sel: usize,
+    rows: &[crate::app::MarkRow],
+    t: &Theme,
+) {
+    use grimoire_core::notes::MarkKind;
+    let hits = crate::app::aids_filter(rows, query);
+    let room = 14usize;
+    let w = area.width.saturating_sub(4).min(96);
+    let h = room as u16 + 5;
+    let box_area = Rect {
+        x: area.x + (area.width - w) / 2,
+        y: area.y + 2.min(area.height.saturating_sub(h)),
+        width: w,
+        height: h.min(area.height),
+    };
+    f.render_widget(Clear, box_area);
+    let notes = rows.iter().filter(|r| r.kind == MarkKind::Note).count();
+    let title = format!(
+        "NOTES & TKS · {notes} note{} · {} TK{}",
+        if notes == 1 { "" } else { "s" },
+        rows.len() - notes,
+        if rows.len() - notes == 1 { "" } else { "s" }
+    );
+    let block = pane_block(&title, true, t);
+    let inner = block.inner(box_area);
+    f.render_widget(block, box_area);
+    let iw = inner.width as usize;
+    let dim = Style::default().fg(t.dim);
+    let sel = sel.min(hits.len().saturating_sub(1));
+    let mut lines = vec![
+        Line::from(vec![
+            Span::styled(" › ", Style::default().fg(t.accent)),
+            Span::styled(query.to_string(), Style::default().fg(t.text)),
+            Span::styled("█", Style::default().fg(t.accent)),
+        ]),
+        Line::from(Span::styled("─".repeat(iw), Style::default().fg(t.border))),
+    ];
+    let start = sel.saturating_sub(room.saturating_sub(1));
+    for (i, r) in hits.iter().enumerate().skip(start).take(room) {
+        let on = i == sel;
+        let (tag, tag_style) = match r.kind {
+            MarkKind::Note => ("%% ", dim.add_modifier(Modifier::ITALIC)),
+            MarkKind::Tk => (
+                "TK ",
+                Style::default().fg(t.sun).add_modifier(Modifier::BOLD),
+            ),
+        };
+        let place_w = r.place.chars().count().min(iw / 3);
+        let place = truncate(&r.place, place_w);
+        let snip_w = iw.saturating_sub(3 + 3 + place.chars().count() + 3);
+        let snippet = truncate(&r.snippet, snip_w);
+        let pad = iw.saturating_sub(6 + snippet.chars().count() + place.chars().count() + 1);
+        let row = Line::from(vec![
+            Span::styled(
+                if on { " ▸ " } else { "   " },
+                Style::default().fg(t.accent),
+            ),
+            Span::styled(tag, tag_style),
+            Span::styled(
+                snippet,
+                Style::default().fg(if on { t.accent } else { t.text }),
+            ),
+            Span::raw(" ".repeat(pad)),
+            Span::styled(place, dim),
+            Span::raw(" "),
+        ]);
+        lines.push(if on {
+            row.style(Style::default().bg(t.sel))
+        } else {
+            row
+        });
+    }
+    if hits.is_empty() {
+        lines.push(Line::from(Span::styled("   nothing matches", dim)));
+    }
+    while lines.len() < room + 2 {
+        lines.push(Line::from(""));
+    }
+    lines.push(hint_line(
+        " type to filter   ↑↓ choose   ↵ go there   esc close",
+        t,
+    ));
+    f.render_widget(Paragraph::new(lines), inner);
+}
+
+/// Starting a sprint: a word goal and a length, then the timer runs.
+fn draw_sprint(f: &mut Frame, area: Rect, words: &str, minutes: &str, on_minutes: bool, t: &Theme) {
+    let box_area = centred(area, 46, 9);
+    f.render_widget(Clear, box_area);
+    let block = pane_block("START A SPRINT", true, t);
+    let inner = block.inner(box_area);
+    f.render_widget(block, box_area);
+    let field = |label: &str, value: &str, on: bool, unit: &str| {
+        Line::from(vec![
+            Span::styled(
+                format!("  {label:<9}"),
+                Style::default().fg(if on { t.accent } else { t.dim }),
+            ),
+            Span::styled(
+                value.to_string(),
+                Style::default().fg(t.text).add_modifier(if on {
+                    Modifier::UNDERLINED
+                } else {
+                    Modifier::empty()
+                }),
+            ),
+            Span::styled(if on { "█" } else { " " }, Style::default().fg(t.accent)),
+            Span::styled(format!(" {unit}"), Style::default().fg(t.dim)),
+        ])
+    };
+    let lines = vec![
+        Line::from(""),
+        field("words", words, !on_minutes, "to write"),
+        field("minutes", minutes, on_minutes, "on the timer"),
+        Line::from(""),
+        Line::from(Span::styled(
+            "  the timer starts; the status bar keeps count",
+            Style::default().fg(t.dim),
+        )),
+        Line::from(""),
+        hint_line(" Tab switch   ↵ start   esc cancel", t),
+    ];
+    f.render_widget(Paragraph::new(lines), inner);
 }
 
 #[allow(clippy::too_many_arguments)]

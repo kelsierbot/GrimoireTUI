@@ -439,6 +439,7 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
                 _ => "back to it".into(),
             };
         }
+        app.tick_sprint();
 
         // The spectrum listens only while it's on screen.
         let spectrum = app.pane_mode == scene::Mode::Spectrum && app.scene_visible;
@@ -534,6 +535,7 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
                 },
                 KeyCode::Char('r') => app.replace_all_key(),
                 KeyCode::Char('o') if matches!(app.overlay, Overlay::None) => app.open_codex(),
+                KeyCode::Char('t') if matches!(app.overlay, Overlay::None) => app.open_marks(),
                 KeyCode::Char('z') if shift => app.redo(),
                 KeyCode::Char('Z') => app.redo(),
                 KeyCode::Char('z') => app.undo(),
