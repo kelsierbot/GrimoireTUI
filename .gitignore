@@ -14,3 +14,6 @@ apps/mobile/src-tauri/gen/android/app/build/
 apps/mobile/src-tauri/gen/android/.gradle/
 apps/mobile/src-tauri/gen/android/local.properties
 apps/mobile/src-tauri/target/
+
+# Python bytecode from tools/
+__pycache__/
