@@ -66,7 +66,7 @@ fn area_dir(p: &Project, a: Area) -> PathBuf {
 fn item_noun(a: Area) -> &'static str {
     match a {
         Area::Manuscript => "scene",
-        Area::FrontMatter => "document",
+        Area::FrontMatter | Area::BackMatter => "document",
         Area::Templates => "sheet",
         _ => "note",
     }
@@ -208,6 +208,7 @@ fn place(p: &Project, dir: &Path) -> String {
         Some(n) if n.kind == Kind::Category => match n.area {
             Area::Manuscript => "the manuscript".into(),
             Area::FrontMatter => "the front matter".into(),
+            Area::BackMatter => "the back matter".into(),
             a => a.title().into(),
         },
         Some(n) => n.title.clone(),

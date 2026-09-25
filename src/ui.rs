@@ -690,7 +690,7 @@ fn area_colour(t: &Theme, a: Area) -> ratatui::style::Color {
     match a {
         Area::Manuscript => t.accent,
         Area::Characters | Area::Places | Area::Notes | Area::Research => t.foliage,
-        Area::Format | Area::FrontMatter | Area::Templates => t.sun,
+        Area::Format | Area::FrontMatter | Area::BackMatter | Area::Templates => t.sun,
         Area::Trash => t.dim,
     }
 }
