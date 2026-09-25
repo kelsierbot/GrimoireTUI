@@ -357,14 +357,15 @@ impl Backend for Ytm {
             Cmd::Repeat => self.post("/switch-repeat", Some(json!({ "iteration": 1 }))),
             Cmd::Volume(d) => {
                 // The client reports volume on a curved scale but takes it on
-                // a straight one (pear-desktop #4458), so convert before nudging.
+                // a straight one (pear-desktop #4458). Step on the scale it
+                // reports — the one shown — so each press moves it by `d`
+                // there (100 → 90 → 80), then convert what to set. Stepping
+                // on the straight scale went 100 → 74 → 55.
                 let heard = Ytm::read(&mut self.get("/volume")?)?["state"]
                     .as_f64()
                     .unwrap_or(50.0);
-                self.post(
-                    "/volume",
-                    Some(json!({ "volume": (volume_to_set(heard) + d).clamp(0, 100) })),
-                )
+                let target = (heard + d as f64).clamp(0.0, 100.0);
+                self.post("/volume", Some(json!({ "volume": volume_to_set(target) })))
             }
             Cmd::Like => self.post("/like", None),
             Cmd::JumpTo(i) => self.patch("/queue", json!({ "index": i })),
@@ -902,5 +903,28 @@ mod ytm_tests {
             43,
             "#4458: setting 43 reads back as 15"
         );
+    }
+}
+
+#[cfg(test)]
+mod volume_steps {
+    use super::volume_to_set;
+
+    /// What the client reports back for a value set on the straight scale:
+    /// the inverse of `volume_to_set`.
+    fn heard(set: i32) -> f64 {
+        (16f64.powf(set as f64 / 100.0) - 1.0) / 0.15
+    }
+
+    #[test]
+    fn each_press_moves_the_shown_volume_by_about_ten() {
+        let mut v = 100.0;
+        for want in [90.0, 80.0, 70.0, 60.0, 50.0] {
+            v = heard(volume_to_set((v - 10.0f64).clamp(0.0, 100.0)));
+            assert!(
+                (v - want).abs() <= 2.0,
+                "stepped to {v}, wanted about {want}"
+            );
+        }
     }
 }

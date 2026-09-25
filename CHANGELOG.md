@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.5
+
+- **Volume steps evenly**: each `+` or `-` moves it about ten (100 → 90 → 80),
+  where YouTube Music used to lurch 100 → 74 → 55 because the step was taken
+  on the scale it accepts rather than the one it shows.
+- **Below full volume, the music pane shows the level** (`70%`) beside the time.
+
 ## 0.4.4
 
 - **Click a misspelt word** (or right-click it) for its fixes, right under the

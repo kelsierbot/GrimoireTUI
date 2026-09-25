@@ -327,8 +327,13 @@ impl Modes {
         if self.liked == Some(true) {
             v.push("♥");
         }
+        let vol;
         if self.muted {
             v.push("muted");
+        } else if let Some(n) = self.volume.filter(|&n| n < 100) {
+            // Below full, the level is always in sight.
+            vol = format!("{n}%");
+            v.push(&vol);
         }
         v.join(" ")
     }
@@ -664,6 +669,10 @@ mod config_tests {
         m.shuffle = Some(true);
         m.liked = Some(true);
         assert_eq!(m.badges(), "↻1 ⇄ ♥");
+        m.volume = Some(100);
+        assert_eq!(m.badges(), "↻1 ⇄ ♥", "full volume isn't shown");
+        m.volume = Some(70);
+        assert_eq!(m.badges(), "↻1 ⇄ ♥ 70%");
         m.repeat = Some(Repeat::All);
         m.muted = true;
         assert_eq!(m.badges(), "↻ ⇄ ♥ muted");
