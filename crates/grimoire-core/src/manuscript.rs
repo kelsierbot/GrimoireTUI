@@ -123,11 +123,14 @@ pub fn commas(n: usize) -> String {
     out
 }
 
-/// Shunn wants an approximate count, not an exact one.
+/// The approximate count a title page gives, the way Shunn and the SFWA's
+/// lengths have it: to the nearest 100 for a story (under 17,500 words), 500
+/// for a novella (under 40,000), 1,000 for a novel. Scrivener's `<$wc100>`,
+/// `<$wc500>` and `<$wc1000>`.
 pub fn rounded_words(n: usize) -> usize {
-    let step = if n < 2_000 {
+    let step = if n < 17_500 {
         100
-    } else if n < 10_000 {
+    } else if n < 40_000 {
         500
     } else {
         1_000
@@ -356,7 +359,7 @@ pub struct Compiled {
 /// rather than having a generated one stacked on top of it.
 pub fn compile(p: &Project) -> Result<Compiled> {
     p.ensure_whole()?;
-    let book = crate::export::book(p, None)?;
+    let book = crate::export::book(p, None, crate::export::Scope::Whole)?;
     let path = p
         .root
         .join(format!("{}-manuscript.md", crate::export::slug(book.title)));
@@ -379,8 +382,9 @@ mod tests {
     fn word_counts_round_the_way_shunn_asks() {
         assert_eq!(rounded_words(1_240), 1_200);
         assert_eq!(rounded_words(1_260), 1_300);
-        assert_eq!(rounded_words(6_400), 6_500);
-        assert_eq!(rounded_words(82_400), 82_000);
+        assert_eq!(rounded_words(6_440), 6_400, "a story: nearest 100");
+        assert_eq!(rounded_words(22_700), 22_500, "a novella: nearest 500");
+        assert_eq!(rounded_words(82_400), 82_000, "a novel: nearest 1,000");
         assert_eq!(rounded_words(82_600), 83_000);
     }
 

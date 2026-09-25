@@ -9,11 +9,25 @@
 //!   opens in current readers and in the older ones still on people's shelves.
 //! - **Shunn Markdown**, the same text `grimoire compile` writes.
 //!
-//! All three are drawn from one [`Book`], built by the same walk `compile`
-//! uses: a folder holding scenes is a chapter, one holding chapters is a part,
-//! `compile: false` scenes stay out, and front matter replaces the generated
-//! title page. Choosing only some parts never renumbers the chapters — Act Two
-//! still opens on its own chapter number.
+//! All of them are drawn from one [`Book`], built by the same walk `compile`
+//! uses — Scrivener's Compile, in short:
+//!
+//! - a folder holding scenes is a chapter, one holding chapters is a part;
+//! - `compile: false` scenes stay out, and so do empty scenes, chapters with
+//!   nothing written in them, and parts with no chapters — a template's
+//!   twenty-four untouched chapters never become twenty-four blank pages;
+//! - a scene break goes only between two scenes that have words in them;
+//! - `%% notes %%` come out; a TK stays in, since a hole silently closed up
+//!   is worse than one left showing — and [`tks`] lists them before export;
+//! - book typography — curly quotes, real dashes, ellipses ([`crate::typeset`])
+//!   — is done once, here, for every format (the classic Courier manuscript
+//!   turns it back into typewriter marks);
+//! - a Prologue, Epilogue or Interlude keeps its own heading and takes no
+//!   chapter number;
+//! - front matter replaces the generated title page;
+//! - choosing some parts, or a submission sample ([`Scope`]), never
+//!   renumbers the chapters, and the title page still gives the whole book's
+//!   word count.
 
 use anyhow::{Context, Result, bail};
 use std::borrow::Cow;
@@ -24,6 +38,10 @@ use std::path::PathBuf;
 use crate::manuscript::{Section, commas, numbered, rounded_words, section_of, spell};
 use crate::notes;
 use crate::project::{Kind, Node, Project};
+use crate::submission::{
+    ChapterHeading, Contact, FirstParagraph, Format, Manuscript, Paper, Spacing,
+};
+use crate::typeset;
 
 /// Roughly how much of a novel fits on one double-spaced manuscript page.
 const WORDS_PER_PAGE: usize = 250;
@@ -31,20 +49,73 @@ const WORDS_PER_PAGE: usize = 250;
 #[derive(Debug, Clone)]
 pub struct ExportOptions {
     pub docx: bool,
+    /// The manuscript DOCX converted to PDF by LibreOffice ([`crate::pdf`]).
+    /// Implies the DOCX.
+    pub pdf: bool,
     pub epub: bool,
     pub markdown: bool,
     /// Node indices of the top-level parts to include, as [`parts`] lists
     /// them. `None` is the whole book.
     pub parts: Option<Vec<usize>>,
+    /// All of it, or the sample an agent asked for.
+    pub scope: Scope,
 }
 
 impl Default for ExportOptions {
     fn default() -> Self {
         Self {
             docx: true,
+            pdf: false,
             epub: true,
             markdown: false,
             parts: None,
+            scope: Scope::Whole,
+        }
+    }
+}
+
+/// How much of the book: agents ask for "the first three chapters", or "the
+/// first fifty pages" (about 12,500 words).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Scope {
+    #[default]
+    Whole,
+    /// Chapters `from` to `to` by their numbers, counting from 1, with any
+    /// unnumbered chapter — a prologue, an interlude — that falls among them.
+    /// A prologue comes with chapter 1; an epilogue with the last chapter.
+    Chapters { from: usize, to: usize },
+    /// From the start, a whole scene at a time, until at least this many words.
+    Words(usize),
+}
+
+impl Scope {
+    /// The first `n` chapters.
+    pub fn first(n: usize) -> Scope {
+        Scope::Chapters {
+            from: 1,
+            to: n.max(1),
+        }
+    }
+
+    /// "the whole book", "chapters 1–3", "the first 10,000 words".
+    pub fn describe(&self) -> String {
+        match *self {
+            Scope::Whole => "the whole book".into(),
+            Scope::Chapters { from: 1, to: 1 } => "the first chapter".into(),
+            Scope::Chapters { from: 1, to } => format!("the first {to} chapters"),
+            Scope::Chapters { from, to } if from == to => format!("chapter {from}"),
+            Scope::Chapters { from, to } => format!("chapters {from}–{to}"),
+            Scope::Words(n) => format!("the first {} words", commas(n)),
+        }
+    }
+
+    /// What a sample adds to its file name.
+    fn file_suffix(&self) -> String {
+        match *self {
+            Scope::Whole => String::new(),
+            Scope::Chapters { from, to } if from == to => format!("_Chapter-{from}"),
+            Scope::Chapters { from, to } => format!("_Chapters-{from}-{to}"),
+            Scope::Words(n) => format!("_First-{n}-Words"),
         }
     }
 }
@@ -57,6 +128,12 @@ pub struct Exported {
     /// About how many manuscript pages: ~250 words a page, plus the title
     /// page, and a page for each chapter opener and part heading.
     pub pages: usize,
+    /// Where the TKs still in the exported text are, one line each.
+    pub tks: Vec<String>,
+    /// Scenes, chapters and parts left out because nothing was written in them.
+    pub empty: usize,
+    /// The PDF couldn't be made, and why. The other files were still written.
+    pub pdf_error: Option<String>,
 }
 
 /// The book's top-level parts (acts), in order: node index and title.
@@ -67,34 +144,59 @@ pub fn parts(p: &Project) -> Vec<(usize, String)> {
         .collect()
 }
 
+/// The TKs the export would carry, where they are — to warn before it runs.
+pub fn tks(p: &Project, opts: &ExportOptions) -> Result<Vec<String>> {
+    Ok(book(p, opts.parts.as_deref(), opts.scope)?.tks)
+}
+
 /// Write the chosen formats to `<book>/exports/`.
 pub fn export(p: &Project, opts: &ExportOptions) -> Result<Exported> {
     p.ensure_whole()?;
-    if !(opts.docx || opts.epub || opts.markdown) {
-        bail!("nothing to export — choose DOCX, EPUB or Markdown");
+    if !(opts.docx || opts.pdf || opts.epub || opts.markdown) {
+        bail!("nothing to export — choose Word, PDF, EPUB or Markdown");
     }
-    let mut book = book(p, opts.parts.as_deref())?;
+    let mut book = book(p, opts.parts.as_deref(), opts.scope)?;
+    if book.pieces.is_empty() {
+        bail!("there's nothing written to export yet");
+    }
     let dir = p.root.join("exports");
     std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
     let stem = slug(book.title);
+    let manuscript = manuscript_stem(&book, opts.parts.is_some(), opts.scope);
 
     let mut files = Vec::new();
-    let mut put = |ext: &str, bytes: &[u8]| -> Result<()> {
-        let path = dir.join(format!("{stem}.{ext}"));
+    let mut put = |name: &str, bytes: &[u8]| -> Result<PathBuf> {
+        let path = dir.join(name);
+        crate::atomic::write(&path, bytes)?;
+        files.push(path.clone());
+        Ok(path)
+    };
+    let mut pdf_error = None;
+    if opts.docx || opts.pdf {
+        let docx_path = put(&format!("{manuscript}.docx"), &docx(&book)?)?;
+        if opts.pdf {
+            match crate::pdf::find() {
+                None => pdf_error = Some(crate::pdf::HOW_TO_GET.to_string()),
+                Some(office) => match crate::pdf::convert(&office, &docx_path) {
+                    Ok(pdf) => files.push(pdf),
+                    Err(e) => pdf_error = Some(format!("{e:#}")),
+                },
+            }
+        }
+    }
+    let mut put = |name: &str, bytes: &[u8]| -> Result<()> {
+        let path = dir.join(name);
         crate::atomic::write(&path, bytes)?;
         files.push(path);
         Ok(())
     };
-    if opts.docx {
-        put("docx", &docx(&book)?)?;
-    }
     if opts.epub {
         let submission = std::mem::replace(&mut book.front, front_pages(p, Edition::Ebook));
-        put("epub", &epub(&book)?)?;
+        put(&format!("{stem}.epub"), &epub(&book)?)?;
         book.front = submission;
     }
     if opts.markdown {
-        put("md", markdown(&book).as_bytes())?;
+        put(&format!("{stem}.md"), markdown(&book).as_bytes())?;
     }
 
     Ok(Exported {
@@ -102,7 +204,38 @@ pub fn export(p: &Project, opts: &ExportOptions) -> Result<Exported> {
         words: book.words,
         chapters: book.chapters,
         pages: pages(&book),
+        tks: book.tks.clone(),
+        empty: book.empty,
+        pdf_error,
     })
+}
+
+/// `Marlowe_The-Salt-Archive_Manuscript` — "Lastname_Title", as agents ask,
+/// with what a sample holds after it. Safe on every system (names rules).
+fn manuscript_stem(b: &Book, some_parts: bool, scope: Scope) -> String {
+    let name = crate::names::stem(surname(b.author));
+    let title = crate::names::stem(b.title);
+    let mut stem = if surname(b.author).is_empty() {
+        format!("{title}_Manuscript")
+    } else {
+        format!("{name}_{title}_Manuscript")
+    };
+    if some_parts {
+        let kept: Vec<String> = b
+            .pieces
+            .iter()
+            .filter_map(|p| match p {
+                Piece::Part { title, .. } => Some(crate::names::stem(title)),
+                _ => None,
+            })
+            .collect();
+        if !kept.is_empty() {
+            stem.push('_');
+            stem.push_str(&kept.join("_"));
+        }
+    }
+    stem.push_str(&scope.file_suffix());
+    stem
 }
 
 // ── the book ─────────────────────────────────────────────────────────
@@ -110,17 +243,33 @@ pub fn export(p: &Project, opts: &ExportOptions) -> Result<Exported> {
 /// The manuscript as it will be read: what's in, in order, numbered.
 pub(crate) struct Book<'a> {
     pub title: &'a str,
+    /// The byline.
     pub author: &'a str,
+    /// The title page's contact block.
+    pub contact: &'a Contact,
+    /// How the submission manuscript looks.
+    pub look: &'a Manuscript,
     /// Front-matter scenes, which stand in for the generated title page.
-    /// Notes and TKs are already out of every piece of text in here.
+    /// Notes are already out of every piece of text in here, and the
+    /// typography done.
     pub front: Vec<Cow<'a, str>>,
-    /// Words in every compiled scene of the chosen parts — the title page count.
+    /// Words in every compiled scene of the whole book — the title page's
+    /// count, whatever part of it this export holds.
     pub total: usize,
     pub pieces: Vec<Piece<'a>>,
+    /// Words, chapters and scenes in this export.
     pub words: usize,
     pub chapters: usize,
     pub scenes: usize,
+    /// Scenes marked `compile: false`.
     pub skipped: usize,
+    /// Scenes, chapters and parts left out for having nothing in them.
+    pub empty: usize,
+    /// Every TK still in the exported text: "Chapter Two, Gravel: …took the TK…".
+    pub tks: Vec<String>,
+    /// This export runs to the book's end, so END goes after it. A sample
+    /// doesn't say END.
+    pub to_the_end: bool,
 }
 
 pub(crate) enum Piece<'a> {
@@ -128,9 +277,10 @@ pub(crate) enum Piece<'a> {
         title: &'a str,
         depth: usize,
     },
-    /// `number` is the chapter's place in the whole book, not in this export.
+    /// `number` is the chapter's place in the whole book, not in this export;
+    /// `None` for a chapter that takes no number (a Prologue, an Epilogue).
     Chapter {
-        number: usize,
+        number: Option<usize>,
         title: &'a str,
         depth: usize,
         scenes: Vec<Cow<'a, str>>,
@@ -173,28 +323,105 @@ fn edition_of(p: &Project, n: &Node) -> Option<Edition> {
 }
 
 /// The front-matter pages that go into `edition`, in order.
-fn front_pages(p: &Project, edition: Edition) -> Vec<Cow<'_, str>> {
+pub(crate) fn front_pages(p: &Project, edition: Edition) -> Vec<Cow<'_, str>> {
+    let hyphen = p.meta.manuscript.spaced_hyphen;
     p.nodes
         .iter()
         .filter(|n| n.kind == Kind::Scene && n.front_matter && n.compile)
         .filter(|n| edition_of(p, n).is_none_or(|e| e == edition))
-        .map(|n| prose(&n.body))
+        .map(|n| prose(&n.body, hyphen))
         .filter(|body| !body.is_empty())
         .collect()
 }
 
-/// A scene's text as it goes into the book: `%% notes %%` and TKs taken out,
-/// then trimmed.
-fn prose(body: &str) -> Cow<'_, str> {
-    match notes::strip(body) {
+/// A scene's text as it goes into the book: `%% notes %%` out, TKs kept
+/// (see [`Book::tks`]), trimmed, and book typography done.
+pub(crate) fn prose(body: &str, hyphen: typeset::SpacedHyphen) -> Cow<'_, str> {
+    let noted = notes::strip_notes(body);
+    let trimmed: Cow<'_, str> = match noted {
         Cow::Borrowed(b) => Cow::Borrowed(b.trim()),
         Cow::Owned(o) => Cow::Owned(o.trim().to_string()),
+    };
+    let typeset = match typeset::body(&trimmed, hyphen, is_break) {
+        Cow::Owned(o) => Some(o),
+        Cow::Borrowed(_) => None,
+    };
+    match typeset {
+        Some(o) => Cow::Owned(o),
+        None => trimmed,
     }
 }
 
-/// Walk the manuscript. With `parts`, only those top-level parts are kept, but
-/// every chapter is still counted so the kept ones keep their numbers.
-pub(crate) fn book<'a>(p: &'a Project, parts: Option<&[usize]>) -> Result<Book<'a>> {
+/// Chapter folders named for what they are take no number and keep their own
+/// heading: "Prologue", "Epilogue: After", "Interlude".
+const UNNUMBERED: [&str; 12] = [
+    "prologue",
+    "epilogue",
+    "interlude",
+    "prelude",
+    "foreword",
+    "preface",
+    "introduction",
+    "afterword",
+    "coda",
+    "postscript",
+    "intermission",
+    "entr'acte",
+];
+
+pub(crate) fn is_unnumbered(title: &str) -> bool {
+    let first = title
+        .trim()
+        .split(|c: char| c.is_whitespace() || matches!(c, ':' | '.' | '—' | '–' | '-'))
+        .next()
+        .unwrap_or("")
+        .to_lowercase();
+    UNNUMBERED.contains(&first.as_str())
+}
+
+/// A chapter's heading, and the line under it if there is one, in `style`.
+/// "Chapter Two" over "The Lamp"; a Prologue is headed by its own title.
+pub(crate) fn chapter_heading(
+    number: Option<usize>,
+    title: &str,
+    style: ChapterHeading,
+) -> (String, Option<String>) {
+    let name = chapter_name(title).map(str::to_string);
+    let Some(n) = number else {
+        return (title.trim().to_string(), None);
+    };
+    match style {
+        ChapterHeading::Words => (numbered("Chapter", n), name),
+        ChapterHeading::Caps => (format!("CHAPTER {}", spell(n)), name),
+        ChapterHeading::Digits => (format!("Chapter {n}"), name),
+        ChapterHeading::Number => (n.to_string(), name),
+        ChapterHeading::Title => match name {
+            Some(name) => (name, None),
+            None => (numbered("Chapter", n), None),
+        },
+    }
+}
+
+/// One chapter's scenes as the walk finds them, with their words.
+struct Found<'a> {
+    number: Option<usize>,
+    title: &'a str,
+    depth: usize,
+    /// Text, words, and the scene's node.
+    scenes: Vec<(Cow<'a, str>, usize, usize)>,
+}
+
+enum Item<'a> {
+    Part { title: &'a str, depth: usize },
+    Chapter(Found<'a>),
+    Scene(Cow<'a, str>, usize, usize),
+}
+
+/// Walk the manuscript. With `parts`, only those top-level parts are kept,
+/// and with a `scope`, only that sample of them — but every chapter is still
+/// counted, so the kept ones keep their numbers, and the title page's count
+/// is still the whole book's.
+pub(crate) fn book<'a>(p: &'a Project, parts: Option<&[usize]>, scope: Scope) -> Result<Book<'a>> {
     let noun = p.meta.part_noun();
     if let Some(chosen) = parts {
         if chosen.is_empty() {
@@ -207,12 +434,21 @@ pub(crate) fn book<'a>(p: &'a Project, parts: Option<&[usize]>) -> Result<Book<'
             }
         }
     }
+    match scope {
+        Scope::Chapters { from, to } if from == 0 || to < from => {
+            bail!("chapters run from 1 — give a range like 1–3")
+        }
+        Scope::Words(0) => bail!("give a number of words for the sample"),
+        _ => {}
+    }
 
     let m = &p.meta;
     let title = m.title.trim();
     let mut b = Book {
         title: if title.is_empty() { "Untitled" } else { title },
         author: m.author.trim(),
+        contact: &m.contact,
+        look: &m.manuscript,
         front: front_pages(p, Edition::Manuscript),
         total: 0,
         pieces: Vec::new(),
@@ -220,87 +456,285 @@ pub(crate) fn book<'a>(p: &'a Project, parts: Option<&[usize]>) -> Result<Book<'
         chapters: 0,
         scenes: 0,
         skipped: 0,
+        empty: 0,
+        tks: Vec::new(),
+        to_the_end: scope == Scope::Whole
+            && parts.is_none_or(|chosen| {
+                self::parts(p)
+                    .last()
+                    .is_none_or(|(last, _)| chosen.contains(last))
+            }),
     };
 
+    let mut items = Vec::new();
     let mut number = 0usize;
     for r in manuscript_roots(p) {
         let keep = parts.is_none_or(|chosen| chosen.contains(&r));
-        if keep {
-            b.total += compiled_words(p, r);
-        }
-        gather(p, r, keep, &mut number, &mut b);
+        gather(p, r, keep, &mut number, &mut b, &mut items);
     }
+    let items = sample(items, scope);
+    finish(p, &mut b, items);
     Ok(b)
 }
 
-fn compiled_words(p: &Project, idx: usize) -> usize {
+fn gather<'a>(
+    p: &'a Project,
+    idx: usize,
+    keep: bool,
+    number: &mut usize,
+    b: &mut Book<'a>,
+    out: &mut Vec<Item<'a>>,
+) {
     let n = &p.nodes[idx];
-    match n.kind {
-        Kind::Scene if n.compile => n.words(),
-        Kind::Scene => 0,
-        _ => n.children.iter().map(|&c| compiled_words(p, c)).sum(),
-    }
-}
-
-fn gather<'a>(p: &'a Project, idx: usize, keep: bool, number: &mut usize, b: &mut Book<'a>) {
-    let n = &p.nodes[idx];
+    let hyphen = p.meta.manuscript.spaced_hyphen;
     match section_of(p, idx) {
         Section::Part => {
             if keep {
-                b.pieces.push(Piece::Part {
+                out.push(Item::Part {
                     title: &n.title,
                     depth: n.depth.saturating_sub(1),
                 });
             }
             for &c in &n.children {
-                gather(p, c, keep, number, b);
+                gather(p, c, keep, number, b, out);
             }
         }
         Section::Chapter => {
-            let scenes: Vec<&Node> = n
-                .children
-                .iter()
-                .map(|&c| &p.nodes[c])
-                .filter(|s| s.kind == Kind::Scene)
-                .collect();
-            // A chapter with nothing compiled in it isn't in the book, and
-            // doesn't take a number.
-            if !scenes.iter().any(|s| s.compile) {
-                return;
-            }
-            *number += 1;
-            if !keep {
-                return;
-            }
-            b.chapters += 1;
-            let mut bodies = Vec::new();
-            for s in scenes {
-                if !s.compile {
-                    b.skipped += 1;
+            let mut scenes = Vec::new();
+            for &c in &n.children {
+                let s = &p.nodes[c];
+                if s.kind != Kind::Scene {
                     continue;
                 }
-                bodies.push(prose(&s.body));
-                b.words += s.words();
-                b.scenes += 1;
+                if !s.compile {
+                    if keep {
+                        b.skipped += 1;
+                    }
+                    continue;
+                }
+                let text = prose(&s.body, hyphen);
+                if text.is_empty() {
+                    if keep {
+                        b.empty += 1;
+                    }
+                    continue;
+                }
+                b.total += s.words();
+                scenes.push((text, s.words(), c));
             }
-            b.pieces.push(Piece::Chapter {
-                number: *number,
-                title: &n.title,
-                depth: n.depth.saturating_sub(1),
-                scenes: bodies,
-            });
-        }
-        Section::Scene => {
+            // A chapter with nothing written in it isn't in the book, and
+            // doesn't take a number.
+            if scenes.is_empty() {
+                if keep {
+                    b.empty += 1;
+                }
+                return;
+            }
+            let chapter_no = if is_unnumbered(&n.title) {
+                None
+            } else {
+                *number += 1;
+                Some(*number)
+            };
             if !keep {
                 return;
             }
+            out.push(Item::Chapter(Found {
+                number: chapter_no,
+                title: &n.title,
+                depth: n.depth.saturating_sub(1),
+                scenes,
+            }));
+        }
+        Section::Scene => {
             if !n.compile {
-                b.skipped += 1;
+                if keep {
+                    b.skipped += 1;
+                }
                 return;
             }
-            b.pieces.push(Piece::Scene(prose(&n.body)));
-            b.words += n.words();
-            b.scenes += 1;
+            let text = prose(&n.body, hyphen);
+            if text.is_empty() {
+                if keep {
+                    b.empty += 1;
+                }
+                return;
+            }
+            b.total += n.words();
+            if keep {
+                out.push(Item::Scene(text, n.words(), idx));
+            }
+        }
+    }
+}
+
+/// Where each TK in scene `idx` is, for the warning before export.
+fn note_tks(p: &Project, idx: usize, number: Option<usize>, chapter: &str, b: &mut Book) {
+    let s = &p.nodes[idx];
+    let lines: Vec<&str> = s.body.lines().collect();
+    // Which TK this is on its line: the first, the second…
+    let mut on_line = (usize::MAX, 0usize);
+    for m in notes::marks(&s.body) {
+        if m.kind != notes::MarkKind::Tk {
+            continue;
+        }
+        on_line = if on_line.0 == m.line {
+            (m.line, on_line.1 + 1)
+        } else {
+            (m.line, 0)
+        };
+        let place = match (number, chapter.is_empty()) {
+            (Some(n), _) => format!("{}, {}", numbered("Chapter", n), s.title),
+            (None, false) => format!("{chapter}, {}", s.title),
+            (None, true) => s.title.clone(),
+        };
+        let seen = lines
+            .get(m.line)
+            .map(|l| around_tk(l, on_line.1))
+            .unwrap_or(m.snippet);
+        b.tks.push(format!("{place}: {seen}"));
+    }
+}
+
+/// The words either side of the `nth` TK on `line`, notes left out: "…a
+/// drawer slid shut. She took the TK from her coat."
+fn around_tk(line: &str, nth: usize) -> String {
+    const SIDE: usize = 5;
+    let clean = notes::strip_notes(line);
+    let words: Vec<&str> = clean.split_whitespace().collect();
+    let is_tk = |w: &str| {
+        let core = w.trim_matches(|c: char| !c.is_alphanumeric());
+        !core.is_empty() && core.len() % 2 == 0 && core.as_bytes().chunks(2).all(|p| p == b"TK")
+    };
+    let at = words
+        .iter()
+        .enumerate()
+        .filter(|(_, w)| is_tk(w))
+        .nth(nth)
+        .map_or(0, |(i, _)| i);
+    let (from, to) = (at.saturating_sub(SIDE), (at + SIDE + 1).min(words.len()));
+    format!(
+        "{}{}{}",
+        if from > 0 { "…" } else { "" },
+        words[from..to].join(" "),
+        if to < words.len() { "…" } else { "" }
+    )
+}
+
+/// Only the sample `scope` asks for.
+fn sample(items: Vec<Item<'_>>, scope: Scope) -> Vec<Item<'_>> {
+    match scope {
+        Scope::Whole => items,
+        Scope::Chapters { from, to } => {
+            // An unnumbered chapter goes with the numbered one after it, or,
+            // at the very end, with the last.
+            let next_numbers: Vec<Option<usize>> = (0..items.len())
+                .map(|i| {
+                    items[i..].iter().find_map(|it| match it {
+                        Item::Chapter(c) => c.number,
+                        _ => None,
+                    })
+                })
+                .collect();
+            let last = items
+                .iter()
+                .filter_map(|it| match it {
+                    Item::Chapter(c) => c.number,
+                    _ => None,
+                })
+                .max()
+                .unwrap_or(0);
+            items
+                .into_iter()
+                .zip(next_numbers)
+                .filter(|(it, next)| match it {
+                    Item::Part { .. } => true,
+                    Item::Chapter(c) => match c.number {
+                        Some(n) => (from..=to).contains(&n),
+                        None => match next {
+                            Some(n) => (from..=to).contains(n),
+                            None => to >= last,
+                        },
+                    },
+                    Item::Scene(..) => match next {
+                        Some(n) => (from..=to).contains(n),
+                        None => to >= last,
+                    },
+                })
+                .map(|(it, _)| it)
+                .collect()
+        }
+        Scope::Words(limit) => {
+            let mut words = 0;
+            let mut out = Vec::new();
+            for it in items {
+                if words >= limit {
+                    break;
+                }
+                match it {
+                    Item::Part { .. } => out.push(it),
+                    Item::Scene(text, n, idx) => {
+                        words += n;
+                        out.push(Item::Scene(text, n, idx));
+                    }
+                    Item::Chapter(mut c) => {
+                        let mut kept = Vec::new();
+                        for (text, n, idx) in c.scenes.drain(..) {
+                            if words >= limit {
+                                break;
+                            }
+                            words += n;
+                            kept.push((text, n, idx));
+                        }
+                        c.scenes = kept;
+                        out.push(Item::Chapter(c));
+                    }
+                }
+            }
+            out
+        }
+    }
+}
+
+/// The kept items as the book's pieces, counted; a part left with nothing in
+/// it goes too.
+fn finish<'a>(p: &'a Project, b: &mut Book<'a>, items: Vec<Item<'a>>) {
+    let has_content_after = |i: usize| {
+        items[i + 1..]
+            .iter()
+            .take_while(|it| !matches!(it, Item::Part { .. }))
+            .any(|it| matches!(it, Item::Chapter(_) | Item::Scene(..)))
+    };
+    let keep: Vec<bool> = (0..items.len())
+        .map(|i| !matches!(items[i], Item::Part { .. }) || has_content_after(i))
+        .collect();
+    for (it, keep) in items.into_iter().zip(keep) {
+        if !keep {
+            b.empty += 1;
+            continue;
+        }
+        match it {
+            Item::Part { title, depth } => b.pieces.push(Piece::Part { title, depth }),
+            Item::Chapter(c) => {
+                b.chapters += 1;
+                b.scenes += c.scenes.len();
+                b.words += c.scenes.iter().map(|(_, n, _)| n).sum::<usize>();
+                for &(_, _, idx) in &c.scenes {
+                    note_tks(p, idx, c.number, c.title, b);
+                }
+                b.pieces.push(Piece::Chapter {
+                    number: c.number,
+                    title: c.title,
+                    depth: c.depth,
+                    scenes: c.scenes.into_iter().map(|(t, _, _)| t).collect(),
+                });
+            }
+            Item::Scene(text, n, idx) => {
+                note_tks(p, idx, None, "", b);
+                b.scenes += 1;
+                b.words += n;
+                b.pieces.push(Piece::Scene(text));
+            }
         }
     }
 }
@@ -457,10 +891,16 @@ fn keyword(title: &str) -> String {
         .unwrap_or_else(|| "UNTITLED".into())
 }
 
-/// `King / ARCHIVE / ` — the page number follows.
+/// `King / ARCHIVE / ` — the page number follows. The keyword is the
+/// manuscript setting's, or the title's first real word.
 fn header_text(b: &Book) -> String {
     let name = surname(b.author);
-    let key = keyword(b.title);
+    let set = b.look.header_keyword.trim();
+    let key = if set.is_empty() {
+        keyword(b.title)
+    } else {
+        set.to_string()
+    };
     if name.is_empty() {
         format!("{key} / ")
     } else {
@@ -662,7 +1102,7 @@ pub(crate) fn markdown(b: &Book) -> String {
             let _ = writeln!(out, "{}  ", b.author);
         }
         let _ = writeln!(out, "\nabout {count} words\n");
-        let _ = writeln!(out, "# {}\n", b.title.to_uppercase());
+        let _ = writeln!(out, "# {}\n", b.title);
         if !b.author.is_empty() {
             let _ = writeln!(out, "by {}\n", b.author);
         }
@@ -679,8 +1119,17 @@ pub(crate) fn markdown(b: &Book) -> String {
             Piece::Part { title, .. } => {
                 let _ = writeln!(out, "\n# {}\n", title.to_uppercase());
             }
-            Piece::Chapter { number, scenes, .. } => {
-                let _ = writeln!(out, "\n## CHAPTER {}\n", spell(*number));
+            Piece::Chapter {
+                number,
+                title,
+                scenes,
+                ..
+            } => {
+                let (heading, name) = chapter_heading(*number, title, b.look.chapter_heading);
+                let _ = writeln!(out, "\n## {heading}\n");
+                if let Some(name) = name {
+                    let _ = writeln!(out, "*{name}*\n");
+                }
                 for (i, s) in scenes.iter().enumerate() {
                     // Shunn: a scene break is `#` alone on a line. Escaped so
                     // Markdown renders a literal hash, not an empty heading.
@@ -695,7 +1144,9 @@ pub(crate) fn markdown(b: &Book) -> String {
             }
         }
     }
-    let _ = writeln!(out, "\nTHE END");
+    if let Some(end) = b.look.ending.text().filter(|_| b.to_the_end) {
+        let _ = writeln!(out, "\n{end}");
+    }
     out
 }
 
@@ -741,21 +1192,98 @@ const XML_HEAD: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"ye
 const W_NS: &str = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
 const R_NS: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
 
-/// Blank double-spaced lines above a part or chapter heading: seven lines of
-/// 12pt (~27.6pt each) under a one-inch margin put it a third of the way down
-/// a US Letter page.
-const OPENER_BLANK_LINES: usize = 7;
+/// The page and type the manuscript settings add up to. All lengths in
+/// twentieths of a point (twips): 1440 to the inch.
+struct Look {
+    font: &'static str,
+    /// Classic: italics become underlines, typography back to typewriter.
+    classic: bool,
+    width: u32,
+    height: u32,
+    margin: u32,
+    /// `w:line` for the body: 480 double, 360 one-and-a-half.
+    line: u32,
+    /// Blank lines above a chapter heading to put it a third of the way down.
+    third: usize,
+    /// Blank lines more, under a part heading, to bring the first chapter's
+    /// heading to halfway.
+    half_more: usize,
+    flush_first: bool,
+    ending: Option<&'static str>,
+    heading: ChapterHeading,
+}
 
-/// US Letter, one-inch margins, header half an inch from the top.
-const PAGE: &str = "<w:pgSz w:w=\"12240\" w:h=\"15840\"/>\
-    <w:pgMar w:top=\"1440\" w:right=\"1440\" w:bottom=\"1440\" w:left=\"1440\" \
-    w:header=\"720\" w:footer=\"720\" w:gutter=\"0\"/>";
+impl Look {
+    fn of(m: &Manuscript) -> Look {
+        let (width, height) = match m.paper {
+            Paper::Letter => (12240, 15840),
+            Paper::A4 => (11906, 16838),
+        };
+        let line = match m.spacing {
+            Spacing::Double => 480,
+            Spacing::OneAndHalf => 360,
+        };
+        // One body line in points: 12pt type, set at `line`/240 of its
+        // leading (~1.15 × the size for these fonts).
+        let line_pt = 12.0 * 1.15 * line as f32 / 240.0;
+        let page = height as f32 / 20.0;
+        // A third of the way down the page, and halfway, measured from the
+        // top margin.
+        let third_pt = page / 3.0 - 72.0;
+        let half_pt = page / 2.0 - 72.0;
+        let third = (third_pt / line_pt).round().max(1.0) as usize;
+        let half = ((half_pt / line_pt).round() as usize).max(third + 2);
+        Look {
+            font: match m.format {
+                Format::Modern => "Times New Roman",
+                Format::Classic => "Courier New",
+            },
+            classic: m.format == Format::Classic,
+            width,
+            height,
+            margin: 1440,
+            line,
+            third,
+            half_more: half - third - 1,
+            flush_first: m.first_paragraph == FirstParagraph::Flush,
+            ending: m.ending.text(),
+            heading: m.chapter_heading,
+        }
+    }
+
+    /// Width of the text between the margins: where a right tab sits.
+    fn text_width(&self) -> u32 {
+        self.width - 2 * self.margin
+    }
+
+    fn page(&self) -> String {
+        format!(
+            "<w:pgSz w:w=\"{}\" w:h=\"{}\"/>\
+             <w:pgMar w:top=\"{m}\" w:right=\"{m}\" w:bottom=\"{m}\" w:left=\"{m}\" \
+             w:header=\"720\" w:footer=\"720\" w:gutter=\"0\"/>",
+            self.width,
+            self.height,
+            m = self.margin
+        )
+    }
+
+    /// Text as this manuscript sets it: typewriter marks for the classic.
+    fn text<'t>(&self, s: &'t str) -> Cow<'t, str> {
+        if self.classic {
+            typeset::plain(s)
+        } else {
+            Cow::Borrowed(s)
+        }
+    }
+}
 
 struct Para {
     style: &'static str,
     page_break: bool,
-    /// A blank double-spaced line after it, as under a chapter heading.
+    /// A blank line after it, as under a chapter heading.
     gap_after: bool,
+    /// Space before it, in twips, overriding the style.
+    before: Option<u32>,
     runs: String,
 }
 
@@ -765,19 +1293,29 @@ impl Para {
             style,
             page_break: false,
             gap_after: false,
+            before: None,
             runs,
         }
     }
 
     /// `sect` closes a section on this paragraph. Children of `w:pPr` go in
     /// schema order; Word is strict about it.
-    fn xml(&self, sect: Option<&str>) -> String {
+    fn xml(&self, sect: Option<&str>, line: u32) -> String {
         let mut s = format!("<w:p><w:pPr><w:pStyle w:val=\"{}\"/>", self.style);
         if self.page_break {
             s.push_str("<w:pageBreakBefore/>");
         }
-        if self.gap_after {
-            s.push_str("<w:spacing w:after=\"480\"/>");
+        match (self.before, self.gap_after) {
+            (Some(b), true) => {
+                let _ = write!(s, "<w:spacing w:before=\"{b}\" w:after=\"{line}\"/>");
+            }
+            (Some(b), false) => {
+                let _ = write!(s, "<w:spacing w:before=\"{b}\"/>");
+            }
+            (None, true) => {
+                let _ = write!(s, "<w:spacing w:after=\"{line}\"/>");
+            }
+            (None, false) => {}
         }
         if let Some(sect) = sect {
             s.push_str(sect);
@@ -799,9 +1337,10 @@ fn docx_text(text: &str) -> String {
     )
 }
 
-fn docx_runs(text: &str) -> String {
+fn docx_runs(text: &str, look: &Look) -> String {
+    let text = look.text(text);
     let mut out = String::new();
-    for r in inline(text) {
+    for r in inline(&text) {
         out.push_str("<w:r>");
         if r.bold || r.italic {
             out.push_str("<w:rPr>");
@@ -809,7 +1348,12 @@ fn docx_runs(text: &str) -> String {
                 out.push_str("<w:b/>");
             }
             if r.italic {
-                out.push_str("<w:i/>");
+                // Shunn Classic: underline what would be italic.
+                out.push_str(if look.classic {
+                    "<w:u w:val=\"single\"/>"
+                } else {
+                    "<w:i/>"
+                });
             }
             out.push_str("</w:rPr>");
         }
@@ -822,29 +1366,96 @@ fn docx_runs(text: &str) -> String {
     out
 }
 
-fn docx_blocks(body: &str, front: bool, out: &mut Vec<Para>) {
+/// A body's blocks. `first` is whether the next paragraph opens a chapter or
+/// follows a break, for the flush-first-paragraph setting.
+fn docx_blocks(body: &str, front: bool, look: &Look, first: &mut bool, out: &mut Vec<Para>) {
     for block in blocks(body) {
-        out.push(match block {
-            Block::Para(t) => Para::new(if front { "Unindented" } else { "Normal" }, docx_runs(t)),
-            Block::Heading(t) => Para::new("Centered", docx_runs(t)),
-            Block::Break => Para::new("SceneBreak", docx_text("#")),
-            Block::Quote(t) => Para::new("Quote", docx_runs(t)),
-        });
+        let para = match block {
+            Block::Para(t) => {
+                let style = if front || (*first && look.flush_first) {
+                    "Unindented"
+                } else {
+                    "Normal"
+                };
+                *first = false;
+                Para::new(style, docx_runs(t, look))
+            }
+            Block::Heading(t) => {
+                *first = true;
+                Para::new("Centered", docx_runs(t, look))
+            }
+            Block::Break => {
+                *first = true;
+                Para::new("SceneBreak", docx_text("#"))
+            }
+            Block::Quote(t) => {
+                *first = true;
+                Para::new("Quote", docx_runs(t, look))
+            }
+        };
+        out.push(para);
+    }
+}
+
+/// Title case as typed for the modern format; capitals for the classic
+/// typewriter page.
+fn title_line(b: &Book, look: &Look) -> String {
+    if look.classic {
+        b.title.to_uppercase()
+    } else {
+        b.title.to_string()
     }
 }
 
 fn docx(b: &Book) -> Result<Vec<u8>> {
+    let look = Look::of(b.look);
     // Section one: the title page, or the author's own front matter. No
     // running header here.
     let count = format!("about {} words", commas(rounded_words(b.total)));
     let tab = "<w:r><w:tab/></w:r>";
     let mut opening: Vec<Para> = Vec::new();
     if b.front.is_empty() {
+        // Shunn's novel title page: the contact block top left, single-
+        // spaced, the word count top right; title and byline centred halfway
+        // down.
+        let c = b.contact;
+        let legal = if c.legal_name.trim().is_empty() {
+            b.author
+        } else {
+            c.legal_name.trim()
+        };
+        let mut block: Vec<String> = vec![legal.to_string()];
+        block.extend(c.address.iter().map(|l| l.trim().to_string()));
+        block.push(c.phone.trim().to_string());
+        block.push(c.email.trim().to_string());
+        block.retain(|l| !l.is_empty());
+        let agent: Vec<&str> = c
+            .agent
+            .iter()
+            .map(|l| l.trim())
+            .filter(|l| !l.is_empty())
+            .collect();
+        let first = block.first().cloned().unwrap_or_default();
         opening.push(Para::new(
             "TitlePageLine",
-            format!("{}{tab}{}", docx_text(b.author), docx_text(&count)),
+            format!("{}{tab}{}", docx_text(&first), docx_text(&count)),
         ));
-        opening.push(Para::new("Title", docx_text(&b.title.to_uppercase())));
+        for l in block.iter().skip(1) {
+            opening.push(Para::new("TitlePageLine", docx_text(l)));
+        }
+        if !agent.is_empty() {
+            opening.push(Para::new("TitlePageLine", String::new()));
+            for l in &agent {
+                opening.push(Para::new("TitlePageLine", docx_text(l)));
+            }
+        }
+        // Halfway down the page, whatever the block above took.
+        let lines_above = opening.len() as u32;
+        let single = 276; // one 12pt line, single-spaced
+        let half = look.height / 2 - look.margin;
+        let mut t = Para::new("Title", docx_runs(&title_line(b, &look), &look));
+        t.before = Some(half.saturating_sub(lines_above * single).max(single));
+        opening.push(t);
         if !b.author.is_empty() {
             opening.push(Para::new(
                 "Centered",
@@ -858,7 +1469,8 @@ fn docx(b: &Book) -> Result<Vec<u8>> {
         ));
         for (i, f) in b.front.iter().enumerate() {
             let start = opening.len();
-            docx_blocks(f, true, &mut opening);
+            let mut first = false;
+            docx_blocks(f, true, &look, &mut first, &mut opening);
             if i > 0 && start < opening.len() {
                 opening[start].page_break = true;
             }
@@ -867,22 +1479,21 @@ fn docx(b: &Book) -> Result<Vec<u8>> {
 
     // Section two: the book, numbered from 1, header on every page.
     let mut body: Vec<Para> = Vec::new();
+    let blanks = |n: usize, body: &mut Vec<Para>| {
+        for _ in 0..n {
+            body.push(Para::new("Blank", String::new()));
+        }
+    };
+    // A part heading shares its first chapter's page (Shunn): the part a
+    // third of the way down, the chapter heading halfway.
+    let mut under_part = false;
     for piece in &b.pieces {
         let start = body.len();
-        // Parts and chapters open a third of the way down a new page. Blank
-        // double-spaced lines put them there, as Shunn says to: space-before
-        // at the top of a page is dropped by LibreOffice, and blank lines
-        // hold in every word processor.
-        if !matches!(piece, Piece::Scene(_)) {
-            for _ in 0..OPENER_BLANK_LINES {
-                body.push(Para::new("Blank", String::new()));
-            }
-        }
         match piece {
             Piece::Part { title, .. } => {
-                let mut h = Para::new("Heading1", docx_runs(title));
-                h.gap_after = true;
-                body.push(h);
+                blanks(look.third, &mut body);
+                body.push(Para::new("Heading1", docx_runs(title, &look)));
+                under_part = true;
             }
             Piece::Chapter {
                 number,
@@ -890,45 +1501,63 @@ fn docx(b: &Book) -> Result<Vec<u8>> {
                 scenes,
                 ..
             } => {
-                body.push(Para::new(
-                    "Heading2",
-                    docx_text(&numbered("Chapter", *number)),
-                ));
-                if let Some(name) = chapter_name(title) {
-                    body.push(Para::new("ChapterTitle", docx_runs(name)));
+                let new_page = !under_part;
+                if under_part {
+                    blanks(look.half_more, &mut body);
+                } else {
+                    blanks(look.third, &mut body);
+                }
+                under_part = false;
+                let (heading, name) = chapter_heading(*number, title, look.heading);
+                body.push(Para::new("Heading2", docx_runs(&heading, &look)));
+                if let Some(name) = name {
+                    body.push(Para::new("ChapterTitle", docx_runs(&name, &look)));
                 }
                 if let Some(last) = body.last_mut() {
                     last.gap_after = true;
                 }
+                let mut first = true;
                 for (i, s) in scenes.iter().enumerate() {
                     if i > 0 {
                         body.push(Para::new("SceneBreak", docx_text("#")));
+                        first = true;
                     }
-                    docx_blocks(s, false, &mut body);
+                    docx_blocks(s, false, &look, &mut first, &mut body);
                 }
+                if start > 0 && new_page {
+                    body[start].page_break = true;
+                }
+                continue;
             }
-            Piece::Scene(s) => docx_blocks(s, false, &mut body),
+            Piece::Scene(s) => {
+                under_part = false;
+                let mut first = false;
+                docx_blocks(s, false, &look, &mut first, &mut body);
+            }
         }
-        // The first thing in the section is already on a new page.
-        if start > 0 && start < body.len() && !matches!(piece, Piece::Scene(_)) {
+        // A part opens a new page; the first thing in the section already is.
+        if start > 0 && start < body.len() && matches!(piece, Piece::Part { .. }) {
             body[start].page_break = true;
         }
     }
-    body.push(Para::new("Centered", docx_text("END")));
+    if let Some(end) = look.ending.filter(|_| b.to_the_end) {
+        body.push(Para::new("Centered", docx_text(end)));
+    }
 
     let mut doc = format!("{XML_HEAD}<w:document xmlns:w=\"{W_NS}\" xmlns:r=\"{R_NS}\"><w:body>\n");
-    let title_sect = format!("<w:sectPr>{PAGE}</w:sectPr>");
+    let title_sect = format!("<w:sectPr>{}</w:sectPr>", look.page());
     let last = opening.len() - 1;
     for (i, para) in opening.iter().enumerate() {
-        doc.push_str(&para.xml((i == last).then_some(title_sect.as_str())));
+        doc.push_str(&para.xml((i == last).then_some(title_sect.as_str()), look.line));
     }
     for para in &body {
-        doc.push_str(&para.xml(None));
+        doc.push_str(&para.xml(None, look.line));
     }
     let _ = write!(
         doc,
-        "<w:sectPr><w:headerReference w:type=\"default\" r:id=\"rIdHeader\"/>{PAGE}\
-         <w:pgNumType w:start=\"1\"/></w:sectPr>\n</w:body></w:document>\n"
+        "<w:sectPr><w:headerReference w:type=\"default\" r:id=\"rIdHeader\"/>{}\
+         <w:pgNumType w:start=\"1\"/></w:sectPr>\n</w:body></w:document>\n",
+        look.page()
     );
 
     let header = format!(
@@ -963,7 +1592,7 @@ fn docx(b: &Book) -> Result<Vec<u8>> {
             "word/_rels/document.xml.rels",
             DOCX_DOCUMENT_RELS.to_string(),
         ),
-        ("word/styles.xml", docx_styles()),
+        ("word/styles.xml", docx_styles(&look)),
         ("word/settings.xml", DOCX_SETTINGS.to_string()),
         ("word/header1.xml", header),
     ];
@@ -1015,78 +1644,83 @@ const DOCX_SETTINGS: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone
 
 /// Every style names its font, size and weight outright. Word would inherit
 /// them, but LibreOffice lays its own defaults under headings and titles.
-fn docx_styles() -> String {
-    let font = "<w:rFonts w:ascii=\"Times New Roman\" w:hAnsi=\"Times New Roman\" \
-                w:eastAsia=\"Times New Roman\" w:cs=\"Times New Roman\"/>";
+fn docx_styles(look: &Look) -> String {
+    let face = look.font;
+    let font = format!(
+        "<w:rFonts w:ascii=\"{face}\" w:hAnsi=\"{face}\" w:eastAsia=\"{face}\" w:cs=\"{face}\"/>"
+    );
     let plain = format!(
         "<w:rPr>{font}<w:b w:val=\"0\"/><w:bCs w:val=\"0\"/><w:i w:val=\"0\"/><w:iCs w:val=\"0\"/>\
          <w:color w:val=\"000000\"/><w:sz w:val=\"24\"/><w:szCs w:val=\"24\"/></w:rPr>"
     );
+    let right = look.text_width();
+    let single = "<w:spacing w:line=\"240\" w:lineRule=\"auto\"/>";
+    let title_page = format!(
+        "<w:tabs><w:tab w:val=\"right\" w:pos=\"{right}\"/></w:tabs>{single}<w:ind w:firstLine=\"0\"/>"
+    );
+    let header = format!(
+        "<w:tabs><w:tab w:val=\"right\" w:pos=\"{right}\"/></w:tabs>{single}<w:ind w:firstLine=\"0\"/><w:jc w:val=\"right\"/>"
+    );
     // (id, name, pPr contents)
-    let styles: [(&str, &str, &str); 11] = [
+    let styles: [(&str, &str, String); 11] = [
         (
             "Heading1",
             "heading 1",
-            "<w:keepNext/><w:keepLines/><w:ind w:firstLine=\"0\"/><w:jc w:val=\"center\"/><w:outlineLvl w:val=\"0\"/>",
+            "<w:keepNext/><w:keepLines/><w:ind w:firstLine=\"0\"/><w:jc w:val=\"center\"/><w:outlineLvl w:val=\"0\"/>".into(),
         ),
         (
             "Heading2",
             "heading 2",
-            "<w:keepNext/><w:keepLines/><w:ind w:firstLine=\"0\"/><w:jc w:val=\"center\"/><w:outlineLvl w:val=\"1\"/>",
+            "<w:keepNext/><w:keepLines/><w:ind w:firstLine=\"0\"/><w:jc w:val=\"center\"/><w:outlineLvl w:val=\"1\"/>".into(),
         ),
         // The empty lines that bring a chapter heading down the page.
         (
             "Blank",
             "Blank Line",
-            "<w:keepNext/><w:ind w:firstLine=\"0\"/>",
+            "<w:keepNext/><w:ind w:firstLine=\"0\"/>".into(),
         ),
-        // The title sits about halfway down its page.
+        // The title sits about halfway down its page (space set per title page).
         (
             "Title",
             "Title",
-            "<w:keepNext/><w:spacing w:before=\"5760\"/><w:ind w:firstLine=\"0\"/><w:jc w:val=\"center\"/>",
+            "<w:keepNext/><w:ind w:firstLine=\"0\"/><w:jc w:val=\"center\"/>".into(),
         ),
         (
             "ChapterTitle",
             "Chapter Title",
-            "<w:keepNext/><w:ind w:firstLine=\"0\"/><w:jc w:val=\"center\"/>",
+            "<w:keepNext/><w:ind w:firstLine=\"0\"/><w:jc w:val=\"center\"/>".into(),
         ),
         (
             "SceneBreak",
             "Scene Break",
-            "<w:keepNext/><w:ind w:firstLine=\"0\"/><w:jc w:val=\"center\"/>",
+            "<w:keepNext/><w:ind w:firstLine=\"0\"/><w:jc w:val=\"center\"/>".into(),
         ),
         (
             "Centered",
             "Centered",
-            "<w:ind w:firstLine=\"0\"/><w:jc w:val=\"center\"/>",
+            "<w:ind w:firstLine=\"0\"/><w:jc w:val=\"center\"/>".into(),
         ),
-        ("Unindented", "Unindented", "<w:ind w:firstLine=\"0\"/>"),
+        (
+            "Unindented",
+            "Unindented",
+            "<w:ind w:firstLine=\"0\"/>".into(),
+        ),
         (
             "Quote",
             "Quote",
-            "<w:ind w:left=\"720\" w:right=\"720\" w:firstLine=\"0\"/>",
+            "<w:ind w:left=\"720\" w:right=\"720\" w:firstLine=\"0\"/>".into(),
         ),
-        // Name top left, word count top right, single-spaced.
-        (
-            "TitlePageLine",
-            "Title Page Line",
-            "<w:tabs><w:tab w:val=\"right\" w:pos=\"9360\"/></w:tabs>\
-             <w:spacing w:line=\"240\" w:lineRule=\"auto\"/><w:ind w:firstLine=\"0\"/>",
-        ),
-        (
-            "Header",
-            "header",
-            "<w:tabs><w:tab w:val=\"right\" w:pos=\"9360\"/></w:tabs>\
-             <w:spacing w:line=\"240\" w:lineRule=\"auto\"/><w:ind w:firstLine=\"0\"/><w:jc w:val=\"right\"/>",
-        ),
+        // Contact block top left, word count top right, single-spaced.
+        ("TitlePageLine", "Title Page Line", title_page),
+        ("Header", "header", header),
     ];
 
+    let line = look.line;
     let mut s = format!(
         "{XML_HEAD}<w:styles xmlns:w=\"{W_NS}\">\
          <w:docDefaults><w:rPrDefault><w:rPr>{font}<w:sz w:val=\"24\"/><w:szCs w:val=\"24\"/>\
          <w:lang w:val=\"en-US\" w:eastAsia=\"en-US\" w:bidi=\"ar-SA\"/></w:rPr></w:rPrDefault>\
-         <w:pPrDefault><w:pPr><w:spacing w:after=\"0\" w:line=\"480\" w:lineRule=\"auto\"/></w:pPr></w:pPrDefault>\
+         <w:pPrDefault><w:pPr><w:spacing w:after=\"0\" w:line=\"{line}\" w:lineRule=\"auto\"/></w:pPr></w:pPrDefault>\
          </w:docDefaults>\n\
          <w:style w:type=\"paragraph\" w:default=\"1\" w:styleId=\"Normal\"><w:name w:val=\"Normal\"/><w:qFormat/>\
          <w:pPr><w:widowControl/><w:ind w:firstLine=\"720\"/></w:pPr>{plain}</w:style>\n\
@@ -1298,7 +1932,7 @@ fn epub(b: &Book) -> Result<Vec<u8>> {
         kids: Vec::new(),
     });
 
-    let (mut part_no, mut text_no) = (0, 0);
+    let (mut part_no, mut text_no, mut chapter_no) = (0, 0, 0);
     for piece in &b.pieces {
         match piece {
             Piece::Part { title, depth } => {
@@ -1326,9 +1960,21 @@ fn epub(b: &Book) -> Result<Vec<u8>> {
                 depth,
                 scenes,
             } => {
-                let heading = numbered("Chapter", *number);
-                let name = chapter_name(title);
-                let mut body = String::from("<div class=\"chapter\" epub:type=\"chapter\">\n");
+                chapter_no += 1;
+                let (heading, name) = chapter_heading(*number, title, b.look.chapter_heading);
+                let name = name.as_deref();
+                // EPUB's own words for the chapters that take no number.
+                let first = title.split_whitespace().next().unwrap_or("");
+                let kind = match first.trim_end_matches(':').to_lowercase().as_str() {
+                    "prologue" if number.is_none() => "prologue",
+                    "epilogue" if number.is_none() => "epilogue",
+                    "foreword" if number.is_none() => "foreword",
+                    "preface" if number.is_none() => "preface",
+                    "introduction" if number.is_none() => "introduction",
+                    "afterword" if number.is_none() => "afterword",
+                    _ => "chapter",
+                };
+                let mut body = format!("<div class=\"chapter\" epub:type=\"{kind}\">\n");
                 let _ = write!(
                     body,
                     "<h2><span class=\"number\">{}</span>",
@@ -1354,7 +2000,12 @@ fn epub(b: &Book) -> Result<Vec<u8>> {
                     Some(name) => format!("{heading}: {}", plain(name)),
                     None => heading,
                 };
-                let id = format!("chapter-{number:02}");
+                // Numbered chapters keep the book's number in their file name,
+                // even in an export of one part.
+                let id = match number {
+                    Some(n) => format!("chapter-{n:02}"),
+                    None => format!("{kind}-{chapter_no:02}"),
+                };
                 let file = format!("{id}.xhtml");
                 toc_insert(
                     &mut toc,
@@ -1584,9 +2235,11 @@ mod tests {
     fn all_options() -> ExportOptions {
         ExportOptions {
             docx: true,
+            pdf: false,
             epub: true,
             markdown: true,
             parts: None,
+            scope: Scope::Whole,
         }
     }
 
@@ -1674,7 +2327,8 @@ mod tests {
             "bell formfeed",
             "XML 1.0 forbids these"
         );
-        assert!(docx_runs("<w:p> & *it*").contains("&lt;w:p&gt; &amp; </w:t>"));
+        let look = Look::of(&Manuscript::default());
+        assert!(docx_runs("<w:p> & *it*", &look).contains("&lt;w:p&gt; &amp; </w:t>"));
         assert_eq!(html_inline("a < b & *c*"), "a &lt; b &amp; <em>c</em>");
     }
 
@@ -1731,8 +2385,12 @@ mod tests {
         let p = Project::load(&d).unwrap();
         let out = export(&p, &all_options()).unwrap();
         assert_eq!(out.files.len(), 3);
-        let docx_path = d.join("exports/the-archive.docx");
-        assert!(out.files.contains(&docx_path));
+        let docx_path = d.join("exports/King_The-Archive_Manuscript.docx");
+        assert!(
+            out.files.contains(&docx_path),
+            "Lastname_Title: {:?}",
+            out.files
+        );
 
         let files = unzip(&fs::read(&docx_path).unwrap());
         for part in [
@@ -1758,7 +2416,7 @@ mod tests {
             "{:?}",
             paras[0]
         );
-        assert!(has("Title", "THE ARCHIVE"));
+        assert!(has("Title", "The Archive"), "title case, as typed");
         assert!(has("Centered", "by Josh King"));
         assert!(has("Heading1", "Act One") && has("Heading1", "Act Two"));
         assert!(
@@ -1785,19 +2443,38 @@ mod tests {
         assert!(doc.contains("<w:rPr><w:b/></w:rPr><w:t xml:space=\"preserve\">now</w:t>"));
         assert!(!doc.contains("CUT MATERIAL") && !doc.contains("NOTES"));
 
-        // Parts and chapters open a page (Act One opens the book's section, so
-        // it needs no break); the title page is a section of its own, and the
-        // book's section carries the header and numbers from 1.
-        assert_eq!(doc.matches("<w:pageBreakBefore/>").count(), 4);
-        let ch1 = paras
-            .iter()
-            .position(|(s, t)| s == "Heading2" && t == "Chapter One")
-            .unwrap();
-        assert!(
-            paras[ch1 - OPENER_BLANK_LINES..ch1]
+        // A part shares its first chapter's page (Shunn): Act One a third of
+        // the way down, Chapter One halfway. Chapter Two and Act Two open new
+        // pages; Act One opens the book's section, so needs no break. The
+        // title page is a section of its own, and the book's section carries
+        // the header and numbers from 1.
+        assert_eq!(doc.matches("<w:pageBreakBefore/>").count(), 2);
+        let look = Look::of(&Manuscript::default());
+        let at = |style: &str, text: &str| {
+            paras
                 .iter()
-                .all(|(s, t)| s == "Blank" && t.is_empty()),
-            "a chapter heading sits a third of the way down its page"
+                .position(|(s, t)| s == style && t == text)
+                .unwrap()
+        };
+        let blank = |range: std::ops::Range<usize>| {
+            paras[range]
+                .iter()
+                .all(|(s, t)| s == "Blank" && t.is_empty())
+        };
+        let (act1, ch1, ch2) = (
+            at("Heading1", "Act One"),
+            at("Heading2", "Chapter One"),
+            at("Heading2", "Chapter Two"),
+        );
+        assert!(
+            blank(act1 - look.third..act1),
+            "a part a third of the way down"
+        );
+        assert_eq!(ch1, act1 + look.half_more + 1, "its first chapter halfway");
+        assert!(blank(act1 + 1..ch1));
+        assert!(
+            blank(ch2 - look.third..ch2),
+            "a chapter a third of the way down its page"
         );
         assert_eq!(doc.matches("<w:sectPr>").count(), 2);
         assert!(doc.contains("<w:headerReference w:type=\"default\" r:id=\"rIdHeader\"/>"));
@@ -1885,7 +2562,7 @@ mod tests {
     fn scenes_marked_compile_false_are_left_out() {
         let d = book_dir("skip");
         let p = Project::load(&d).unwrap();
-        let b = book(&p, None).unwrap();
+        let b = book(&p, None, Scope::Whole).unwrap();
         assert_eq!(b.skipped, 1);
         assert_eq!(b.scenes, 4);
         assert!(!markdown(&b).contains("CUT MATERIAL"));
@@ -1900,9 +2577,13 @@ mod tests {
             "---\ncompile: false\n---\n\nGone.\n",
         );
         let p = Project::load(&d).unwrap();
-        let b = book(&p, None).unwrap();
+        let b = book(&p, None, Scope::Whole).unwrap();
         assert_eq!(b.chapters, 2);
-        assert!(markdown(&b).contains("## CHAPTER TWO\n\nThe road ran"));
+        assert!(
+            markdown(&b).contains("## Chapter Two\n\n*The Long Road*\n\nThe road ran"),
+            "{}",
+            markdown(&b)
+        );
         fs::remove_dir_all(&d).unwrap();
     }
 
@@ -1931,18 +2612,26 @@ mod tests {
             .unwrap();
         assert_eq!(two.words(), 6);
 
-        let b = book(&p, None).unwrap();
+        let b = book(&p, None, Scope::Whole).unwrap();
         let md = markdown(&b);
-        for secret in ["SECRETNOTE", "BLOCKNOTE", "FRONTNOTE", "%%", " TK"] {
+        for secret in ["SECRETNOTE", "BLOCKNOTE", "FRONTNOTE", "%%"] {
             assert!(!md.contains(secret), "{secret} reached the Markdown:\n{md}");
         }
+        // A TK stays: a gap silently closed up is worse than one left showing.
         assert!(
-            md.contains("Gravel under her boots.\n\nShe waited."),
+            md.contains("Gravel under her boots TK.\n\nShe waited."),
             "{md}"
         );
+        assert_eq!(b.tks.len(), 1);
+        assert!(
+            b.tks[0].starts_with("Chapter One, Scene Two: "),
+            "{:?}",
+            b.tks
+        );
 
-        export(&p, &all_options()).unwrap();
-        let docx = unzip(&fs::read(d.join("exports/the-archive.docx")).unwrap());
+        let out = export(&p, &all_options()).unwrap();
+        assert_eq!(out.tks.len(), 1, "the export says so too");
+        let docx = unzip(&fs::read(d.join("exports/King_The-Archive_Manuscript.docx")).unwrap());
         let doc = entry(&docx, "word/document.xml");
         let paras = docx_paragraphs(doc);
         let text: String = paras
@@ -1950,14 +2639,14 @@ mod tests {
             .map(|(_, t)| t.as_str())
             .collect::<Vec<_>>()
             .join("\n");
-        for secret in ["SECRETNOTE", "BLOCKNOTE", "FRONTNOTE", "%%", "TK"] {
+        for secret in ["SECRETNOTE", "BLOCKNOTE", "FRONTNOTE", "%%"] {
             assert!(!text.contains(secret), "{secret} reached the DOCX");
         }
-        assert!(paras.iter().any(|(_, t)| t == "Gravel under her boots."));
+        assert!(paras.iter().any(|(_, t)| t == "Gravel under her boots TK."));
         // No empty paragraph where the block note was.
         let at = paras
             .iter()
-            .position(|(_, t)| t == "Gravel under her boots.")
+            .position(|(_, t)| t == "Gravel under her boots TK.")
             .unwrap();
         assert_eq!(paras[at + 1].1, "She waited.");
 
@@ -1970,7 +2659,7 @@ mod tests {
                 assert!(!text.contains(secret), "{secret} reached {name}");
             }
         }
-        assert!(entry(&epub, "OEBPS/chapter-01.xhtml").contains("Gravel under her boots."));
+        assert!(entry(&epub, "OEBPS/chapter-01.xhtml").contains("Gravel under her boots TK."));
         fs::remove_dir_all(&d).unwrap();
     }
 
@@ -1993,13 +2682,17 @@ mod tests {
         assert_eq!(out.words, 6);
 
         let md = fs::read_to_string(d.join("exports/the-archive.md")).unwrap();
-        assert!(md.contains("# ACT TWO\n\n\n## CHAPTER THREE\n"), "{md}");
-        assert!(!md.contains("ACT ONE") && !md.contains("CHAPTER ONE") && !md.contains("Gravel"));
-        // The title page counts only what's exported.
-        assert_eq!(book(&p, None).unwrap().total, 33);
-        assert_eq!(book(&p, Some(&[acts[1].0])).unwrap().total, 6);
+        assert!(md.contains("# ACT TWO\n\n\n## Chapter Three\n"), "{md}");
+        assert!(!md.contains("ACT ONE") && !md.contains("Chapter One") && !md.contains("Gravel"));
+        // The title page always gives the whole book's count.
+        assert_eq!(book(&p, None, Scope::Whole).unwrap().total, 33);
+        assert_eq!(
+            book(&p, Some(&[acts[1].0]), Scope::Whole).unwrap().total,
+            33
+        );
 
-        let docx_file = unzip(&fs::read(d.join("exports/the-archive.docx")).unwrap());
+        let docx_file =
+            unzip(&fs::read(d.join("exports/King_The-Archive_Manuscript_Act-Two.docx")).unwrap());
         let paras = docx_paragraphs(entry(&docx_file, "word/document.xml"));
         let headings: Vec<&str> = paras
             .iter()
@@ -2051,7 +2744,7 @@ mod tests {
         );
         put(&d, "front-matter/02-dedication.md", "For Wren.\n");
         let p = Project::load(&d).unwrap();
-        let b = book(&p, None).unwrap();
+        let b = book(&p, None, Scope::Whole).unwrap();
         assert_eq!(b.front.len(), 2);
 
         let files = unzip(&docx(&b).unwrap());
@@ -2080,7 +2773,7 @@ mod tests {
     }
 
     #[test]
-    fn a_new_template_book_exports() {
+    fn a_new_template_book_exports_only_what_is_written() {
         let d =
             std::env::temp_dir().join(format!("grimoire-export-template-{}", std::process::id()));
         let _ = fs::remove_dir_all(&d);
@@ -2088,11 +2781,32 @@ mod tests {
         crate::project::scaffold(&d).unwrap();
         let p = Project::load(&d).unwrap();
         assert_eq!(parts(&p).len(), 3);
+        // Nothing written: nothing to export, said plainly.
+        let err = export(&p, &all_options()).unwrap_err().to_string();
+        assert!(err.contains("nothing written"), "{err}");
+
+        // One scene written in Chapter Two: one chapter, no blank pages for
+        // the other twenty-six, no stray scene breaks, and it's Chapter One.
+        let two = d.join("manuscript/01-Part-One/02-Chapter-Two/02-Scene-Two.md");
+        let text = fs::read_to_string(&two).unwrap();
+        fs::write(&two, format!("{text}\nThe only words so far.\n")).unwrap();
+        let p = Project::load(&d).unwrap();
         let out = export(&p, &all_options()).unwrap();
-        assert_eq!(out.chapters, 27);
-        assert_eq!(out.words, 0);
-        let files = unzip(&fs::read(&out.files[1]).unwrap());
-        assert!(entry(&files, "OEBPS/nav.xhtml").contains("Chapter Twenty-Seven"));
+        assert_eq!(out.chapters, 1);
+        assert_eq!(
+            out.empty,
+            80 + 26 + 2,
+            "80 empty scenes, 26 chapters, 2 parts"
+        );
+        let docx = unzip(&fs::read(&out.files[0]).unwrap());
+        let paras = docx_paragraphs(entry(&docx, "word/document.xml"));
+        let headings: Vec<&str> = paras
+            .iter()
+            .filter(|(s, _)| s.starts_with("Heading"))
+            .map(|(_, t)| t.as_str())
+            .collect();
+        assert_eq!(headings, ["Part One", "Chapter One"]);
+        assert!(!paras.iter().any(|(s, _)| s == "SceneBreak"));
         fs::remove_dir_all(&d).unwrap();
     }
 
@@ -2102,22 +2816,267 @@ mod tests {
         let d = book_dir("compile");
         let p = Project::load(&d).unwrap();
         let expected = concat!(
-            "Josh King  \n\nabout 0 words\n\n# THE ARCHIVE\n\nby Josh King\n\n",
+            "Josh King  \n\nabout 0 words\n\n# The Archive\n\nby Josh King\n\n",
             "\n# ACT ONE\n\n",
-            "\n## CHAPTER ONE\n\n",
+            "\n## Chapter One\n\n",
             "The building had *no* windows on the north face.\n\n“Wait — **now**,” she said, & meant <it>.\n",
             "\n\\#\n\n",
             "Gravel under her boots.\n",
-            "\n## CHAPTER TWO\n\nA lamp at the far end.\n",
+            "\n## Chapter Two\n\nA lamp at the far end.\n",
             "\n# ACT TWO\n\n",
-            "\n## CHAPTER THREE\n\nThe road ran _on_ and on.\n",
-            "\nTHE END\n",
+            "\n## Chapter Three\n\n*The Long Road*\n\nThe road ran _on_ and on.\n",
+            "\nEND\n",
         );
         let c = crate::manuscript::compile(&p).unwrap();
         assert_eq!(c.path, d.join("the-archive-manuscript.md"));
         assert_eq!(fs::read_to_string(&c.path).unwrap(), expected);
         assert_eq!((c.words, c.chapters, c.scenes, c.skipped), (33, 3, 4, 1));
-        assert_eq!(markdown(&book(&p, None).unwrap()), expected);
+        assert_eq!(markdown(&book(&p, None, Scope::Whole).unwrap()), expected);
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    // ── the submission manuscript (Shunn, Scrivener's Manuscript format) ──
+
+    fn set_look(d: &Path, extra: &str) {
+        let toml = d.join("novel.toml");
+        let mut text = fs::read_to_string(&toml).unwrap();
+        text.push_str(extra);
+        fs::write(toml, text).unwrap();
+    }
+
+    fn docx_of(d: &Path, opts: &ExportOptions) -> (Vec<(String, String)>, String, String, String) {
+        let p = Project::load(d).unwrap();
+        let out = export(&p, opts).unwrap();
+        let path = out
+            .files
+            .iter()
+            .find(|f| f.extension().is_some_and(|e| e == "docx"))
+            .unwrap();
+        let files = unzip(&fs::read(path).unwrap());
+        let doc = entry(&files, "word/document.xml").to_string();
+        (
+            docx_paragraphs(&doc),
+            doc,
+            entry(&files, "word/styles.xml").to_string(),
+            entry(&files, "word/header1.xml").to_string(),
+        )
+    }
+
+    #[test]
+    fn the_title_page_has_the_contact_block_and_the_title_as_typed() {
+        let d = book_dir("titlepage");
+        set_look(
+            &d,
+            "\n[contact]\nlegal_name = \"Joshua King\"\naddress = [\"12 Harbour Road\", \"Kokomo\"]\n\
+             phone = \"555-0100\"\nemail = \"josh@example.com\"\nagent = [\"Sam Lee, Lee Literary\"]\n",
+        );
+        let (paras, doc, styles, header) = docx_of(&d, &all_options());
+        let lines: Vec<&str> = paras
+            .iter()
+            .take_while(|(s, _)| s == "TitlePageLine")
+            .map(|(_, t)| t.as_str())
+            .collect();
+        assert_eq!(
+            lines,
+            [
+                "Joshua Kingabout 0 words",
+                "12 Harbour Road",
+                "Kokomo",
+                "555-0100",
+                "josh@example.com",
+                "",
+                "Sam Lee, Lee Literary"
+            ],
+            "legal name and word count on one line (a right tab between), then the rest"
+        );
+        let title = paras.iter().position(|(s, _)| s == "Title").unwrap();
+        assert_eq!(paras[title].1, "The Archive", "title case, as typed");
+        assert_eq!(paras[title + 1], ("Centered".into(), "by Josh King".into()));
+        // Halfway down: the space before the title makes up what the block
+        // above didn't take (4.5 inches from the top margin in all).
+        assert!(
+            doc.contains(&format!("<w:spacing w:before=\"{}\"/>", 6480 - 7 * 276)),
+            "{doc}"
+        );
+        // Shunn's modern defaults.
+        assert!(styles.contains("w:ascii=\"Times New Roman\""));
+        assert!(styles.contains("w:line=\"480\""));
+        assert!(styles.contains("<w:ind w:firstLine=\"720\"/>"));
+        assert!(doc.contains("<w:pgSz w:w=\"12240\" w:h=\"15840\"/>"));
+        assert!(header.contains("King / ARCHIVE / "), "the byline's surname");
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn the_classic_format_is_courier_on_a4_with_underlines_and_typewriter_marks() {
+        let d = book_dir("classic");
+        set_look(
+            &d,
+            "\n[manuscript]\nformat = \"classic\"\npaper = \"a4\"\nspacing = \"1.5\"\n\
+             chapter_heading = \"caps\"\nfirst_paragraph = \"flush\"\nending = \"THE END\"\n\
+             header_keyword = \"Archive Book\"\n",
+        );
+        let (paras, doc, styles, header) = docx_of(&d, &all_options());
+        assert!(styles.contains("w:ascii=\"Courier New\""));
+        assert!(!styles.contains("Times New Roman"));
+        assert!(styles.contains("w:line=\"360\""));
+        assert!(doc.contains("<w:pgSz w:w=\"11906\" w:h=\"16838\"/>"));
+        assert!(doc.contains("<w:u w:val=\"single\"/>") && !doc.contains("<w:i/>"));
+        assert!(
+            paras
+                .iter()
+                .any(|(_, t)| t == "\"Wait -- now,\" she said, & meant <it>."),
+            "straight quotes and a double hyphen: {paras:?}"
+        );
+        let has = |style: &str, text: &str| paras.iter().any(|(s, t)| s == style && t == text);
+        assert!(
+            has("Title", "THE ARCHIVE"),
+            "capitals on the typewriter page"
+        );
+        assert!(has("Heading2", "CHAPTER ONE"));
+        let ch1 = paras.iter().position(|(_, t)| t == "CHAPTER ONE").unwrap();
+        assert_eq!(paras[ch1 + 1].0, "Unindented", "flush after the heading");
+        assert_eq!(paras.last().unwrap().1, "THE END");
+        assert!(header.contains("King / Archive Book / "));
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn book_typography_reaches_every_format() {
+        let d = book_dir("typography");
+        put(
+            &d,
+            "manuscript/01-Act-One/01-Chapter-One/02-Scene-Two.md",
+            "\"Hi,\" she said -- 'tis the '90s... and 'yes,' he said - finally.\n",
+        );
+        let want = "“Hi,” she said—’tis the ’90s… and ‘yes,’ he said—finally.";
+        let (paras, ..) = docx_of(&d, &all_options());
+        assert!(paras.iter().any(|(_, t)| t == want), "{paras:?}");
+        let p = Project::load(&d).unwrap();
+        let b = book(&p, None, Scope::Whole).unwrap();
+        assert!(markdown(&b).contains(want));
+        let files = unzip(&epub(&b).unwrap());
+        assert!(entry(&files, "OEBPS/chapter-01.xhtml").contains(want));
+        // The words on disk are never touched.
+        assert!(
+            fs::read_to_string(d.join("manuscript/01-Act-One/01-Chapter-One/02-Scene-Two.md"))
+                .unwrap()
+                .contains("\"Hi,\" she said --")
+        );
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn a_prologue_keeps_its_own_heading_and_takes_no_number() {
+        let d = book_dir("prologue");
+        put(
+            &d,
+            "manuscript/01-Act-One/00-Prologue/01-Fire.md",
+            "The archive burned.\n",
+        );
+        let (paras, ..) = docx_of(&d, &all_options());
+        let headings: Vec<&str> = paras
+            .iter()
+            .filter(|(s, _)| s == "Heading2")
+            .map(|(_, t)| t.as_str())
+            .collect();
+        assert_eq!(
+            headings,
+            ["Prologue", "Chapter One", "Chapter Two", "Chapter Three"]
+        );
+        let p = Project::load(&d).unwrap();
+        let files = unzip(&epub(&book(&p, None, Scope::Whole).unwrap()).unwrap());
+        let (_, _, prologue) = files
+            .iter()
+            .find(|(n, _, _)| n.contains("prologue-"))
+            .expect("a prologue file");
+        assert!(prologue.contains("epub:type=\"prologue\""));
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn a_scene_break_only_sits_between_two_written_scenes() {
+        let d = book_dir("breaks");
+        put(
+            &d,
+            "manuscript/01-Act-One/01-Chapter-One/02-Scene-Two.md",
+            "%% only a note %%\n",
+        );
+        put(
+            &d,
+            "manuscript/01-Act-One/01-Chapter-One/03-Scene-Three.md",
+            "Rain again.\n",
+        );
+        let (paras, ..) = docx_of(&d, &all_options());
+        let one = paras.iter().position(|(_, t)| t == "Chapter One").unwrap();
+        let two = paras.iter().position(|(_, t)| t == "Chapter Two").unwrap();
+        let breaks = paras[one..two]
+            .iter()
+            .filter(|(s, _)| s == "SceneBreak")
+            .count();
+        assert_eq!(breaks, 1, "one break, between the two scenes with words");
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn a_sample_is_the_chapters_or_words_asked_for_with_the_whole_books_count() {
+        let d = book_dir("sample");
+        put(
+            &d,
+            "manuscript/01-Act-One/00-Prologue/01-Fire.md",
+            "The archive burned the year she was born.\n",
+        );
+        let p = Project::load(&d).unwrap();
+        let headings = |b: &Book| -> Vec<String> {
+            b.pieces
+                .iter()
+                .filter_map(|p| match p {
+                    Piece::Chapter { number, title, .. } => {
+                        Some(chapter_heading(*number, title, ChapterHeading::Words).0)
+                    }
+                    _ => None,
+                })
+                .collect()
+        };
+        let whole = book(&p, None, Scope::Whole).unwrap();
+        assert!(whole.to_the_end);
+
+        let first = book(&p, None, Scope::first(1)).unwrap();
+        assert_eq!(headings(&first), ["Prologue", "Chapter One"]);
+        assert_eq!(
+            first.total, whole.total,
+            "the title page counts the whole book"
+        );
+        assert!(!first.to_the_end, "a sample doesn't say END");
+
+        let middle = book(&p, None, Scope::Chapters { from: 2, to: 3 }).unwrap();
+        assert_eq!(headings(&middle), ["Chapter Two", "Chapter Three"]);
+
+        // Words: whole scenes until the count is reached.
+        let words = book(&p, None, Scope::Words(12)).unwrap();
+        assert_eq!(headings(&words), ["Prologue", "Chapter One"]);
+        assert!(words.words >= 12 && words.words < whole.words);
+
+        let out = export(
+            &p,
+            &ExportOptions {
+                scope: Scope::first(1),
+                ..all_options()
+            },
+        )
+        .unwrap();
+        assert!(
+            out.files.iter().any(
+                |f| f.ends_with("King_The-Archive_Manuscript_Chapters-1-1.docx")
+                    || f.ends_with("King_The-Archive_Manuscript_Chapter-1.docx")
+            ),
+            "{:?}",
+            out.files
+        );
+        let md = markdown(&first);
+        assert!(!md.contains("\nEND"), "{md}");
+        assert!(book(&p, None, Scope::Chapters { from: 3, to: 1 }).is_err());
+        assert!(book(&p, None, Scope::Words(0)).is_err());
         fs::remove_dir_all(&d).unwrap();
     }
 }

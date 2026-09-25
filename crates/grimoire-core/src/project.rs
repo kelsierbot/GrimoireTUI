@@ -35,6 +35,12 @@ pub struct ProjectMeta {
     /// The order of the tree's sections, by [`Area::key`], when it's been
     /// rearranged. Missing ones follow in the usual order; the trash is last.
     pub sections: Vec<String>,
+    /// The title page's contact block (`[contact]`).
+    #[serde(deserialize_with = "crate::submission::lenient_contact")]
+    pub contact: crate::submission::Contact,
+    /// How the submission manuscript looks (`[manuscript]`).
+    #[serde(deserialize_with = "crate::submission::lenient_manuscript")]
+    pub manuscript: crate::submission::Manuscript,
 }
 
 impl Default for ProjectMeta {
@@ -47,6 +53,8 @@ impl Default for ProjectMeta {
             daily_target: 1_000,
             part_label: "Part".into(),
             sections: Vec::new(),
+            contact: crate::submission::Contact::default(),
+            manuscript: crate::submission::Manuscript::default(),
         }
     }
 }
