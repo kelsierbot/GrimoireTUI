@@ -9,9 +9,13 @@ const nav = [
     { id: 'why',     label: 'why',          title: 'why' },
     { id: 'ondisk',  label: 'on disk',      title: 'on disk' },
   ]},
-  { group: 'inside', items: [
-    { id: 'keys',    label: 'keys',         title: 'keys' },
-    { id: 'clearing',label: 'the clearing', title: 'the clearing' },
+  { group: 'writing', items: [
+    { id: 'desk',    label: 'the desk',     title: 'the desk' },
+    { id: 'compile', label: 'compile',      title: 'compile' },
+    { id: 'sync',    label: 'sync',         title: 'sync' },
+  ]},
+  { group: 'around it', items: [
+    { id: 'themes',  label: 'themes',       title: 'themes' },
     { id: 'music',   label: 'music',        title: 'music' },
   ]},
   { group: 'get it', items: [
@@ -20,6 +24,7 @@ const nav = [
   ]},
 ];
 const flat = nav.flatMap((g) => g.items);
+const VERSION = 'v0.5';
 ---
 
 <!doctype html>
@@ -30,7 +35,7 @@ const flat = nav.flatMap((g) => g.items);
     <title>grimoire — a terminal writing desk for novels</title>
     <meta
       name="description"
-      content="A terminal writing desk for novels. Your manuscript is a folder of plain Markdown — no database, no lock-in, diffable in git. Rust and Ratatui."
+      content="A terminal writing desk for novels. Your manuscript is a folder of plain Markdown — it compiles to a standard-format manuscript, a paperback and an EPUB, and stays safe in any sync service. Rust and Ratatui."
     />
     <link rel="canonical" href="https://grimoire.joshking.ai/" />
     <meta name="theme-color" content="#0d0d10" />
@@ -97,22 +102,17 @@ const flat = nav.flatMap((g) => g.items);
               manuscript is — parts, chapters, scenes, word targets — and it keeps all of it as
               plain files you could read with <code>cat</code>.
             </p>
-            <div class="grid-block">
-              <pre><b>┌ MANUSCRIPT ────────────┐┌ Chapter One / Gravel ─────────────────────────┐</b>
-<b>│</b>▾ Part One        2,120 <b>││</b>                                               <b>│</b>
-<b>│</b>  ▾ Chapter One   2,120 <b>││</b>  The caretaker was waiting by her car when    <b>│</b>
-<b>│</b>    • The Archive 1,240 <b>││</b>  she came back out, which meant he had been   <b>│</b>
-<b>│</b>    <i>● Gravel        880</i> <b>││</b>  watching the door the whole time she was     <b>│</b>
-<b>│</b>  ▸ Chapter Two       0 <b>││</b>  inside.                                      <b>│</b>
-<b>│</b>── NOTES ───────────────<b>││</b>                                               <b>│</b>
-<b>│</b>▾ Characters         64 <b>││</b>  "You'll want to come back in daylight,"      <b>│</b>
-<b>│</b>  • Wren             64 <b>││</b>  he said.                                     <b>│</b>
-<b>│</b>                        <b>││</b>                                               <b>│</b>
-<b>│</b>                        <b>││</b>  It was daylight.                             <b>│</b>
-<b>└────────────────────────┘└───────────────────────────────────────────────┘</b>
- <i>2,120</i> / 80,000 <i>▓</i>░░░░░░░░░  today 412            Tab pane  ^S save  ^Q quit</pre>
-            </div>
-            <p class="mute">Rust and Ratatui. One binary, 2.5 MB. macOS and Linux.</p>
+            <figure class="shot">
+              <img src="/shots/desk.webp" width="1620" height="1114" loading="eager"
+                alt="Grimoire in the Lost Forest theme: a book's outline under a spellbook, a scene being written, the Pomodoro forest and the music pane" />
+              <figcaption>01 — the desk: the outline, the prose, the Pomodoro, the music</figcaption>
+            </figure>
+            <p>
+              When the book is done it compiles the way Scrivener does — a submission manuscript in
+              standard format, a print-ready paperback, an EPUB — and while you write it keeps the
+              book safe in whatever syncs it: Dropbox, Google Drive, pCloud, Box.
+            </p>
+            <p class="mute">Rust and Ratatui. One binary. macOS, Linux and Windows.</p>
           </section>
 
           <section id="why" role="tabpanel" aria-labelledby="tab-why">
@@ -128,7 +128,8 @@ const flat = nav.flatMap((g) => g.items);
             </p>
             <p>
               If this project is abandoned tomorrow you still have your book. That is the whole
-              design constraint, and everything else follows from it.
+              design constraint, and everything else follows from it — including that nothing is
+              ever deleted: autosave, recovery, per-scene history, and a trash you can undo from.
             </p>
             <p class="mute">
               Frontmatter is round-tripped verbatim — Grimoire reads a few keys and never rewrites
@@ -140,142 +141,201 @@ const flat = nav.flatMap((g) => g.items);
             <h2>on disk</h2>
             <p>Folders are containers, at any depth. Files are scenes. Order comes from the name.</p>
             <div class="grid-block">
-              <pre><b>the-archive/</b>
-├─ novel.toml                    <i>title, author, word targets</i>
+              <pre><b>the-salt-archive/</b>
+├─ novel.toml                    <i>title, targets, your details</i>
 ├─ manuscript/
-│  └─ 01-part-one/
-│     ├─ 01-chapter-one/
-│     │  ├─ <b>01-the-archive.md</b>         <i>a scene</i>
-│     │  └─ <b>02-gravel.md</b>
-│     └─ 02-chapter-two/
-├─ notes/
-│  └─ characters/<b>wren.md</b>
-└─ .grimoire/                    <i>session state, gitignored</i></pre>
+│  └─ 01-Part-One/
+│     ├─ 01-Chapter-One/
+│     │  ├─ <b>01-Scene-One.md</b>          <i>a scene</i>
+│     │  └─ <b>02-Scene-Two.md</b>
+│     └─ 02-Chapter-Two/ …
+├─ characters/<b>wren.md</b>            <i>the notebook</i>
+├─ places/  notes/  research/
+├─ front-matter/  back-matter/    <i>by edition</i>
+└─ .grimoire/                    <i>history, recovery, trash</i></pre>
             </div>
             <p>A leading <code>01-</code> orders the file and is stripped for display.</p>
             <div class="grid-block">
               <pre>---
-<b>title</b>: Gravel
+<b>title</b>: Scene One
 <b>pov</b>: Wren
 <b>status</b>: draft
-<b>synopsis</b>: Confronts the caretaker in the lot.
-<b>target</b>: 1200
+<b>synopsis</b>: Wren comes back to the archive at night.
+<b>target</b>: 1500
 ---</pre>
             </div>
           </section>
 
-          <section id="keys" role="tabpanel" aria-labelledby="tab-keys">
-            <h2>keys</h2>
+          <section id="desk" role="tabpanel" aria-labelledby="tab-desk">
+            <h2>the desk</h2>
             <table class="keys">
               <tbody>
+                <tr><td>Esc</td><td>the menu — everything is in it, down to Quit</td></tr>
+                <tr><td>Ctrl-K</td><td>find anything: actions, scenes, notes, themes</td></tr>
                 <tr><td>Tab</td><td>switch pane</td></tr>
-                <tr><td>↑ ↓ · j k</td><td>move in tree</td></tr>
-                <tr><td>→ · l · ↵</td><td>expand container, or open scene</td></tr>
-                <tr><td>← · h</td><td>collapse, or jump to parent</td></tr>
                 <tr><td>n · c · p</td><td>new scene · chapter · part, named and placed for you</td></tr>
-                <tr><td>Ctrl-S</td><td>save all changed scenes</td></tr>
-                <tr><td>Ctrl-Q</td><td>quit — twice if unsaved</td></tr>
-                <tr><td>F2 · F3</td><td>start or pause the timer · reset</td></tr>
-                <tr><td>F4 F5 F6</td><td>previous · play-pause · next</td></tr>
+                <tr><td>r · d</td><td>rename · delete (to the trash, and undoable)</td></tr>
+                <tr><td>Ctrl-D</td><td>focus mode — just the prose, centred</td></tr>
+                <tr><td>Ctrl-T</td><td>every %% note %% and TK in the book</td></tr>
+                <tr><td>v</td><td>another scene beside this one, read-only</td></tr>
+                <tr><td>F8</td><td>spelling — or click the underlined word</td></tr>
+                <tr><td>Ctrl-Z · Ctrl-Y</td><td>undo · redo, in the prose and in the tree</td></tr>
+                <tr><td>F2 · F9</td><td>the timer · themes</td></tr>
               </tbody>
             </table>
+            <figure class="shot">
+              <img src="/shots/focus.webp" width="1620" height="1114" loading="lazy"
+                alt="Focus mode in the Kanagawa theme: only the prose, centred" />
+              <figcaption>02 — focus mode</figcaption>
+            </figure>
             <p>
-              Vertical movement in the editor is <strong>visual, not logical</strong>. Down moves
-              one screen row inside a wrapped paragraph rather than jumping the whole paragraph,
-              which is the only behaviour that feels right for prose.
-            </p>
-            <p class="mute">
-              Function keys work from either pane, so they can never eat a keystroke mid-sentence.
+              Notes between <code>%%</code> marks and <code>TK</code> placeholders never reach the
+              book or the word count. Vertical movement is <strong>visual, not logical</strong>:
+              Down moves one screen row inside a wrapped paragraph, which is the only behaviour
+              that feels right for prose.
             </p>
           </section>
 
-          <section id="clearing" role="tabpanel" aria-labelledby="tab-clearing">
-            <h2>the clearing</h2>
-            <p>Below the manuscript tree is a forest, and the forest is the timer.</p>
-            <div class="grid-block">
-              <pre><b>┌ focus · 18:04 ─────────────┐</b>
-<b>│</b>  ·                         <b>│</b>
-<b>│</b>         <i>☀</i>        ·         <b>│</b>
-<b>│</b>    ▲      ▲       ▲        <b>│</b>
-<b>│</b>   ▲▲▲    ▲▲▲     ▲▲▲    ▲  <b>│</b>
-<b>│</b>  ▲▲▲▲▲  ▲▲▲▲▲   ▲▲▲▲▲  ▲▲▲ <b>│</b>
-<b>│</b>    ┃      ┃       ┃     ┃  <b>│</b>
-<b>│</b>   <b>(\_/)</b>            <b>(\_/)</b>   <b>│</b>
-<b>│</b>   <b>(•ᴥ•)</b>    ❀  ✿    <b>(•ᴥ•)</b>   <b>│</b>
-<b>│</b>▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔<b>│</b>
-<b>└────────────────────────────┘</b></pre>
-            </div>
+          <section id="compile" role="tabpanel" aria-labelledby="tab-compile">
+            <h2>compile</h2>
             <p>
-              The sun's <strong>position is the clock</strong>. It crosses the sky over a
-              twenty-five minute session, so you read the time remaining off the light instead of
-              watching a number count down.
+              Export does what Scrivener's Compile does, with its Manuscript format as the default:
+              <strong>William Shunn's standard manuscript format</strong>.
             </p>
+            <figure class="shot">
+              <img src="/shots/manuscript.webp" width="3005" height="1330" loading="lazy"
+                alt="The first three pages of a compiled manuscript: a title page with contact block and word count, Part One and Chapter One on the opening page, a page with a centred # scene break" />
+              <figcaption>03 — a manuscript for agents and editors</figcaption>
+            </figure>
+            <ul>
+              <li>your contact block, byline and a rounded word count on the title page</li>
+              <li>Surname / KEYWORD / page on every page after it</li>
+              <li>chapters a third of the way down, a centred # between scenes, END</li>
+              <li>curly quotes and real dashes — your files are left as you typed them</li>
+              <li>samples an agent asks for: chapters 1–3, or the first N words</li>
+              <li>Times or Courier, Letter or A4, and a PDF through LibreOffice</li>
+            </ul>
+            <figure class="shot">
+              <img src="/shots/paperback.webp" width="1700" height="1310" loading="lazy"
+                alt="A spread from a 6x9 paperback: a left page with the author's running head facing a chapter opener with a small-caps lead-in" />
+              <figcaption>04 — a print-ready paperback, 5×8 to 6×9</figcaption>
+            </figure>
             <p>
-              Break time is night: the moon rises, the flowers close, and fireflies come out between
-              the rabbits.
+              The same book compiles as a <strong>paperback</strong> — mirrored margins with the
+              gutter KDP asks for, running heads, chapters on the right-hand page, justified and
+              hyphenated — and as an <strong>EPUB</strong> with a cover, contents and metadata.
             </p>
             <p class="mute">
-              The rabbits flick their ears on mutually-prime cycles, so the two of them never move
-              in lockstep.
+              Empty scenes and chapters are left out, and every TK is listed before anything is
+              written.
             </p>
+          </section>
+
+          <section id="sync" role="tabpanel" aria-labelledby="tab-sync">
+            <h2>sync</h2>
+            <p>
+              A book is a folder, so any sync service carries it. Grimoire makes sure none of them
+              can lose your words.
+            </p>
+            <figure class="shot">
+              <img src="/shots/conflicts.webp" width="1620" height="1114" loading="lazy"
+                alt="Settling a Dropbox conflict copy: the scene on the left, the copy on the right, and the choice to take the copy, keep the scene or keep both" />
+              <figcaption>05 — two devices wrote one scene; nothing was lost</figcaption>
+            </figure>
+            <ul>
+              <li><strong>Nothing is written over.</strong> Every save checks the file first; a change from elsewhere is kept beside the scene.</li>
+              <li>Conflict copies from Dropbox, pCloud, Google Drive, Box, OneDrive, iCloud and Syncthing are recognised, never counted or exported twice, and settled side by side.</li>
+              <li>A file that isn't downloaded yet shows as offline and is never saved over.</li>
+              <li>Names are safe on every service and system, and writing history lives outside the synced folder.</li>
+            </ul>
+            <p class="mute">Checked against each service's documented behaviour, and on a real pCloud Drive.</p>
+          </section>
+
+          <section id="themes" role="tabpanel" aria-labelledby="tab-themes">
+            <h2>themes</h2>
+            <p>
+              Nineteen themes, and each brings its own world to the pane under the outline. The
+              <strong>Pomodoro</strong> is the timer — the sun's position is the clock, and break
+              time is night.
+            </p>
+            <figure class="shot">
+              <img src="/shots/pomodoros.webp" width="1632" height="1198" loading="lazy"
+                alt="Nineteen small Pomodoro scenes, one per theme: a tower, snowy peaks, a castle, cats, the great wave, a neon grid and more" />
+              <figcaption>06 — every theme's Pomodoro, mid-session</figcaption>
+            </figure>
+            <p>
+              <code>→</code> turns it into the <strong>Visualizer</strong>: a spectrum of whatever the
+              computer is playing, drawn in the theme's own style, with the song's name on it.
+            </p>
+            <figure class="shot">
+              <img src="/shots/visualizers.webp" width="1632" height="1198" loading="lazy"
+                alt="Nineteen music visualizers, one per theme: meters, beads, frost, a neon skyline, a rolling wave, a synthwave grid" />
+              <figcaption>07 — every theme's Visualizer</figcaption>
+            </figure>
+            <p class="mute">A custom theme mixes and matches: any theme's world with any theme's Visualizer.</p>
           </section>
 
           <section id="music" role="tabpanel" aria-labelledby="tab-music">
             <h2>music</h2>
-            <p>
-              There is no official YouTube Music API, and anything that extracts stream URLs both
-              violates the terms and side-steps the subscription you already pay for.
-              <strong>So Grimoire never plays audio.</strong>
-            </p>
-            <p>
-              It drives YTMDesktop's Companion Server instead, which is already signed into your
-              real account. Your playlists, your Premium, your playback — Grimoire just presses the
-              buttons.
-            </p>
+            <p>Music is off until you turn it on. Four sources:</p>
+            <table class="keys">
+              <tbody>
+                <tr><td>YouTube Music</td><td>drives th-ch's desktop app through its API server — queue, search, your playlists</td></tr>
+                <tr><td>Spotify</td><td>drives the desktop app (macOS and Linux)</td></tr>
+                <tr><td>Jellyfin</td><td><strong>Grimoire plays it</strong> — your files, your server</td></tr>
+                <tr><td>Plex</td><td><strong>Grimoire plays it</strong> — your files, your server</td></tr>
+              </tbody>
+            </table>
             <div class="grid-block">
-              <pre><b>┌ ♪ ─────────────────────────┐</b>
-<b>│</b><i>▶ Weightless</i>                <b>│</b>
-<b>│</b><i>━━</i>─────────────────── 0:50  <b>│</b>
-<b>└────────────────────────────┘</b></pre>
+              <pre><b>┌ ♪ YouTube Music · F7 ──────┐</b>
+<b>│</b><i>▶ Low Tide</i>                  <b>│</b>
+<b>│</b><i>━━━━━━━━</i>─────────── 2:11 <i>↻</i> <b>│</b>
+<b>└ [ prev · space ⏯ · ] next ─┘</b></pre>
             </div>
             <p class="mute">
-              With no token configured the pane stays inert and never touches the network.
+              Grimoire never extracts streams from YouTube Music or Spotify: it presses the buttons of
+              the app you already pay for.
             </p>
           </section>
 
           <section id="install" role="tabpanel" aria-labelledby="tab-install">
             <h2>install</h2>
-            <p class="mute">Requires Rust 1.85 or newer.</p>
+            <p>macOS and Linux:</p>
             <p>
-              <code class="cmd">git clone {REPO}</code>
-              <code class="cmd">cd GrimoireTUI &amp;&amp; cargo install --path .</code>
-              <code class="cmd">grimoire example</code>
+              <code class="cmd">curl --proto '=https' --tlsv1.2 -LsSf https://github.com/kelsierbot/GrimoireTUI/releases/latest/download/grimoire-tui-installer.sh | sh</code>
+            </p>
+            <p>Windows (PowerShell):</p>
+            <p>
+              <code class="cmd">powershell -ExecutionPolicy Bypass -c "irm https://github.com/kelsierbot/GrimoireTUI/releases/latest/download/grimoire-tui-installer.ps1 | iex"</code>
+            </p>
+            <p>Or with Homebrew:</p>
+            <p>
+              <code class="cmd">brew tap kelsierbot/tap</code>
+              <code class="cmd">brew trust kelsierbot/tap</code>
+              <code class="cmd">brew install grimoire</code>
             </p>
             <p>
-              The crate is <strong>grimoire-tui</strong>; the binary it installs is
-              <strong>grimoire</strong>. A crates.io release is coming.
+              Then open a new terminal and run <strong>grimoire</strong>. No Rust, no build tools.
+              From source: <code>cargo install --path .</code> in a clone of
+              <a href={REPO}>the repo</a>.
             </p>
-            <p>For music, optionally:</p>
-            <p>
-              <code class="cmd">brew install --cask ytmdesktop-youtube-music</code>
-              <code class="cmd note">enable Settings → Integrations → Companion Server</code>
-              <code class="cmd">grimoire music-auth</code>
+            <p class="mute">
+              Linux needs glibc 2.35+ and ALSA's audio library, which every desktop distro already has.
+              PDFs need LibreOffice.
             </p>
           </section>
 
           <section id="status" role="tabpanel" aria-labelledby="tab-status">
             <h2>status</h2>
             <p>
-              v0.1. It opens a manuscript, shows you the shape of it, tracks your words, and lets
-              you write. That is the whole thing so far.
+              v0.5 — written in daily. Outlining, writing, notes, history, sync safety, and compiling
+              for agents, print and e-readers are all here.
             </p>
             <p>Not yet:</p>
             <ul>
-              <li>command palette</li>
-              <li>corkboard view — <span class="mute">pov and status are already parsed and waiting</span></li>
-              <li>git sync</li>
-              <li>scene reordering, and creating files from inside the app</li>
-              <li>search, spellcheck</li>
+              <li>the phone app — <span class="mute">running on Android, not released</span></li>
+              <li>spellcheck in languages other than English</li>
+              <li>Spotify on Windows</li>
             </ul>
             <p class="mute">MIT. Issues and patches welcome at <a href={REPO}>the repo</a>.</p>
           </section>
@@ -290,7 +350,7 @@ const flat = nav.flatMap((g) => g.items);
           <span class="hint"><kbd>Tab</kbd> pane</span>
           <span class="hint"><kbd>g</kbd> github</span>
         </span>
-        <span class="right">v0.1 · MIT · Rust + Ratatui</span>
+        <span class="right">{VERSION} · MIT · Rust + Ratatui</span>
       </footer>
     </div>
 

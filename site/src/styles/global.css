@@ -228,3 +228,16 @@ a:hover { color: var(--focus); text-decoration-color: var(--focus); }
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
+
+/* Screenshots: drawn by Grimoire itself. A hairline keyline like the panes,
+   no radius, no shadow — a figure in a document, not a card. */
+.shot { margin: 0 0 var(--row); }
+.shot img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--line);
+}
+.shot figcaption { margin-top: 0.4em; color: var(--mute); }
+.shot figcaption::before { content: 'fig. '; }
+.cmd { overflow-wrap: anywhere; }
