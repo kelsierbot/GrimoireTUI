@@ -5,14 +5,17 @@ use super::*;
 use crate::app::{SAMPLE_KINDS, sample_default};
 use grimoire_core::submission::Choice;
 
-/// Rows: four formats, each act, then "How much", "Look", "Author" and the
+/// Rows: five formats, each act, then "How much", "Look", "Author" and the
 /// Export button.
-const FORMATS: usize = 4;
+const FORMATS: usize = 5;
+/// The Paperback's row among the formats: ←/→ there changes its trim.
+const PAPERBACK: usize = 2;
 
 impl App {
     pub(super) fn on_export_key(&mut self, key: Key) {
         let Overlay::Export {
             formats,
+            trim,
             parts,
             sample,
             sel,
@@ -34,6 +37,17 @@ impl App {
         // Anything changed after a TK warning asks again.
         let reset = |tks: &mut Option<Vec<String>>| *tks = None;
         match key {
+            // The paperback's trim size, on its row; choosing one ticks it.
+            Key::Right | Key::Char('l') if *sel == PAPERBACK => {
+                *trim = trim.next();
+                formats[PAPERBACK] = true;
+                reset(tks);
+            }
+            Key::Left | Key::Char('h') if *sel == PAPERBACK => {
+                *trim = trim.prev();
+                formats[PAPERBACK] = true;
+                reset(tks);
+            }
             Key::Char(' ') | Key::Enter if *sel < FORMATS => {
                 formats[*sel] = !formats[*sel];
                 reset(tks);
@@ -88,6 +102,7 @@ impl App {
 pub(super) fn draw_export(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
     let Overlay::Export {
         formats,
+        trim,
         parts,
         sample,
         sel,
@@ -165,14 +180,26 @@ pub(super) fn draw_export(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
     } else {
         "needs LibreOffice (free) — libreoffice.org"
     };
+    let paperback_note = if app.has_office() {
+        format!("◂ {} ▸  print-ready DOCX + PDF", trim.label())
+    } else {
+        format!(
+            "◂ {} ▸  print-ready DOCX (PDF needs LibreOffice)",
+            trim.label()
+        )
+    };
     let notes = [
-        ("Word document", "manuscript format, for agents and editors"),
-        ("PDF", pdf_note),
-        ("EPUB", "for phones and e-readers"),
-        ("Markdown", "the plain compiled text"),
+        (
+            "Word document",
+            "manuscript format, for agents and editors".to_string(),
+        ),
+        ("PDF", pdf_note.to_string()),
+        ("Paperback", paperback_note),
+        ("EPUB", "for phones and e-readers".to_string()),
+        ("Markdown", "the plain compiled text".to_string()),
     ];
-    for (i, (label, note)) in notes.iter().enumerate() {
-        lines.push(tick_row(i, formats[i], label.to_string(), note.to_string()));
+    for (i, (label, note)) in notes.into_iter().enumerate() {
+        lines.push(tick_row(i, formats[i], label.to_string(), note));
     }
     if !parts.is_empty() {
         lines.push(Line::from(""));
@@ -272,11 +299,44 @@ pub(super) fn draw_export(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
     }
     let hint = if *sel == how_much {
         " ←→ whole book / first chapters / chapters / words   type the number   x export"
+    } else if *sel == PAPERBACK {
+        " ←→ trim size   space/↵ tick   x export   esc close"
     } else {
         " ↑↓ choose   space/↵ tick or open   x export   esc close"
     };
     lines.push(hint_line(hint, t));
+    let lines = fit_rows(lines, inner.height as usize);
     f.render_widget(Paragraph::new(lines), inner);
+}
+
+/// More rows than the box holds — a short terminal, a book of many parts, a
+/// TK warning: the spacer lines go first, then the list scrolls to keep the
+/// cursor (the `▸` row) in view. The hint row at the bottom always stays.
+fn fit_rows(mut lines: Vec<Line<'static>>, room: usize) -> Vec<Line<'static>> {
+    if lines.len() <= room || room < 3 {
+        return lines;
+    }
+    let hint = lines.pop().expect("the hint row");
+    while lines.len() >= room {
+        match lines.iter().rposition(|l| l.width() == 0) {
+            Some(i) => {
+                lines.remove(i);
+            }
+            None => break,
+        }
+    }
+    let body = room - 1;
+    if lines.len() > body {
+        let cursor = lines
+            .iter()
+            .position(|l| l.spans.first().is_some_and(|s| s.content == " ▸ "))
+            .unwrap_or(0);
+        let start = (cursor + 1).saturating_sub(body).min(lines.len() - body);
+        lines = lines.split_off(start);
+        lines.truncate(body);
+    }
+    lines.push(hint);
+    lines
 }
 
 // ── the manuscript's look ──────────────────────────────────────────────

@@ -54,6 +54,15 @@ pub struct ExportOptions {
     pub pdf: bool,
     pub epub: bool,
     pub markdown: bool,
+    /// The print edition: a DOCX laid out as a book, and a PDF from it when
+    /// LibreOffice is installed. See [`crate::export_print`].
+    pub paperback: bool,
+    /// Make the paperback's PDF here, as part of the export. The app sets
+    /// this off and makes it on a thread of its own from
+    /// [`Exported::paperback_document`], so the screen doesn't freeze.
+    pub paperback_pdf: bool,
+    /// Trim size for the paperback, overriding novel.toml's `[paperback]`.
+    pub trim: Option<crate::export_print::Trim>,
     /// Node indices of the top-level parts to include, as [`parts`] lists
     /// them. `None` is the whole book.
     pub parts: Option<Vec<usize>>,
@@ -68,6 +77,9 @@ impl Default for ExportOptions {
             pdf: false,
             epub: true,
             markdown: false,
+            paperback: false,
+            paperback_pdf: true,
+            trim: None,
             parts: None,
             scope: Scope::Whole,
         }
@@ -134,6 +146,13 @@ pub struct Exported {
     pub empty: usize,
     /// The PDF couldn't be made, and why. The other files were still written.
     pub pdf_error: Option<String>,
+    /// Anything else worth saying about what was (or wasn't) written, e.g.
+    /// that the paperback's PDF needs LibreOffice.
+    pub notes: Vec<String>,
+    /// With `paperback_pdf` off: the paperback's LibreOffice document and
+    /// where its PDF belongs, for the caller to hand to
+    /// [`crate::export_print::to_pdf`].
+    pub paperback_document: Option<(String, PathBuf)>,
 }
 
 /// The book's top-level parts (acts), in order: node index and title.
@@ -152,8 +171,8 @@ pub fn tks(p: &Project, opts: &ExportOptions) -> Result<Vec<String>> {
 /// Write the chosen formats to `<book>/exports/`.
 pub fn export(p: &Project, opts: &ExportOptions) -> Result<Exported> {
     p.ensure_whole()?;
-    if !(opts.docx || opts.pdf || opts.epub || opts.markdown) {
-        bail!("nothing to export — choose Word, PDF, EPUB or Markdown");
+    if !(opts.docx || opts.pdf || opts.epub || opts.markdown || opts.paperback) {
+        bail!("nothing to export — choose Word, PDF, Paperback, EPUB or Markdown");
     }
     let mut book = book(p, opts.parts.as_deref(), opts.scope)?;
     if book.pieces.is_empty() {
@@ -192,11 +211,46 @@ pub fn export(p: &Project, opts: &ExportOptions) -> Result<Exported> {
     };
     if opts.epub {
         let submission = std::mem::replace(&mut book.front, front_pages(p, Edition::Ebook));
-        put(&format!("{stem}.epub"), &epub(&book)?)?;
+        let extras = Extras {
+            meta: &p.meta.ebook,
+            back: back_pages(p, Edition::Ebook),
+            cover: find_cover(p),
+        };
+        put(&format!("{stem}.epub"), &epub_with(&book, &extras)?)?;
         book.front = submission;
     }
     if opts.markdown {
         put(&format!("{stem}.md"), markdown(&book).as_bytes())?;
+    }
+    let mut notes = Vec::new();
+    let mut paperback_document = None;
+    if opts.paperback {
+        let submission = std::mem::replace(&mut book.front, front_pages(p, Edition::Paperback));
+        let mut layout = crate::export_print::Layout::from_meta(&p.meta.paperback);
+        if let Some(trim) = opts.trim {
+            layout.trim = trim;
+        }
+        let print = crate::export_print::Print {
+            layout,
+            back: back_pages(p, Edition::Paperback),
+            meta: &p.meta.ebook,
+        };
+        let (docx_bytes, document) = crate::export_print::paperback(&book, &print)?;
+        // Named like the manuscript: `Marlowe_The-Salt-Archive_Paperback`.
+        let paper = manuscript.replacen("_Manuscript", "_Paperback", 1);
+        let docx_path = dir.join(format!("{paper}.docx"));
+        crate::atomic::write(&docx_path, &docx_bytes)?;
+        files.push(docx_path.clone());
+        let pdf_path = docx_path.with_extension("pdf");
+        if opts.paperback_pdf {
+            match crate::export_print::to_pdf(&document, &pdf_path) {
+                Ok(pdf) => files.push(pdf),
+                Err(e) => notes.push(format!("{e:#}")),
+            }
+        } else {
+            paperback_document = Some((document, pdf_path));
+        }
+        book.front = submission;
     }
 
     Ok(Exported {
@@ -207,6 +261,8 @@ pub fn export(p: &Project, opts: &ExportOptions) -> Result<Exported> {
         tks: book.tks.clone(),
         empty: book.empty,
         pdf_error,
+        notes,
+        paperback_document,
     })
 }
 
@@ -303,7 +359,7 @@ pub(crate) enum Edition {
 }
 
 fn edition_of(p: &Project, n: &Node) -> Option<Edition> {
-    let fm = crate::project::Area::FrontMatter.path(&p.root);
+    let fm = n.area.path(&p.root);
     let first = n.path.strip_prefix(&fm).ok()?.components().next()?;
     let folder = fm.join(first);
     if folder == n.path {
@@ -332,6 +388,64 @@ pub(crate) fn front_pages(p: &Project, edition: Edition) -> Vec<Cow<'_, str>> {
         .map(|n| prose(&n.body, hyphen))
         .filter(|body| !body.is_empty())
         .collect()
+}
+
+/// The back-matter pages that go into `edition`, in order: in a folder named
+/// for it, or loose in the section for every reader edition.
+pub(crate) fn back_pages(p: &Project, edition: Edition) -> Vec<Cow<'_, str>> {
+    let hyphen = p.meta.manuscript.spaced_hyphen;
+    p.nodes
+        .iter()
+        .filter(|n| {
+            n.kind == Kind::Scene && n.area == crate::project::Area::BackMatter && n.compile
+        })
+        .filter(|n| edition_of(p, n).is_none_or(|e| e == edition))
+        .map(|n| prose(&n.body, hyphen))
+        .filter(|body| !body.is_empty())
+        .collect()
+}
+
+/// The ebook's cover: `[ebook] cover` in novel.toml, or a `cover.jpg` /
+/// `cover.png` in the book's folder or its Ebook front matter. Only a real
+/// JPEG or PNG counts — anything else would make an EPUB readers reject.
+pub(crate) fn find_cover(p: &Project) -> Option<(&'static str, Vec<u8>)> {
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    let named = p.meta.ebook.cover.trim();
+    if !named.is_empty() {
+        candidates.push(p.root.join(named));
+    }
+    let fm = crate::project::Area::FrontMatter.path(&p.root);
+    let ebook_dirs = p.nodes.iter().filter(|n| {
+        n.kind == Kind::Container
+            && n.path.parent() == Some(fm.as_path())
+            && matches!(n.title.to_lowercase().as_str(), "ebook" | "e-book" | "epub")
+    });
+    let dirs: Vec<PathBuf> = std::iter::once(p.root.clone())
+        .chain(ebook_dirs.map(|n| n.path.clone()))
+        .collect();
+    for d in dirs {
+        for name in [
+            "cover.jpg",
+            "cover.jpeg",
+            "cover.png",
+            "Cover.jpg",
+            "Cover.jpeg",
+            "Cover.png",
+        ] {
+            candidates.push(d.join(name));
+        }
+    }
+    candidates.into_iter().find_map(|path| {
+        let bytes = std::fs::read(&path).ok()?;
+        let kind = if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+            "jpeg"
+        } else if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+            "png"
+        } else {
+            return None;
+        };
+        Some((kind, bytes))
+    })
 }
 
 /// A scene's text as it goes into the book: `%% notes %%` out, TKs kept
@@ -771,7 +885,7 @@ pub(crate) fn slug(title: &str) -> String {
 /// unless that title is only the chapter's number again. "Chapter Two: The
 /// Lamp" gives "The Lamp"; "Chapter Two", "Chapter 2" and "Chapter II" give
 /// nothing.
-fn chapter_name(title: &str) -> Option<&str> {
+pub(crate) fn chapter_name(title: &str) -> Option<&str> {
     let t = title.trim();
     let word = "chapter";
     let is_chapter = t.len() >= word.len()
@@ -1026,7 +1140,7 @@ fn has_closer(chars: &[char], from: usize, c: char, need: usize) -> bool {
     false
 }
 
-fn plain(s: &str) -> String {
+pub(crate) fn plain(s: &str) -> String {
     inline(s).into_iter().map(|r| r.text).collect()
 }
 
@@ -1154,7 +1268,7 @@ pub(crate) fn markdown(b: &Book) -> String {
 
 /// Pack text files into a zip, in order. `mimetype` is stored uncompressed,
 /// which EPUB requires so a reader can recognise the file by its first bytes.
-fn pack(entries: &[(String, String)]) -> Result<Vec<u8>> {
+pub(crate) fn pack<T: AsRef<[u8]>>(entries: &[(String, T)]) -> Result<Vec<u8>> {
     use chrono::{Datelike, Timelike};
     use zip::CompressionMethod;
     use zip::write::SimpleFileOptions;
@@ -1181,7 +1295,7 @@ fn pack(entries: &[(String, String)]) -> Result<Vec<u8>> {
             .compression_method(method)
             .last_modified_time(stamp);
         z.start_file(name.as_str(), opts)?;
-        z.write_all(text.as_bytes())?;
+        z.write_all(text.as_ref())?;
     }
     Ok(z.finish()?.into_inner())
 }
@@ -1843,10 +1957,10 @@ fn html_blocks(body: &str) -> String {
     out
 }
 
-fn xhtml(title: &str, body: &str) -> String {
+fn xhtml_lang(title: &str, body: &str, lang: &str) -> String {
     format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE html>\n\
-         <html xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:epub=\"http://www.idpf.org/2007/ops\" xml:lang=\"en\" lang=\"en\">\n\
+         <html xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:epub=\"http://www.idpf.org/2007/ops\" xml:lang=\"{lang}\" lang=\"{lang}\">\n\
          <head>\n<title>{}</title>\n<link rel=\"stylesheet\" type=\"text/css\" href=\"style.css\"/>\n</head>\n\
          <body>\n{body}\n</body>\n</html>\n",
         xml_escape(title)
@@ -1886,26 +2000,94 @@ fn book_id(title: &str, author: &str) -> String {
 
 const EPUB_CSS: &str = "body { margin: 0 5%; }
 h1, h2, h3 { font-weight: normal; text-align: center; }
-p { margin: 0; text-indent: 1.5em; }
+p { margin: 0; text-indent: 1.5em; line-height: 1.4; }
 p.first { text-indent: 0; }
-p.break { margin: 1em 0; text-align: center; text-indent: 0; }
+p.break { margin: 1.2em 0; text-align: center; text-indent: 0; letter-spacing: 0.3em; }
 blockquote { margin: 1em 2em; }
 blockquote p { text-indent: 0; }
+.cover { margin: 0; padding: 0; text-align: center; }
+.cover img { max-width: 100%; max-height: 100%; height: 100%; }
 .titlepage { text-align: center; }
 .titlepage h1 { margin: 6em 0 1em; font-size: 2em; }
 .titlepage p.byline { font-size: 1.2em; text-indent: 0; }
-.front p { text-indent: 0; }
-.front h3 { font-size: 1.5em; margin: 2em 0 1em; }
-.part h1 { margin-top: 8em; font-size: 1.8em; }
-.chapter h2 { margin: 4em 0 2em; font-size: 1.4em; }
-.chapter h2 .name { font-style: italic; }
+.front p, .back p { text-indent: 0; margin-bottom: 0.6em; }
+.front h3, .back h3 { font-size: 1.5em; margin: 2em 0 1em; }
+.contents h1 { margin: 2em 0 1em; font-size: 1.5em; }
+.contents ol { list-style: none; padding: 0; margin: 0 auto; }
+.contents li { margin: 0.4em 0; text-align: left; }
+.contents li li { margin-left: 1.5em; }
+.contents a { text-decoration: none; color: inherit; }
+.part h1 { margin-top: 8em; font-size: 1.8em; letter-spacing: 0.08em; }
+.chapter h2 { margin: 4em 0 2em; font-size: 1.1em; }
+.chapter h2 .number { font-variant: small-caps; letter-spacing: 0.12em; }
+.chapter h2 .name { font-size: 1.5em; font-style: italic; letter-spacing: 0; line-height: 2; }
 h3 { font-size: 1em; margin: 1em 0; }
 ";
 
+/// What an EPUB carries beyond the manuscript: `[ebook]` metadata, back
+/// matter, a cover.
+pub(crate) struct Extras<'a> {
+    pub meta: &'a crate::project::EbookMeta,
+    pub back: Vec<Cow<'a, str>>,
+    /// Media subtype (`jpeg` / `png`) and the image.
+    pub cover: Option<(&'static str, Vec<u8>)>,
+}
+
+/// The first heading of a page, for its contents entry ("About the Author").
+fn page_label(body: &str) -> Option<String> {
+    blocks(body).into_iter().find_map(|b| match b {
+        Block::Heading(h) => Some(plain(h)),
+        _ => None,
+    })
+}
+
+/// An ISBN as a URN: digits (and a final X) only.
+fn isbn_urn(isbn: &str) -> Option<String> {
+    let digits: String = isbn
+        .chars()
+        .filter(|c| c.is_ascii_digit() || *c == 'X' || *c == 'x')
+        .collect();
+    matches!(digits.len(), 10 | 13).then(|| format!("urn:isbn:{}", digits.to_uppercase()))
+}
+
+#[cfg(test)]
 fn epub(b: &Book) -> Result<Vec<u8>> {
-    // (file, id, xhtml)
-    let mut docs: Vec<(String, String, String)> = Vec::new();
+    let meta = crate::project::EbookMeta::default();
+    epub_with(
+        b,
+        &Extras {
+            meta: &meta,
+            back: Vec::new(),
+            cover: None,
+        },
+    )
+}
+
+fn epub_with(b: &Book, x: &Extras) -> Result<Vec<u8>> {
+    let lang = xml_escape(x.meta.language());
+    let page = |title: &str, body: &str| xhtml_lang(title, body, &lang);
+    // (file, id, xhtml, properties)
+    let mut docs: Vec<(String, String, String, &'static str)> = Vec::new();
     let mut toc: Vec<Toc> = Vec::new();
+
+    // The cover first, so a reader opens on it and a store's preview shows it.
+    let cover = x.cover.as_ref().map(|(kind, bytes)| {
+        let ext = if *kind == "jpeg" { "jpg" } else { "png" };
+        (format!("images/cover.{ext}"), *kind, bytes)
+    });
+    if let Some((href, _, _)) = &cover {
+        let body = format!(
+            "<section class=\"cover\" epub:type=\"cover\">\n<img src=\"{href}\" alt=\"{}\"/>\n</section>",
+            xml_escape(b.title)
+        );
+        docs.push((
+            "cover.xhtml".into(),
+            "cover".into(),
+            page(b.title, &body),
+            "",
+        ));
+    }
+    let title_at = docs.len();
 
     if b.front.is_empty() {
         let mut body = String::from("<div class=\"titlepage\" epub:type=\"titlepage\">\n");
@@ -1914,23 +2096,31 @@ fn epub(b: &Book) -> Result<Vec<u8>> {
             let _ = writeln!(body, "<p class=\"byline\">{}</p>", xml_escape(b.author));
         }
         body.push_str("</div>");
-        docs.push(("title.xhtml".into(), "title".into(), xhtml(b.title, &body)));
+        docs.push((
+            "title.xhtml".into(),
+            "title".into(),
+            page(b.title, &body),
+            "",
+        ));
     } else {
         for (i, f) in b.front.iter().enumerate() {
             let body = format!("<div class=\"front\">\n{}</div>", html_blocks(f));
             docs.push((
                 format!("front-{}.xhtml", i + 1),
                 format!("front-{}", i + 1),
-                xhtml(b.title, &body),
+                page(b.title, &body),
+                "",
             ));
         }
     }
-    let opening = docs.len();
     toc.push(Toc {
         label: "Title Page".into(),
-        href: docs[0].0.clone(),
+        href: docs[title_at].0.clone(),
         kids: Vec::new(),
     });
+    // The contents page goes here, once the chapters are known.
+    let contents_at = docs.len();
+    let opening = contents_at + 1;
 
     let (mut part_no, mut text_no, mut chapter_no) = (0, 0, 0);
     for piece in &b.pieces {
@@ -1952,7 +2142,7 @@ fn epub(b: &Book) -> Result<Vec<u8>> {
                         kids: Vec::new(),
                     },
                 );
-                docs.push((file, id, xhtml(&plain(title), &body)));
+                docs.push((file, id, page(&plain(title), &body), ""));
             }
             Piece::Chapter {
                 number,
@@ -2016,27 +2206,65 @@ fn epub(b: &Book) -> Result<Vec<u8>> {
                         kids: Vec::new(),
                     },
                 );
-                docs.push((file, id, xhtml(&label, &body)));
+                docs.push((file, id, page(&label, &body), ""));
             }
             Piece::Scene(s) => {
                 text_no += 1;
                 let id = format!("text-{text_no:02}");
                 let body = format!("<div class=\"text\">\n{}</div>", html_blocks(s));
-                docs.push((format!("{id}.xhtml"), id, xhtml(b.title, &body)));
+                docs.push((format!("{id}.xhtml"), id, page(b.title, &body), ""));
             }
         }
     }
 
+    // Back matter after the story: acknowledgements, about the author, also by.
+    let back_at = docs.len();
+    for (i, text) in x.back.iter().enumerate() {
+        let id = format!("back-{}", i + 1);
+        let file = format!("{id}.xhtml");
+        let label = page_label(text).unwrap_or_else(|| "Afterword".into());
+        let body = format!(
+            "<section class=\"back\" epub:type=\"backmatter\">\n{}</section>",
+            html_blocks(text)
+        );
+        toc.push(Toc {
+            label: label.clone(),
+            href: file.clone(),
+            kids: Vec::new(),
+        });
+        docs.push((file, id, page(&label, &body), ""));
+    }
+
+    // A contents page a reader can turn to (KDP asks for one), beside the
+    // navigation the reading system uses.
+    let mut listing = String::from("<div class=\"contents\">\n<h1>Contents</h1>\n");
+    nav_list(&toc[1..], &mut listing);
+    listing.push_str("</div>");
+    docs.insert(
+        contents_at,
+        (
+            "contents.xhtml".into(),
+            "contents".into(),
+            page("Contents", &listing),
+            "",
+        ),
+    );
+    let back_at = back_at + 1;
+
     let id = book_id(b.title, b.author);
     let title = xml_escape(b.title);
     let modified = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ");
+    let m = x.meta;
 
-    let mut opf = String::from(
+    let mut opf = format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
-         <package xmlns=\"http://www.idpf.org/2007/opf\" version=\"3.0\" unique-identifier=\"book-id\" xml:lang=\"en\">\n\
-         <metadata xmlns:dc=\"http://purl.org/dc/elements/1.1/\">\n",
+         <package xmlns=\"http://www.idpf.org/2007/opf\" version=\"3.0\" unique-identifier=\"book-id\" xml:lang=\"{lang}\">\n\
+         <metadata xmlns:dc=\"http://purl.org/dc/elements/1.1/\">\n"
     );
     let _ = writeln!(opf, "<dc:identifier id=\"book-id\">{id}</dc:identifier>");
+    if let Some(isbn) = isbn_urn(&m.isbn) {
+        let _ = writeln!(opf, "<dc:identifier id=\"isbn\">{isbn}</dc:identifier>");
+    }
     let _ = writeln!(opf, "<dc:title>{title}</dc:title>");
     if !b.author.is_empty() {
         let _ = writeln!(
@@ -2048,43 +2276,118 @@ fn epub(b: &Book) -> Result<Vec<u8>> {
             "<meta refines=\"#author\" property=\"role\" scheme=\"marc:relators\">aut</meta>\n",
         );
     }
-    opf.push_str("<dc:language>en</dc:language>\n");
+    let _ = writeln!(opf, "<dc:language>{lang}</dc:language>");
+    let field = |opf: &mut String, tag: &str, value: &str| {
+        let v = value.trim();
+        if !v.is_empty() {
+            let _ = writeln!(opf, "<dc:{tag}>{}</dc:{tag}>", xml_escape(v));
+        }
+    };
+    field(&mut opf, "publisher", &m.publisher);
+    field(&mut opf, "description", &m.description);
+    field(&mut opf, "rights", &m.rights);
+    field(&mut opf, "date", &m.published);
+    for subject in &m.subjects {
+        field(&mut opf, "subject", subject);
+    }
+    let series = m.series.trim();
+    if !series.is_empty() {
+        let _ = writeln!(
+            opf,
+            "<meta property=\"belongs-to-collection\" id=\"series\">{}</meta>",
+            xml_escape(series)
+        );
+        opf.push_str("<meta refines=\"#series\" property=\"collection-type\">series</meta>\n");
+        if let Some(n) = m.series_number {
+            let _ = writeln!(
+                opf,
+                "<meta refines=\"#series\" property=\"group-position\">{n}</meta>"
+            );
+        }
+        // Calibre and Kindle read the older form.
+        let _ = writeln!(
+            opf,
+            "<meta name=\"calibre:series\" content=\"{}\"/>",
+            xml_escape(series)
+        );
+        if let Some(n) = m.series_number {
+            let _ = writeln!(opf, "<meta name=\"calibre:series_index\" content=\"{n}\"/>");
+        }
+    }
+    if cover.is_some() {
+        // EPUB 2 readers find the cover by this.
+        opf.push_str("<meta name=\"cover\" content=\"cover-image\"/>\n");
+    }
     let _ = writeln!(opf, "<meta property=\"dcterms:modified\">{modified}</meta>");
     opf.push_str("</metadata>\n<manifest>\n");
     opf.push_str("<item id=\"nav\" href=\"nav.xhtml\" media-type=\"application/xhtml+xml\" properties=\"nav\"/>\n");
     opf.push_str("<item id=\"ncx\" href=\"toc.ncx\" media-type=\"application/x-dtbncx+xml\"/>\n");
     opf.push_str("<item id=\"css\" href=\"style.css\" media-type=\"text/css\"/>\n");
-    for (file, id, _) in &docs {
+    if let Some((href, kind, _)) = &cover {
         let _ = writeln!(
             opf,
-            "<item id=\"{id}\" href=\"{file}\" media-type=\"application/xhtml+xml\"/>"
+            "<item id=\"cover-image\" href=\"{href}\" media-type=\"image/{kind}\" properties=\"cover-image\"/>"
+        );
+    }
+    for (file, id, _, props) in &docs {
+        let props = if props.is_empty() {
+            String::new()
+        } else {
+            format!(" properties=\"{props}\"")
+        };
+        let _ = writeln!(
+            opf,
+            "<item id=\"{id}\" href=\"{file}\" media-type=\"application/xhtml+xml\"{props}/>"
         );
     }
     opf.push_str("</manifest>\n<spine toc=\"ncx\">\n");
-    for (_, id, _) in &docs {
+    for (_, id, _, _) in &docs {
         let _ = writeln!(opf, "<itemref idref=\"{id}\"/>");
     }
-    opf.push_str("</spine>\n</package>\n");
+    opf.push_str("</spine>\n");
+    // EPUB 2's guide, for readers that still look for the cover and text there.
+    opf.push_str("<guide>\n");
+    if cover.is_some() {
+        opf.push_str("<reference type=\"cover\" title=\"Cover\" href=\"cover.xhtml\"/>\n");
+    }
+    opf.push_str("<reference type=\"toc\" title=\"Contents\" href=\"contents.xhtml\"/>\n");
+    if let Some((file, _, _, _)) = docs.get(opening) {
+        let _ = writeln!(
+            opf,
+            "<reference type=\"text\" title=\"Start\" href=\"{file}\"/>"
+        );
+    }
+    opf.push_str("</guide>\n</package>\n");
 
     let mut nav = String::from("<nav epub:type=\"toc\" id=\"toc\">\n<h1>Contents</h1>\n");
     nav_list(&toc, &mut nav);
     nav.push_str("</nav>\n<nav epub:type=\"landmarks\" id=\"landmarks\" hidden=\"hidden\">\n<h2>Landmarks</h2>\n<ol>\n");
+    if cover.is_some() {
+        nav.push_str("<li><a epub:type=\"cover\" href=\"cover.xhtml\">Cover</a></li>\n");
+    }
     let _ = writeln!(
         nav,
         "<li><a epub:type=\"titlepage\" href=\"{}\">Title Page</a></li>",
-        docs[0].0
+        docs[title_at].0
     );
-    if let Some((file, _, _)) = docs.get(opening) {
+    nav.push_str("<li><a epub:type=\"toc\" href=\"contents.xhtml\">Contents</a></li>\n");
+    if let Some((file, _, _, _)) = docs.get(opening) {
         let _ = writeln!(
             nav,
             "<li><a epub:type=\"bodymatter\" href=\"{file}\">Start of the book</a></li>"
+        );
+    }
+    if let Some((file, _, _, _)) = docs.get(back_at).filter(|_| !x.back.is_empty()) {
+        let _ = writeln!(
+            nav,
+            "<li><a epub:type=\"backmatter\" href=\"{file}\">Back matter</a></li>"
         );
     }
     nav.push_str("</ol>\n</nav>");
 
     let mut ncx = format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
-         <ncx xmlns=\"http://www.daisy.org/z3986/2005/ncx/\" version=\"2005-1\" xml:lang=\"en\">\n<head>\n\
+         <ncx xmlns=\"http://www.daisy.org/z3986/2005/ncx/\" version=\"2005-1\" xml:lang=\"{lang}\">\n<head>\n\
          <meta name=\"dtb:uid\" content=\"{id}\"/>\n<meta name=\"dtb:depth\" content=\"{}\"/>\n\
          <meta name=\"dtb:totalPageCount\" content=\"0\"/>\n<meta name=\"dtb:maxPageNumber\" content=\"0\"/>\n\
          </head>\n<docTitle><text>{title}</text></docTitle>\n",
@@ -2101,8 +2404,8 @@ fn epub(b: &Book) -> Result<Vec<u8>> {
     ncx_points(&toc, &mut 0, &mut ncx);
     ncx.push_str("</navMap>\n</ncx>\n");
 
-    let mut entries: Vec<(String, String)> = vec![
-        ("mimetype".into(), "application/epub+zip".into()),
+    let mut entries: Vec<(String, Vec<u8>)> = vec![
+        ("mimetype".into(), b"application/epub+zip".to_vec()),
         (
             "META-INF/container.xml".into(),
             "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
@@ -2111,14 +2414,17 @@ fn epub(b: &Book) -> Result<Vec<u8>> {
              </rootfiles>\n</container>\n"
                 .into(),
         ),
-        ("OEBPS/content.opf".into(), opf),
-        ("OEBPS/nav.xhtml".into(), xhtml("Contents", &nav)),
-        ("OEBPS/toc.ncx".into(), ncx),
-        ("OEBPS/style.css".into(), EPUB_CSS.into()),
+        ("OEBPS/content.opf".into(), opf.into_bytes()),
+        ("OEBPS/nav.xhtml".into(), page("Contents", &nav).into_bytes()),
+        ("OEBPS/toc.ncx".into(), ncx.into_bytes()),
+        ("OEBPS/style.css".into(), EPUB_CSS.as_bytes().to_vec()),
     ];
+    if let Some((href, _, bytes)) = &cover {
+        entries.push((format!("OEBPS/{href}"), bytes.to_vec()));
+    }
     entries.extend(
         docs.into_iter()
-            .map(|(file, _, text)| (format!("OEBPS/{file}"), text)),
+            .map(|(file, _, text, _)| (format!("OEBPS/{file}"), text.into_bytes())),
     );
     pack(&entries)
 }
@@ -2238,6 +2544,9 @@ mod tests {
             pdf: false,
             epub: true,
             markdown: true,
+            paperback: false,
+            paperback_pdf: true,
+            trim: None,
             parts: None,
             scope: Scope::Whole,
         }
@@ -3077,6 +3386,359 @@ mod tests {
         assert!(!md.contains("\nEND"), "{md}");
         assert!(book(&p, None, Scope::Chapters { from: 3, to: 1 }).is_err());
         assert!(book(&p, None, Scope::Words(0)).is_err());
+        fs::remove_dir_all(&d).unwrap();
+    }
+    // ── reader editions: EPUB extras and the paperback ────────────────
+
+    /// Every entry of a zip, text or not.
+    fn unzip_bytes(bytes: &[u8]) -> Vec<(String, Vec<u8>)> {
+        let mut z = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+        (0..z.len())
+            .map(|i| {
+                let mut f = z.by_index(i).unwrap();
+                let mut b = Vec::new();
+                f.read_to_end(&mut b).unwrap();
+                (f.name().to_string(), b)
+            })
+            .collect()
+    }
+
+    fn text_of<'a>(files: &'a [(String, Vec<u8>)], name: &str) -> &'a str {
+        let b = &files
+            .iter()
+            .find(|(n, _)| n == name)
+            .unwrap_or_else(|| panic!("{name} is missing"))
+            .1;
+        std::str::from_utf8(b).unwrap()
+    }
+
+    /// The test book, plus what a reader edition carries: `[ebook]` details,
+    /// a cover, and back matter for each edition and for both.
+    fn reader_book(tag: &str) -> PathBuf {
+        let d = book_dir(tag);
+        let toml = fs::read_to_string(d.join("novel.toml")).unwrap();
+        fs::write(
+            d.join("novel.toml"),
+            format!(
+                "{toml}\n[ebook]\nlanguage = \"en-GB\"\npublisher = \"Lantern & Tide\"\n\
+                 isbn = \"978-1-4028-9462-6\"\ndescription = \"Ledgers move.\"\n\
+                 subjects = [\"Fiction\"]\nseries = \"The Tide Ledgers\"\nseries_number = 2\n\n\
+                 [paperback]\ntrim = \"6x9\"\nornament = \"⁂\"\n"
+            ),
+        )
+        .unwrap();
+        let mut jpeg = vec![0xFF, 0xD8, 0xFF, 0xE0];
+        jpeg.extend_from_slice(b"not really pixels, but it starts like a JPEG");
+        fs::write(d.join("cover.jpg"), &jpeg).unwrap();
+        put(
+            &d,
+            "back-matter/02-Ebook/01-About.md",
+            "---\ncompile: true\n---\n\n# About the Author\n\nJosh lives by the sea.\n",
+        );
+        put(
+            &d,
+            "back-matter/01-Paperback/01-Colophon.md",
+            "---\ncompile: true\n---\n\n# Colophon\n\nSet in Garamond.\n",
+        );
+        put(
+            &d,
+            "back-matter/03-Also-By.md",
+            "---\ncompile: true\n---\n\n# Also by Josh King\n\nThe Tide.\n",
+        );
+        put(
+            &d,
+            "back-matter/02-Ebook/02-Draft.md",
+            "---\ncompile: false\n---\n\n# Not yet\n\nNever ships.\n",
+        );
+        d
+    }
+
+    #[test]
+    fn the_epub_has_a_cover_a_contents_page_metadata_and_back_matter() {
+        let d = reader_book("reader-epub");
+        let p = Project::load(&d).unwrap();
+        let opts = ExportOptions {
+            docx: false,
+            epub: true,
+            ..ExportOptions::default()
+        };
+        let out = export(&p, &opts).unwrap();
+        let files = unzip_bytes(&fs::read(&out.files[0]).unwrap());
+        for (name, bytes) in &files {
+            if name.ends_with(".xhtml") || name.ends_with(".opf") || name.ends_with(".ncx") {
+                let text = std::str::from_utf8(bytes).unwrap();
+                xml_doc(text).unwrap_or_else(|e| panic!("{name} is not well-formed: {e}"));
+            }
+        }
+        let opf = text_of(&files, "OEBPS/content.opf");
+
+        // The cover: in the manifest as the cover image, first in the spine.
+        assert!(opf.contains(
+            "<item id=\"cover-image\" href=\"images/cover.jpg\" media-type=\"image/jpeg\" properties=\"cover-image\"/>"
+        ));
+        assert!(opf.contains("<meta name=\"cover\" content=\"cover-image\"/>"));
+        assert!(
+            files
+                .iter()
+                .any(|(n, b)| n == "OEBPS/images/cover.jpg" && b.starts_with(&[0xFF, 0xD8]))
+        );
+        let spine: Vec<&str> = opf
+            .lines()
+            .filter_map(|l| l.strip_prefix("<itemref idref=\""))
+            .map(|l| l.trim_end_matches("\"/>"))
+            .collect();
+        assert_eq!(spine.first(), Some(&"cover"));
+
+        // A contents page a reader can turn to, before the story.
+        let contents = spine.iter().position(|&i| i == "contents").unwrap();
+        let story = spine.iter().position(|&i| i == "part-01").unwrap();
+        assert!(contents < story);
+        let page = text_of(&files, "OEBPS/contents.xhtml");
+        assert!(page.contains("<a href=\"chapter-03.xhtml\">Chapter Three: The Long Road</a>"));
+        let nav = text_of(&files, "OEBPS/nav.xhtml");
+        assert!(nav.contains("epub:type=\"toc\" href=\"contents.xhtml\""));
+        assert!(nav.contains("epub:type=\"cover\" href=\"cover.xhtml\""));
+
+        // What the book says about itself.
+        assert!(opf.contains("<dc:identifier id=\"isbn\">urn:isbn:9781402894626</dc:identifier>"));
+        assert!(opf.contains("<dc:language>en-GB</dc:language>"));
+        assert!(opf.contains("<dc:publisher>Lantern &amp; Tide</dc:publisher>"));
+        assert!(opf.contains("<dc:description>Ledgers move.</dc:description>"));
+        assert!(opf.contains("<meta refines=\"#series\" property=\"group-position\">2</meta>"));
+        assert!(text_of(&files, "OEBPS/chapter-01.xhtml").contains("xml:lang=\"en-GB\""));
+
+        // Back matter after the story: the ebook's and the shared, not the
+        // paperback's, and nothing marked compile: false.
+        let last_chapter = spine
+            .iter()
+            .rposition(|i| i.starts_with("chapter-"))
+            .unwrap();
+        let backs: Vec<&str> = spine[last_chapter + 1..].to_vec();
+        assert_eq!(backs.len(), 2, "{backs:?}");
+        let back_text: String = backs
+            .iter()
+            .map(|id| text_of(&files, &format!("OEBPS/{id}.xhtml")))
+            .collect();
+        assert!(back_text.contains("About the Author") && back_text.contains("Also by Josh King"));
+        assert!(!back_text.contains("Colophon") && !back_text.contains("Never ships"));
+        assert!(back_text.contains("epub:type=\"backmatter\""));
+        assert!(page.contains(">About the Author</a>"));
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn a_cover_that_isnt_an_image_is_left_out() {
+        let d = reader_book("reader-fake-cover");
+        fs::write(d.join("cover.jpg"), "just text").unwrap();
+        let p = Project::load(&d).unwrap();
+        assert!(find_cover(&p).is_none());
+        let files = unzip_bytes(
+            &epub_with(
+                &book(&p, None, Scope::Whole).unwrap(),
+                &Extras {
+                    meta: &p.meta.ebook,
+                    back: Vec::new(),
+                    cover: find_cover(&p),
+                },
+            )
+            .unwrap(),
+        );
+        let opf = text_of(&files, "OEBPS/content.opf");
+        assert!(!opf.contains("cover-image"));
+        assert!(!files.iter().any(|(n, _)| n == "OEBPS/cover.xhtml"));
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    /// The paperback's DOCX and the LibreOffice document behind its PDF.
+    fn paperback_files(
+        p: &Project,
+        trim: Option<crate::export_print::Trim>,
+    ) -> (Vec<(String, Vec<u8>)>, String) {
+        let mut b = book(p, None, Scope::Whole).unwrap();
+        b.front = front_pages(p, Edition::Paperback);
+        let mut layout = crate::export_print::Layout::from_meta(&p.meta.paperback);
+        if let Some(t) = trim {
+            layout.trim = t;
+        }
+        let print = crate::export_print::Print {
+            layout,
+            back: back_pages(p, Edition::Paperback),
+            meta: &p.meta.ebook,
+        };
+        let (docx, fodt) = crate::export_print::paperback(&b, &print).unwrap();
+        (unzip_bytes(&docx), fodt)
+    }
+
+    #[test]
+    fn the_paperback_is_laid_out_for_print() {
+        let d = reader_book("paperback");
+        let p = Project::load(&d).unwrap();
+        let (files, fodt) = paperback_files(&p, None);
+        for (name, bytes) in &files {
+            if name.ends_with(".xml") || name.ends_with(".rels") {
+                xml_doc(std::str::from_utf8(bytes).unwrap())
+                    .unwrap_or_else(|e| panic!("{name} is not well-formed: {e}"));
+            }
+        }
+        xml_doc(&fodt).expect("the FODT is well-formed");
+
+        // Facing pages, their own heads, hyphenation.
+        let settings = text_of(&files, "word/settings.xml");
+        for want in [
+            "<w:mirrorMargins/>",
+            "<w:evenAndOddHeaders/>",
+            "<w:autoHyphenation/>",
+        ] {
+            assert!(settings.contains(want), "{want}");
+        }
+        // 6 × 9, the inside margin KDP's gutter for a short book plus an eighth.
+        let doc = text_of(&files, "word/document.xml");
+        assert!(doc.contains("<w:pgSz w:w=\"8640\" w:h=\"12960\"/>"));
+        assert!(
+            doc.contains("w:left=\"720\""),
+            "inside margin 0.375 + 0.125 in"
+        );
+        assert!(doc.contains("w:right=\"720\""), "outside margin 0.5 in");
+        // Chapters open on a right-hand page with no head on their first page.
+        assert!(doc.contains("<w:headerReference w:type=\"first\" r:id=\"rIdHBlank\"/>"));
+        let chapter_sections = doc
+            .matches("<w:headerReference w:type=\"default\" r:id=\"rIdHTitle\"/>")
+            .count();
+        assert_eq!(chapter_sections, 3, "one section per chapter");
+        assert!(doc.contains("<w:type w:val=\"oddPage\"/>"));
+        assert!(doc.contains("<w:titlePg/>"));
+        assert!(doc.contains("<w:pgNumType w:fmt=\"decimal\" w:start=\"1\"/>"));
+        // Justified text; the running heads name the title and the author.
+        let styles = text_of(&files, "word/styles.xml");
+        assert!(styles.contains("w:styleId=\"Body\"") && styles.contains("<w:jc w:val=\"both\"/>"));
+        assert!(styles.contains("<w:lang w:val=\"en-GB\""));
+        assert!(text_of(&files, "word/header-title.xml").contains("The Archive"));
+        assert!(text_of(&files, "word/header-author.xml").contains("Josh King"));
+        // Scene breaks are the ornament; the paperback's back matter only.
+        assert!(doc.contains("⁂"));
+        assert!(doc.contains("Colophon") && doc.contains("Also by Josh King"));
+        assert!(!doc.contains("About the Author"));
+
+        // The PDF's document: right-hand-only openers, heads left and right.
+        assert!(fodt.contains("style:page-usage=\"right\""));
+        assert!(fodt.contains("style:page-usage=\"mirrored\""));
+        assert!(fodt.contains("<style:header-left>"));
+        assert!(fodt.contains("style:master-page-name=\"Opener\""));
+        assert!(fodt.contains("fo:hyphenate=\"true\""));
+        assert!(fodt.contains("fo:language=\"en\" fo:country=\"GB\""));
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn the_paperback_trim_sets_the_page() {
+        let d = reader_book("paperback-trim");
+        let p = Project::load(&d).unwrap();
+        let (files, fodt) = paperback_files(&p, Some(crate::export_print::Trim::T5x8));
+        assert!(
+            text_of(&files, "word/document.xml").contains("<w:pgSz w:w=\"7200\" w:h=\"11520\"/>")
+        );
+        assert!(fodt.contains("fo:page-width=\"5.0000in\" fo:page-height=\"8.0000in\""));
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn a_new_book_gets_back_matter_that_waits_to_be_written() {
+        let d = std::env::temp_dir().join(format!("grimoire-export-back-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&d);
+        fs::create_dir_all(&d).unwrap();
+        crate::project::scaffold(&d).unwrap();
+        for edition in ["01-Paperback", "02-Ebook"] {
+            assert!(
+                d.join("back-matter")
+                    .join(edition)
+                    .join("02-About-the-Author.md")
+                    .is_file()
+            );
+        }
+        let p = Project::load(&d).unwrap();
+        // The starter pages say compile: false, so nothing ships until written.
+        assert!(back_pages(&p, Edition::Ebook).is_empty());
+        assert!(back_pages(&p, Edition::Paperback).is_empty());
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    /// The reader editions go through the same compile as the manuscript:
+    /// empty chapters left out, typography done, TKs kept, a Prologue under
+    /// its own name.
+    #[test]
+    fn the_epub_and_the_paperback_are_compiled_like_the_manuscript() {
+        let d = reader_book("reader-pipeline");
+        put(
+            &d,
+            "manuscript/01-Act-One/00-Prologue/01-Before.md",
+            "Before the \"archive\" -- before any of it... there was TK.\n",
+        );
+        put(
+            &d,
+            "manuscript/01-Act-One/03-The-Empty-Room/01-Empty.md",
+            "",
+        );
+        let p = Project::load(&d).unwrap();
+        let out = export(
+            &p,
+            &ExportOptions {
+                docx: false,
+                epub: true,
+                paperback: true,
+                paperback_pdf: false,
+                ..ExportOptions::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(out.tks.len(), 1, "the TK is found and said");
+        assert!(out.empty >= 1, "the empty chapter is counted as left out");
+
+        let epub_path = out
+            .files
+            .iter()
+            .find(|f| f.extension().is_some_and(|e| e == "epub"))
+            .unwrap();
+        let files = unzip_bytes(&fs::read(epub_path).unwrap());
+        let all: String = files
+            .iter()
+            .filter(|(n, _)| n.ends_with(".xhtml"))
+            .map(|(_, b)| String::from_utf8_lossy(b).to_string())
+            .collect();
+        assert!(
+            all.contains("\u{201c}archive\u{201d}"),
+            "curly quotes in the EPUB"
+        );
+        assert!(
+            all.contains('\u{2014}') && all.contains('\u{2026}'),
+            "dash and ellipsis"
+        );
+        assert!(all.contains("there was TK."), "the TK is kept");
+        assert!(
+            all.contains("epub:type=\"prologue\""),
+            "the prologue is a prologue"
+        );
+        assert!(!all.contains("Empty Room"), "no page for an empty chapter");
+
+        let docx_path = out
+            .files
+            .iter()
+            .find(|f| f.to_string_lossy().ends_with("_Paperback.docx"))
+            .expect("the paperback, named like the manuscript");
+        let doc = unzip(&fs::read(docx_path).unwrap())
+            .into_iter()
+            .find(|(n, _, _)| n == "word/document.xml")
+            .unwrap()
+            .2;
+        assert!(
+            doc.contains("\u{201c}archive\u{201d}"),
+            "curly quotes in the paperback"
+        );
+        assert!(doc.contains("there was TK."), "the TK is kept");
+        assert!(doc.contains(">Prologue<"), "the prologue's own heading");
+        assert!(!doc.contains("Empty Room"), "no page for an empty chapter");
+        let (fodt, pdf) = out.paperback_document.expect("left for the caller to make");
+        assert!(fodt.contains("\u{201c}archive\u{201d}"));
+        assert!(pdf.to_string_lossy().ends_with("_Paperback.pdf"));
         fs::remove_dir_all(&d).unwrap();
     }
 }

@@ -62,7 +62,36 @@ pub fn find() -> Option<Office> {
 /// Convert `docx` to a PDF beside it, and return the PDF's path. Runs
 /// LibreOffice with a profile of its own, so an open LibreOffice window (or a
 /// locked profile) can't make the conversion quietly do nothing.
+///
+/// The Flatpak sees the home folder but not everything else (not `/tmp`, not
+/// every mounted drive), so for it the DOCX goes through a folder in the
+/// cache and the PDF is copied back beside the original.
 pub fn convert(office: &Office, docx: &Path) -> Result<PathBuf> {
+    if *office == Office::Flatpak {
+        let stage = crate::paths::home()
+            .join(".cache")
+            .join("grimoire")
+            .join(format!("pdf-{}", std::process::id()));
+        std::fs::create_dir_all(&stage).with_context(|| format!("creating {}", stage.display()))?;
+        let name = docx.file_name().context("the manuscript has no name")?;
+        let staged = stage.join(name);
+        let result = std::fs::copy(docx, &staged)
+            .with_context(|| format!("copying to {}", staged.display()))
+            .and_then(|_| convert_here(office, &staged))
+            .and_then(|made| {
+                let out = docx.with_extension("pdf");
+                let bytes = std::fs::read(&made).context("reading the PDF")?;
+                crate::atomic::write(&out, &bytes)?;
+                Ok(out)
+            });
+        let _ = std::fs::remove_dir_all(&stage);
+        return result;
+    }
+    convert_here(office, docx)
+}
+
+/// [`convert`], with the PDF written in the DOCX's own folder.
+fn convert_here(office: &Office, docx: &Path) -> Result<PathBuf> {
     let dir = docx
         .parent()
         .context("the manuscript has no folder to put the PDF in")?;

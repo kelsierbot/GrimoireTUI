@@ -117,6 +117,7 @@ the-archive/
 │  ├─ 01-Manuscript-Format/      title page for a Word submission
 │  ├─ 02-Paperback/              title, copyright, dedication
 │  └─ 03-Ebook/                  title, copyright, dedication
+├─ back-matter/                  acknowledgements, about the author, also by
 ├─ notes/
 ├─ research/
 │  └─ 01-Sample-Output/
@@ -292,11 +293,12 @@ mentions it. Nothing extra is stored; it's all read from the files.
 ## Readers, and other computers
 
 - **Export** (`Esc` › *Export…*): a Word document in standard manuscript
-  format, the same pages as a PDF, an EPUB for phones and e-readers, and
-  Markdown — the whole book, chosen parts, or the sample an agent asked for
-  (the first N chapters, chapters X–Y, or the first N words) — into
-  `exports/`. Also `grimoire export [--docx] [--pdf] [--epub] [--md]
-  [--parts 1,3] [--chapters 1-3 | --words 10000]`.
+  format, the same pages as a PDF, a print-ready paperback, an EPUB for
+  phones and e-readers, and Markdown — the whole book, chosen parts, or the
+  sample an agent asked for (the first N chapters, chapters X–Y, or the first
+  N words) — into `exports/`. Also `grimoire export [--docx] [--pdf]
+  [--paperback [--trim 6x9]] [--epub] [--md] [--parts 1,3]
+  [--chapters 1-3 | --words 10000]`.
 
 ### Compiling for submission
 
@@ -338,6 +340,33 @@ dash (UK). Always follow an agent's own guidelines where they differ.
 page — Grimoire finds it on your PATH, in the usual install places, or as the
 Flatpak (`flatpak install flathub org.libreoffice.LibreOffice`). Without it,
 the export dialog says so and writes everything else.
+
+### The reader editions
+
+Every edition is compiled the same way as the manuscript — empty chapters
+left out, the same typography, TKs kept and warned about, a Prologue under
+its own name — and laid out for its readers:
+
+- **Paperback** (*Paperback* in the export dialog, `←` `→` for the trim, or
+  `grimoire export --paperback --trim 6x9`): a print-ready interior, a DOCX
+  for Word plus a PDF when LibreOffice is installed. Trim 5×8, 5.25×8,
+  5.5×8.5 or 6×9, mirrored margins with KDP's gutter for the page count,
+  running heads (author on the left page, title on the right, none on chapter
+  openers), each chapter on a right-hand page a third of the way down with a
+  small-caps lead-in or a drop cap, justified and hyphenated text, a centred
+  ornament between scenes. `[paperback]` in `novel.toml` sets the font, size,
+  ornament and drop caps; its front matter comes from `front-matter/Paperback`
+  (or a title and copyright page are made for it).
+- **EPUB**: add `cover.jpg` (or `.png`) to the book, or name one in
+  `[ebook] cover`, and it's the cover; a contents page follows the front
+  matter, as the Kindle store asks; `[ebook]` fills in the language,
+  publisher, ISBN, description, subjects, rights, publication date, and series
+  and number. It passes EPUBCheck.
+- **Back matter** — Acknowledgements, About the Author, Also By — lives in its
+  own section and goes after the story, by edition like the front matter:
+  pages in `back-matter/Paperback` only in the paperback, in `back-matter/Ebook`
+  only in the EPUB, and loose ones in both. New books start with the three,
+  `compile: false` until they're written.
 - **Resume.** `.grimoire/resume.md` remembers the scene and paragraph you were
   at, so opening the book on any computer the folder reaches lands you there.
 - **Writing sessions** (palette): turn on history for the book and each

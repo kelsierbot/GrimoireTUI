@@ -12,6 +12,7 @@ pub mod cork;
 pub mod create;
 pub mod editor;
 pub mod export;
+pub mod export_print;
 pub mod history;
 pub mod manuscript;
 pub mod names;

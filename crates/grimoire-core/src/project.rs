@@ -41,6 +41,87 @@ pub struct ProjectMeta {
     /// How the submission manuscript looks (`[manuscript]`).
     #[serde(deserialize_with = "crate::submission::lenient_manuscript")]
     pub manuscript: crate::submission::Manuscript,
+    /// `[ebook]`: what the EPUB says about itself.
+    #[serde(deserialize_with = "lenient_table")]
+    pub ebook: EbookMeta,
+    /// `[paperback]`: how the print edition is laid out.
+    #[serde(deserialize_with = "lenient_table")]
+    pub paperback: PaperbackMeta,
+}
+
+/// A table that can't be read as its type (a typo, a number where text
+/// belongs) is taken as its defaults — never a reason to lose the rest of
+/// novel.toml, title and all.
+fn lenient_table<'de, D, T>(d: D) -> std::result::Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::de::DeserializeOwned + Default,
+{
+    Ok(toml::Value::deserialize(d)
+        .ok()
+        .and_then(|v| v.try_into().ok())
+        .unwrap_or_default())
+}
+
+/// `[ebook]` in novel.toml. Every field is optional; an EPUB is valid
+/// without any of them.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct EbookMeta {
+    /// BCP 47, e.g. `en`, `en-GB`, `fr`. Empty means `en`.
+    pub language: String,
+    pub publisher: String,
+    /// With or without hyphens; carried as a second identifier.
+    pub isbn: String,
+    /// The blurb readers see in their library.
+    pub description: String,
+    pub subjects: Vec<String>,
+    pub series: String,
+    /// This book's place in `series`.
+    pub series_number: Option<f64>,
+    /// e.g. "All rights reserved."
+    pub rights: String,
+    /// Publication date, `YYYY-MM-DD` (or just the year).
+    pub published: String,
+    /// A cover image, relative to the book. Empty means look for
+    /// `cover.jpg` / `cover.png` in the book or its Ebook front matter.
+    pub cover: String,
+}
+
+impl EbookMeta {
+    pub fn language(&self) -> &str {
+        let l = self.language.trim();
+        if l.is_empty() { "en" } else { l }
+    }
+}
+
+/// `[paperback]` in novel.toml.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct PaperbackMeta {
+    /// `5x8`, `5.25x8`, `5.5x8.5` or `6x9` (inches).
+    pub trim: String,
+    /// The text face. Word and LibreOffice substitute when it's missing.
+    pub font: String,
+    /// Point size of the text.
+    pub size: f64,
+    /// What sits centred between scenes.
+    pub ornament: String,
+    /// A two-line drop cap on each chapter's first letter; otherwise its
+    /// first words in small capitals.
+    pub drop_cap: bool,
+}
+
+impl Default for PaperbackMeta {
+    fn default() -> Self {
+        Self {
+            trim: "6x9".into(),
+            font: "Garamond".into(),
+            size: 11.0,
+            ornament: "* * *".into(),
+            drop_cap: false,
+        }
+    }
 }
 
 impl Default for ProjectMeta {
@@ -55,6 +136,8 @@ impl Default for ProjectMeta {
             sections: Vec::new(),
             contact: crate::submission::Contact::default(),
             manuscript: crate::submission::Manuscript::default(),
+            ebook: EbookMeta::default(),
+            paperback: PaperbackMeta::default(),
         }
     }
 }
@@ -90,6 +173,8 @@ pub enum Area {
     Characters,
     Places,
     FrontMatter,
+    /// Pages after the story: about the author, also by, acknowledgements.
+    BackMatter,
     Notes,
     Research,
     Templates,
@@ -97,12 +182,13 @@ pub enum Area {
 }
 
 impl Area {
-    pub const ALL: [Area; 9] = [
+    pub const ALL: [Area; 10] = [
         Area::Format,
         Area::Manuscript,
         Area::Characters,
         Area::Places,
         Area::FrontMatter,
+        Area::BackMatter,
         Area::Notes,
         Area::Research,
         Area::Templates,
@@ -117,6 +203,7 @@ impl Area {
             Area::Characters => "characters",
             Area::Places => "places",
             Area::FrontMatter => "front-matter",
+            Area::BackMatter => "back-matter",
             Area::Notes => "notes",
             Area::Research => "research",
             Area::Templates => "template-sheets",
@@ -153,6 +240,7 @@ impl Area {
             Area::Characters => "Characters",
             Area::Places => "Places",
             Area::FrontMatter => "Front Matter",
+            Area::BackMatter => "Back Matter",
             Area::Notes => "Notes",
             Area::Research => "Research",
             Area::Templates => "Template Sheets",
@@ -168,6 +256,7 @@ impl Area {
             Area::Characters => "☺",
             Area::Places => "⌖",
             Area::FrontMatter => "❡",
+            Area::BackMatter => "❧",
             Area::Notes => "≡",
             Area::Research => "✎",
             Area::Templates => "⊞",
@@ -183,6 +272,7 @@ impl Area {
             Area::Characters => root.join("characters"),
             Area::Places => root.join("places"),
             Area::FrontMatter => root.join("front-matter"),
+            Area::BackMatter => root.join("back-matter"),
             Area::Notes => root.join("notes"),
             Area::Research => root.join("research"),
             Area::Templates => root.join("template-sheets"),
@@ -664,7 +754,7 @@ impl Project {
                     // deliberate act, not something to make the user undo. The
                     // front matter's per-format folders are the exception: they
                     // matter at the end, not while writing.
-                    expanded: !(area == Area::FrontMatter && depth == 1),
+                    expanded: !(matches!(area, Area::FrontMatter | Area::BackMatter) && depth == 1),
                     children: Vec::new(),
                     in_manuscript: area == Area::Manuscript,
                     compile: true,
@@ -1326,6 +1416,9 @@ pub const SCENES_PER_CHAPTER: usize = 3;
 /// ebook and a submission each open differently.
 pub const FRONT_MATTER_FORMATS: [&str; 3] = ["Manuscript Format", "Paperback", "Ebook"];
 
+/// Back matter goes only into the reader editions: a submission ends at END.
+pub const BACK_MATTER_FORMATS: [&str; 2] = ["Paperback", "Ebook"];
+
 /// Where deleted things go. Inside `.grimoire/`, which is gitignored, but the
 /// tree shows it so nothing ever just vanishes.
 pub fn trash_dir(root: &Path) -> PathBuf {
@@ -1430,6 +1523,26 @@ fn add_sections(root: &Path, fresh: bool) -> Result<Vec<String>> {
                 write_new(&dir.join("02-Copyright.md"), starter::COPYRIGHT)?;
                 write_new(&dir.join("03-Dedication.md"), starter::DEDICATION)?;
             }
+        }
+    }
+
+    let bm = Area::BackMatter.path(root);
+    for (i, edition) in BACK_MATTER_FORMATS.iter().enumerate() {
+        if has_folder(&bm, edition) {
+            continue;
+        }
+        let dir = bm.join(numbered_dir(i + 1, edition));
+        fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
+        if fresh {
+            write_new(
+                &dir.join("01-Acknowledgements.md"),
+                starter::ACKNOWLEDGEMENTS,
+            )?;
+            write_new(
+                &dir.join("02-About-the-Author.md"),
+                starter::ABOUT_THE_AUTHOR,
+            )?;
+            write_new(&dir.join("03-Also-By.md"), starter::ALSO_BY)?;
         }
     }
 
@@ -1615,6 +1728,15 @@ This is a work of fiction. Names, characters, places and incidents are products 
 author's imagination.\n";
 
     pub const DEDICATION: &str = "---\ntitle: \"Dedication\"\ncompile: false\n---\n\nFor\n";
+
+    pub const ACKNOWLEDGEMENTS: &str = "---\ntitle: \"Acknowledgements\"\ncompile: false\n---\n\n\
+# Acknowledgements\n\nThank you to\n";
+
+    pub const ABOUT_THE_AUTHOR: &str = "---\ntitle: \"About the Author\"\ncompile: false\n---\n\n\
+# About the Author\n\nAuthor Name lives in\n";
+
+    pub const ALSO_BY: &str = "---\ntitle: \"Also By\"\ncompile: false\n---\n\n\
+# Also by Author Name\n\nTitle One\n";
 }
 
 /// `7` and "Chapter Seven" make `07-Chapter-Seven`.

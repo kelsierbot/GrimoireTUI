@@ -142,6 +142,13 @@ impl Setup {
     }
 }
 
+/// A PDF for LibreOffice to make off the main thread: what it is ("PDF",
+/// "paperback PDF"), and the work.
+type PdfJob = (
+    &'static str,
+    Box<dyn FnOnce() -> anyhow::Result<PathBuf> + Send>,
+);
+
 pub struct App {
     pub project: Project,
     pub visible: Vec<usize>,
@@ -254,7 +261,9 @@ pub struct App {
     backup_rx: Option<std::sync::mpsc::Receiver<sessions::PushOutcome>>,
     pub backup_note: Option<String>,
     /// A PDF being made from the manuscript, off the main thread.
-    pdf_job: Option<std::sync::mpsc::Receiver<Result<PathBuf, String>>>,
+    /// PDFs being made off the main thread by LibreOffice: which one ("PDF",
+    /// "paperback PDF") and how it went, one message each.
+    pdf_job: Option<std::sync::mpsc::Receiver<(&'static str, Result<PathBuf, String>)>>,
     /// LibreOffice, looked for the first time the export dialog opens.
     office: Option<Option<grimoire_core::pdf::Office>>,
     /// Words repeated close together are lit in the open scene.
@@ -481,8 +490,10 @@ pub enum Overlay {
     },
     /// Export for readers: formats, which acts, how much, then the result.
     Export {
-        /// Word, PDF, EPUB, Markdown.
-        formats: [bool; 4],
+        /// Word, PDF, Paperback, EPUB, Markdown.
+        formats: [bool; 5],
+        /// The paperback's trim size, ←/→ on its row.
+        trim: grimoire_core::export_print::Trim,
         /// Each act by path, with its title and whether it's included.
         parts: Vec<(PathBuf, String, bool)>,
         /// How much: the kind (see [`SAMPLE_KINDS`]) and the number or range
@@ -1881,8 +1892,11 @@ impl App {
             .into_iter()
             .map(|(i, title)| (self.project.nodes[i].path.clone(), title, true))
             .collect();
+        let trim =
+            grimoire_core::export_print::Layout::from_meta(&self.project.meta.paperback).trim;
         self.overlay = Overlay::Export {
-            formats: [true, false, true, false],
+            formats: [true, false, false, true, false],
+            trim,
             parts,
             sample: (0, String::new()),
             sel: 0,
@@ -1899,7 +1913,8 @@ impl App {
     /// The export the dialog describes, or why it can't run.
     fn export_options(
         &self,
-        formats: [bool; 4],
+        formats: [bool; 5],
+        trim: grimoire_core::export_print::Trim,
         parts: &[(PathBuf, String, bool)],
         sample: &(usize, String),
     ) -> Result<export::ExportOptions, String> {
@@ -1919,11 +1934,15 @@ impl App {
             .collect();
         let whole = parts.is_empty() || chosen.len() == parts.len();
         Ok(export::ExportOptions {
-            // A PDF is made from the manuscript, so it comes with one.
+            // A PDF is made from the manuscript, so it comes with one. PDFs
+            // are made off the main thread (see `run_export`), not by export.
             docx: formats[0] || formats[1],
             pdf: false,
-            epub: formats[2],
-            markdown: formats[3],
+            paperback: formats[2],
+            paperback_pdf: false,
+            trim: Some(trim),
+            epub: formats[3],
+            markdown: formats[4],
             parts: if whole { None } else { Some(chosen) },
             scope: sample_scope(sample)?,
         })
@@ -1933,6 +1952,7 @@ impl App {
     pub(crate) fn export_pressed(&mut self) {
         let Overlay::Export {
             formats,
+            trim,
             parts,
             sample,
             tks,
@@ -1941,9 +1961,14 @@ impl App {
         else {
             return;
         };
-        let (formats, parts, sample, warned) =
-            (*formats, parts.clone(), sample.clone(), tks.is_some());
-        let opts = match self.export_options(formats, &parts, &sample) {
+        let (formats, trim, parts, sample, warned) = (
+            *formats,
+            *trim,
+            parts.clone(),
+            sample.clone(),
+            tks.is_some(),
+        );
+        let opts = match self.export_options(formats, trim, &parts, &sample) {
             Ok(o) => o,
             Err(why) => {
                 self.msg = why;
@@ -1978,29 +2003,57 @@ impl App {
                         format!("✓ {}  {}", rel.display(), human_size(size))
                     })
                     .collect();
+                // The PDFs LibreOffice makes, off the main thread: the
+                // manuscript's from its DOCX, the paperback's from its layout.
+                let mut jobs: Vec<PdfJob> = Vec::new();
+                let office = self.office.clone().flatten();
                 if pdf {
                     let docx = done
                         .files
                         .iter()
-                        .find(|f| f.extension().is_some_and(|e| e == "docx"))
+                        .find(|f| {
+                            f.extension().is_some_and(|e| e == "docx")
+                                && !f.to_string_lossy().ends_with("_Paperback.docx")
+                        })
                         .cloned();
-                    match (self.office.clone().flatten(), docx) {
-                        (Some(office), Some(docx)) => {
-                            let (tx, rx) = std::sync::mpsc::channel();
-                            std::thread::spawn(move || {
-                                let _ = tx.send(
-                                    grimoire_core::pdf::convert(&office, &docx)
-                                        .map_err(|e| format!("{e:#}")),
-                                );
-                            });
-                            self.pdf_job = Some(rx);
-                            lines.push("… the PDF is being made by LibreOffice".into());
-                        }
+                    match (office.clone(), docx) {
+                        (Some(office), Some(docx)) => jobs.push((
+                            "PDF",
+                            Box::new(move || grimoire_core::pdf::convert(&office, &docx)),
+                        )),
                         _ => lines.push(format!(
                             "couldn't make a PDF: {}",
                             grimoire_core::pdf::HOW_TO_GET
                         )),
                     }
+                }
+                if let Some((document, pdf_path)) = done.paperback_document.clone() {
+                    if office.is_some() {
+                        jobs.push((
+                            "paperback PDF",
+                            Box::new(move || {
+                                grimoire_core::export_print::to_pdf(&document, &pdf_path)
+                            }),
+                        ));
+                    } else {
+                        lines.push(format!(
+                            "couldn't make the paperback PDF: {}",
+                            grimoire_core::pdf::HOW_TO_GET
+                        ));
+                    }
+                }
+                lines.extend(done.notes.iter().cloned());
+                if !jobs.is_empty() {
+                    for (label, _) in &jobs {
+                        lines.push(format!("… the {label} is being made by LibreOffice"));
+                    }
+                    let (tx, rx) = std::sync::mpsc::channel();
+                    std::thread::spawn(move || {
+                        for (label, job) in jobs {
+                            let _ = tx.send((label, job().map_err(|e| format!("{e:#}"))));
+                        }
+                    });
+                    self.pdf_job = Some(rx);
                 }
                 lines.push(String::new());
                 // Shunn rounds, which makes a short book "about 0 words".
@@ -2050,31 +2103,56 @@ impl App {
         let Some(rx) = &self.pdf_job else {
             return;
         };
-        let line = match rx.try_recv() {
-            Ok(Ok(path)) => {
-                let size = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-                let rel = path.strip_prefix(&self.project.root).unwrap_or(&path);
-                self.msg = format!("PDF ready: {}", rel.display());
-                format!("✓ {}  {}", rel.display(), human_size(size))
+        let mut said: Vec<(String, String)> = Vec::new();
+        let mut finished = false;
+        loop {
+            match rx.try_recv() {
+                Ok((label, Ok(path))) => {
+                    let size = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+                    let rel = path.strip_prefix(&self.project.root).unwrap_or(&path);
+                    self.msg = format!("{label} ready: {}", rel.display());
+                    said.push((
+                        format!("… the {label}"),
+                        format!("✓ {}  {}", rel.display(), human_size(size)),
+                    ));
+                }
+                Ok((label, Err(why))) => {
+                    self.msg = format!("couldn't make the {label}: {why}");
+                    said.push((
+                        format!("… the {label}"),
+                        format!("couldn't make the {label}: {why}"),
+                    ));
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => break,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    finished = true;
+                    break;
+                }
             }
-            Ok(Err(why)) => {
-                self.msg = format!("couldn't make the PDF: {why}");
-                format!("couldn't make the PDF: {why}")
-            }
-            Err(std::sync::mpsc::TryRecvError::Empty) => return,
-            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                "couldn't make the PDF: LibreOffice stopped".to_string()
-            }
-        };
-        self.pdf_job = None;
+        }
+        if finished {
+            self.pdf_job = None;
+        }
         if let Overlay::Export {
             done: Some(lines), ..
         } = &mut self.overlay
         {
-            if let Some(slot) = lines.iter_mut().find(|l| l.starts_with("… the PDF")) {
-                *slot = line;
-            } else {
-                lines.insert(0, line);
+            for (placeholder, line) in said {
+                if let Some(slot) = lines.iter_mut().find(|l| l.starts_with(&placeholder)) {
+                    *slot = line;
+                } else {
+                    lines.insert(0, line);
+                }
+            }
+            if finished {
+                // A job that never answered (LibreOffice gone): say so.
+                for l in lines.iter_mut().filter(|l| l.starts_with("… the ")) {
+                    let what = l
+                        .trim_start_matches("… ")
+                        .trim_end_matches(" is being made by LibreOffice")
+                        .to_string();
+                    *l = format!("couldn't make {what}: LibreOffice stopped");
+                }
             }
         }
     }
@@ -2878,6 +2956,7 @@ impl App {
             }
             return match n.area {
                 grimoire_core::project::Area::FrontMatter
+                | grimoire_core::project::Area::BackMatter
                 | grimoire_core::project::Area::Format => "document",
                 grimoire_core::project::Area::Templates => "sheet",
                 _ => "note",

@@ -290,9 +290,9 @@ pub fn entries(app: &crate::app::App) -> Vec<Entry> {
         trail.reverse();
         let what = match n.area {
             grimoire_core::project::Area::Manuscript => "scene",
-            grimoire_core::project::Area::FrontMatter | grimoire_core::project::Area::Format => {
-                "document"
-            }
+            grimoire_core::project::Area::FrontMatter
+            | grimoire_core::project::Area::BackMatter
+            | grimoire_core::project::Area::Format => "document",
             grimoire_core::project::Area::Templates => "sheet",
             _ => "note",
         };

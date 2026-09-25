@@ -1327,7 +1327,8 @@ fn export_rows(d: &Desk) -> (usize, usize, usize, usize) {
     let Overlay::Export { parts, .. } = &d.app.overlay else {
         panic!("the export dialog isn't up");
     };
-    let how_much = 4 + parts.len();
+    // Word, PDF, Paperback, EPUB, Markdown; then each part.
+    let how_much = 5 + parts.len();
     (how_much, how_much + 1, how_much + 2, how_much + 3)
 }
 
@@ -1425,4 +1426,61 @@ fn how_much_takes_a_number_and_names_the_sample() {
         d.shows("_First-10000-Words.docx"),
         "the sample's own file name"
     );
+}
+
+// ---- the paperback in the export dialog ------------------------------------
+
+#[test]
+fn the_export_dialog_offers_a_paperback_and_its_trim() {
+    let mut d = Desk::open(book("paperback-row", true), 120, 35);
+    d.app.open_export();
+    d.draw();
+    assert!(d.shows("[ ] Paperback"), "offered, off by default");
+    assert!(
+        d.shows("◂ 6 × 9 in ▸"),
+        "the trim from novel.toml's default"
+    );
+    d.key(KeyCode::Down);
+    d.key(KeyCode::Down);
+    assert!(d.status().contains("trim size") || d.shows("←→ trim size"));
+    d.key(KeyCode::Right);
+    assert!(d.shows("◂ 5 × 8 in ▸"), "→ changes the trim");
+    assert!(d.shows("[x] Paperback"), "and ticks it");
+    d.key(KeyCode::Left);
+    d.key(KeyCode::Left);
+    assert!(d.shows("◂ 5.5 × 8.5 in ▸"), "← goes back round");
+}
+
+#[test]
+fn the_export_dialog_fits_a_short_terminal_and_scrolls_to_the_cursor() {
+    // Three parts, a TK to warn about, 80×24: more rows than fit.
+    let mut d = export_desk(
+        "export-short",
+        "She took the TK from her coat.\n\nThe TK was cold.\n\nHe said TK and left.",
+    );
+    d.term = Terminal::new(TestBackend::new(80, 24)).unwrap();
+    d.draw();
+    assert!(d.shows("Word document"), "the top shows at first");
+    assert!(d.shows("choose"), "the hint row is always there");
+    d.typed("x"); // the TK warning adds rows
+    assert!(d.shows("still in the text"));
+    let Overlay::Export { parts, .. } = &d.app.overlay else {
+        panic!("the export dialog isn't up");
+    };
+    let last = 5 + parts.len() + 3; // the Export button
+    go_to(&mut d, last);
+    assert!(d.shows("Export to exports/"), "the cursor's row is in view");
+    assert!(d.shows("x export") || d.shows("esc close"), "and the hint");
+    // Every row can be reached and seen, one at a time, going back up.
+    for row in (0..last).rev() {
+        d.key(KeyCode::Up);
+        assert!(
+            matches!(d.app.overlay, Overlay::Export { sel, .. } if sel == row),
+            "row {row}"
+        );
+        assert!(
+            d.rows().iter().any(|r| r.contains("▸")),
+            "row {row}: the cursor is on screen"
+        );
+    }
 }
