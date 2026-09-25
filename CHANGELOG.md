@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.3
+
+- **The Rainbow theme's colours flow**: the spectrum across its borders, titles
+  and progress bar glides round the wheel every twelve seconds (it used to
+  drift so slowly it looked still).
+- Fixed on a Mac: a scene with an accented name listed each saved version
+  twice in its history.
+
 ## 0.5.2 — a paperback and a proper ebook
 
 - **Paperback** (Export ▸ Paperback, or `grimoire export --paperback --trim
