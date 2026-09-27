@@ -163,6 +163,10 @@ pub fn about_row(action: &Action, part: &str) -> (String, &'static str) {
             "sprints",
         ),
         Action::EndSprint => ("Ends the sprint now.", "sprints"),
+        Action::Progress => (
+            "Your words each week, your pace lately, and roughly when you'll reach your goal. No streaks.",
+            "sprints",
+        ),
         Action::MusicPlayer => (
             "The queue, your playlists, search, and every control.",
             "music",

@@ -293,6 +293,9 @@ pub struct App {
     pub last_opened: Option<String>,
     /// Whether this app starts threads and reads ~/.config; off in tests.
     background: bool,
+    /// When the day's words were last written down for the Progress page,
+    /// and what they were.
+    day_noted: Option<(Instant, usize, i64)>,
     /// Where the last book and the recent ones are kept; `None` in tests,
     /// which set it to a temp file when they want a list.
     pub state_file: Option<PathBuf>,
@@ -398,6 +401,8 @@ pub enum Overlay {
     NewBook {
         buf: String,
     },
+    /// Words each week, the pace lately, and when the book's goal comes.
+    Progress,
     /// The books this machine has had open, to switch to one.
     Books {
         sel: usize,
@@ -778,6 +783,7 @@ impl App {
             about_game_link: std::cell::Cell::default(),
             last_opened: None,
             background: setup.background,
+            day_noted: None,
             state_file: None,
         })
         .map(|mut app: App| {
@@ -1107,9 +1113,40 @@ impl App {
     pub fn tick_today(&mut self) {
         let date = today_string();
         if date != self.baseline_date {
+            // The day that's ending goes into the Progress page's record.
+            self.note_day(true);
+            self.day_noted = None;
             self.baseline_date = date;
             let total = self.project.total_words();
             self.set_baseline(total);
+        }
+        self.note_day(false);
+    }
+
+    /// Write the day's words down for the Progress page when they've changed:
+    /// at most every half minute while writing, and always when `now`.
+    pub fn note_day(&mut self, now: bool) {
+        let (total, written) = (self.project.total_words(), self.today_words());
+        let unchanged = self
+            .day_noted
+            .is_some_and(|(_, t, w)| t == total && w == written);
+        let recent = self
+            .day_noted
+            .is_some_and(|(at, ..)| at.elapsed() < Duration::from_secs(30));
+        // A day nothing was written stays off the record.
+        if unchanged || (recent && !now) || (self.day_noted.is_none() && written == 0) {
+            return;
+        }
+        let Ok(date) = chrono::NaiveDate::parse_from_str(&self.baseline_date, "%Y-%m-%d") else {
+            return;
+        };
+        let day = grimoire_core::days::Day {
+            date,
+            total,
+            written,
+        };
+        if grimoire_core::days::record(&self.project.root, day).is_ok() {
+            self.day_noted = Some((Instant::now(), total, written));
         }
     }
 
@@ -1334,6 +1371,7 @@ impl App {
             return false;
         }
         self.save_resume(true);
+        self.note_day(true);
         if self.sessions_on && sessions::has_writing(&self.project.root) {
             // Local and quick; backing up happens next launch.
             let _ = sessions::commit_session(&self.project.root, chrono::Local::now());
@@ -1510,6 +1548,10 @@ impl App {
             Action::MenuBack => self.open_menu(),
             Action::NewBook => self.overlay = Overlay::NewBook { buf: String::new() },
             Action::OpenBook => self.overlay = Overlay::Books { sel: 0 },
+            Action::Progress => {
+                self.note_day(true);
+                self.overlay = Overlay::Progress;
+            }
             Action::BringInDraft => {
                 self.overlay = Overlay::BookPath {
                     buf: String::new(),
@@ -4031,6 +4073,12 @@ impl App {
             }
             return;
         }
+        // The words and the bar at the left of the status bar: the Progress
+        // page.
+        if self.overlay == Overlay::None && !self.focus_mode && y + 1 == self.screen.1 && x < 32 {
+            self.run_action(Action::Progress);
+            return;
+        }
         // The spelling popup takes clicks on itself; any other click closes
         // it and goes on as usual.
         if matches!(self.overlay, Overlay::Spelling { .. }) && self.click_spelling(x, y) {
@@ -4287,6 +4335,7 @@ impl App {
                 } else {
                     ("Start a sprint…".into(), Action::StartSprint)
                 },
+                ("Progress…".into(), Action::Progress),
                 (row("Music player…", "(F7)"), Action::MusicPlayer),
             ],
             Sub::Settings => vec![

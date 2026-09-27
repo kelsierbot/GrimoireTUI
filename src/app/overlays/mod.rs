@@ -24,6 +24,7 @@ mod marks;
 mod menu;
 mod naming;
 mod player;
+mod progress;
 mod readers;
 mod recover;
 mod session_list;
@@ -60,6 +61,11 @@ impl App {
             Overlay::Menu { .. } | Overlay::Sub { .. } => self.on_menu_key(key),
             Overlay::NewBook { .. } => self.on_new_book_key(key),
             Overlay::Books { .. } => self.on_books_key(key),
+            Overlay::Progress => {
+                if matches!(key, Key::Esc | Key::Enter | Key::Char('q' | ' ')) {
+                    self.overlay = Overlay::None;
+                }
+            }
             Overlay::BookPath { .. } => self.on_book_path_key(key),
             Overlay::Sources { .. } => self.on_sources_key(key),
             Overlay::Themes { .. } => self.on_themes_key(key),
@@ -187,6 +193,7 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
         Overlay::Menu { .. } | Overlay::Sub { .. } => menu::draw_menu(f, app, area, t),
         Overlay::NewBook { .. } => shelf::draw_new_book(f, app, area, t),
         Overlay::Books { .. } => shelf::draw_books(f, app, area, t),
+        Overlay::Progress => progress::draw_progress(f, app, area, t),
         Overlay::BookPath { .. } => shelf::draw_book_path(f, app, area, t),
         Overlay::Player { .. } => player::draw_player(f, app, area, t),
         Overlay::Create { .. } => naming::draw_create(f, app, area, t),

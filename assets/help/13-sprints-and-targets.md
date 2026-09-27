@@ -8,6 +8,17 @@
 
 Notes and TKs never count.
 
+## Progress
+
+*Esc › Writing tools › Progress…* (or a click on the word count at the bottom left, or `Ctrl-K` › *Progress*) shows how the book is coming along:
+
+- The book's words against its goal, as a bar.
+- **Each week**: what you wrote in each of the last eight weeks, as bars.
+- **Your pace**: about how many words a week you've written lately, and roughly when you'll reach your goal at that pace.
+- **Today**: what you've written so far, against what you aim for in a day.
+
+It's there to encourage, never to nag. There are no streaks and no days in a row, and a quiet week is just a short bar. Grimoire starts keeping the record the first time you write with this version, one line a day in the book's hidden `.grimoire` folder, so the weeks fill in as you go.
+
 ## Sprints
 
 *Start a sprint…* (menu or `Ctrl-K`) asks for a number of words and minutes — 500 words and the Pomodoro's length to begin with. `Tab` moves between the two, digits change them, `Enter` starts and `Esc` cancels.

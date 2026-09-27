@@ -2511,3 +2511,50 @@ fn start_a_new_book_also_takes_a_draft() {
     let _ = fs::remove_dir_all(&root);
     let _ = fs::remove_file(&file);
 }
+
+#[test]
+fn progress_shows_the_weeks_and_the_pace_and_a_click_on_the_count_opens_it() {
+    let root = book("progress", true);
+    let today = chrono::Local::now().date_naive();
+    for (back, written) in [(20i64, 900i64), (13, 1200), (6, 600)] {
+        grimoire_core::days::record(
+            &root,
+            grimoire_core::days::Day {
+                date: today - chrono::Duration::days(back),
+                total: 5000,
+                written,
+            },
+        )
+        .unwrap();
+    }
+    let mut d = Desk::open(root.clone(), 120, 40);
+    d.key(KeyCode::Esc);
+    d.choose("Writing tools");
+    d.choose("Progress…");
+    assert!(d.shows("PROGRESS"), "{}", d.rows().join("\n"));
+    assert!(d.shows("Each week"));
+    assert!(d.shows("this week"));
+    assert!(
+        d.shows("words a week"),
+        "a pace from the weeks before this one"
+    );
+    assert!(!d.shows("streak"));
+    d.key(KeyCode::Esc);
+    assert_eq!(d.app.overlay, Overlay::None);
+
+    // Writing is written down, for next time.
+    d.key(KeyCode::Tab);
+    d.typed("Seven new words for the record today.");
+    d.app.note_day(true);
+    let record = grimoire_core::days::read(&root);
+    let last = record.last().unwrap();
+    assert_eq!(last.date, today);
+    assert!(last.written >= 7, "{last:?}");
+
+    // The count at the bottom left is a way in.
+    d.key(KeyCode::Esc);
+    d.key(KeyCode::Esc);
+    let bottom = d.app.screen.1 - 1;
+    d.app.on_click(3, bottom);
+    assert_eq!(d.app.overlay, Overlay::Progress);
+}

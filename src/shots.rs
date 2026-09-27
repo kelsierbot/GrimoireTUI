@@ -399,6 +399,38 @@ fn shots() {
     }
     frames.push(s.json("menu-tools", None));
 
+    // Progress: eight weeks of writing, the pace, and when the goal comes.
+    let mut s = Shot::new("progress", "Rainbow", w, h, false);
+    let today = chrono::Local::now().date_naive();
+    let week = [1800i64, 2400, 900, 3100, 2600, 0, 2200, 1500];
+    for (i, words) in week.iter().enumerate() {
+        let back = (7 * (week.len() - 1 - i)) as i64;
+        grimoire_core::days::record(
+            &s.root,
+            grimoire_core::days::Day {
+                date: today - chrono::Duration::days(back),
+                total: 40_000 + i * 2_000,
+                written: *words,
+            },
+        )
+        .unwrap();
+    }
+    s.key(KeyCode::Tab, none);
+    s.app.run_action(crate::palette::Action::Progress);
+    s.draw();
+    frames.push(s.json("progress", None));
+
+    // Bringing in a draft.
+    let mut s = Shot::new("draft", "Catppuccin Mocha", w, h, false);
+    let draft = s.root.join("The Long Night.docx");
+    fs::write(&draft, "").unwrap();
+    s.key(KeyCode::Tab, none);
+    s.app.run_action(crate::palette::Action::BringInDraft);
+    for c in draft.display().to_string().chars() {
+        s.key(KeyCode::Char(c), none);
+    }
+    frames.push(s.json("draft", None));
+
     // Starting a whole new book.
     let mut s = Shot::new("new-book", "Rainbow", w, h, false);
     s.key(KeyCode::Tab, none);

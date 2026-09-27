@@ -48,7 +48,7 @@ impl App {
             Overlay::Cork { .. } => "corkboard",
             Overlay::History { .. } | Overlay::Recover { .. } => "history",
             Overlay::Marks { .. } => "notes",
-            Overlay::Sprint { .. } => "sprints",
+            Overlay::Sprint { .. } | Overlay::Progress => "sprints",
             Overlay::Spelling { .. } => "spelling",
             Overlay::Names { .. } => "notebook",
             Overlay::SessionsOff | Overlay::Sessions { .. } | Overlay::SessionDiff { .. } => {

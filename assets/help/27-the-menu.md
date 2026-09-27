@@ -36,6 +36,7 @@ Some of these want a scene open, so they show up once you're in one.
 - **Next scene still in draft**: opens the next scene that isn't marked revised or done. Handy for a revision pass.
 - **Turn echo words on**: lights up a word you've used again within about forty words of the last time, like "the lamp… the lamp". Little words like *the* and *and*, and your characters' names, are left out. It's easy to miss while you write and easy to fix once you can see it. The same row turns it off.
 - **Start a sprint…**: a word goal and a number of minutes, and the status bar keeps count. See *Sprints & targets*.
+- **Progress…**: your words each week, your pace lately, and roughly when you'll reach your goal. No streaks, ever.
 - **Music player…** (`F7`): while music is on.
 
 ## Settings

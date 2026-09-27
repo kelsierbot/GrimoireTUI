@@ -83,6 +83,8 @@ pub enum Action {
     OpenBook,
     /// A draft from elsewhere (Word, Markdown, text) as a new book.
     BringInDraft,
+    /// Words each week, the pace lately, and when the goal comes.
+    Progress,
     OpenBookAt(std::path::PathBuf),
 }
 
@@ -193,6 +195,11 @@ pub fn entries(app: &crate::app::App) -> Vec<Entry> {
         Entry::new("Notes & TKs", &format!("{m}T"), Action::NotesList),
         Entry::new("Next TK (or note)", "", Action::NextTk),
         Entry::new("Next scene still in draft", "", Action::NextDraft),
+        Entry::new(
+            "Progress: words each week, and when you'll reach your goal",
+            "",
+            Action::Progress,
+        ),
         Entry::new(
             if app.echo_on {
                 "Turn echo words off"
