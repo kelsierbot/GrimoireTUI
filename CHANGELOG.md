@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.6.0 · Bring your draft, see your progress
+
+- **Bring in a draft you already have.** A Word file, Markdown or plain text
+  comes in as a new book, split into chapters at its headings and scenes at
+  its scene breaks, with italics and bold kept. A title page or anything else
+  before the first chapter goes into Notes, and every word comes across.
+  *Esc › Open another book… › Bring in a draft…*, a draft's path typed into
+  *Start a new book…*, or `grimoire import draft.docx` from a terminal.
+- **Progress.** Click the word count at the bottom left, or *Esc › Writing
+  tools › Progress…*: your words each week for the last eight weeks, your pace
+  lately, and roughly when you'll reach your goal at that pace. It cheers you
+  on and never nags: no streaks, no days in a row. Grimoire keeps the record
+  from now on, one line a day in the book's hidden `.grimoire` folder.
+- **Packages for Debian, Ubuntu and Fedora.** Each release now comes with a
+  `.deb` and an `.rpm` for x86-64 and ARM, handy for school labs. On Windows,
+  `grimoire.exe` no longer needs the Visual C++ runtime.
+- A twenty-second demo at the top of the README and the website, drawn by
+  Grimoire itself.
+
 ## 0.5.9 · New books on macOS and Windows
 
 - A new book started from the menu now says it's ready on macOS and Windows

@@ -521,3 +521,104 @@ fn shots() {
 
     fs::write(out, format!("[{}]", frames.join(",\n"))).unwrap();
 }
+
+/// The moving demo for the README and the site: a scene being written, the
+/// menu explaining itself, the themes going by, and the Progress page. Each
+/// frame is the real interface, drawn here, with how long to hold it.
+///
+///     GRIMOIRE_DEMO=/tmp/demo.json cargo test --locked demo -- --ignored
+///     python3 tools/demo.py /tmp/demo.json assets/readme/demo
+#[test]
+#[ignore]
+fn demo() {
+    let Ok(out) = std::env::var("GRIMOIRE_DEMO") else {
+        return;
+    };
+    let (w, h) = (120, 34);
+    let none = KeyModifiers::NONE;
+    let mut frames: Vec<String> = Vec::new();
+    let hold = |frames: &mut Vec<String>, s: &Shot, ms: u32| {
+        frames.push(format!(
+            "{{\"ms\":{ms},\"frame\":{}}}",
+            s.json("demo", None)
+        ));
+    };
+
+    let mut s = Shot::new("demo", "Lost Forest", w, h, false);
+    let today = chrono::Local::now().date_naive();
+    let week = [1800i64, 2400, 900, 3100, 2600, 0, 2200, 1500];
+    for (i, words) in week.iter().enumerate() {
+        let back = (7 * (week.len() - 1 - i)) as i64;
+        grimoire_core::days::record(
+            &s.root,
+            grimoire_core::days::Day {
+                date: today - chrono::Duration::days(back),
+                total: 40_000 + i * 2_000,
+                written: *words,
+            },
+        )
+        .unwrap();
+    }
+
+    // Writing: a sentence arrives at the end of the first paragraph.
+    s.key(KeyCode::Tab, none);
+    s.app.editor.cy = 0;
+    s.app.editor.cx = s.app.editor.lines[0].chars().count();
+    s.draw();
+    hold(&mut frames, &s, 1400);
+    let sentence = " She pocketed the key and did not look back.";
+    for (i, c) in sentence.chars().enumerate() {
+        s.key(KeyCode::Char(c), none);
+        if i % 3 == 2 || i + 1 == sentence.chars().count() {
+            hold(&mut frames, &s, 70);
+        }
+    }
+    s.app.commit_saves();
+    s.draw();
+    hold(&mut frames, &s, 1100);
+
+    // Esc: a short menu, and every row says what it does.
+    s.key(KeyCode::Esc, none);
+    hold(&mut frames, &s, 1500);
+    s.key(KeyCode::Down, none);
+    hold(&mut frames, &s, 900);
+    s.key(KeyCode::Down, none);
+    hold(&mut frames, &s, 900);
+    s.key(KeyCode::Enter, none);
+    hold(&mut frames, &s, 700);
+    for _ in 0..8 {
+        if s.shows("▸ Turn echo words") {
+            break;
+        }
+        s.key(KeyCode::Down, none);
+        hold(&mut frames, &s, 380);
+    }
+    hold(&mut frames, &s, 2200);
+    s.key(KeyCode::Esc, none);
+    s.key(KeyCode::Esc, none);
+
+    // The themes, each one live as it's highlighted, ending on Rainbow.
+    s.key(KeyCode::F(9), none);
+    hold(&mut frames, &s, 700);
+    for i in 0..24 {
+        if s.shows("● Rainbow") {
+            break;
+        }
+        s.key(KeyCode::Down, none);
+        if i % 2 == 1 || s.shows("● Rainbow") {
+            hold(&mut frames, &s, 420);
+        }
+    }
+    hold(&mut frames, &s, 900);
+    s.key(KeyCode::Enter, none);
+    hold(&mut frames, &s, 900);
+
+    // Progress: the weeks, the pace, and no streaks.
+    s.app.run_action(crate::palette::Action::Progress);
+    s.draw();
+    hold(&mut frames, &s, 2800);
+    s.key(KeyCode::Esc, none);
+    hold(&mut frames, &s, 1600);
+
+    fs::write(&out, format!("[{}]", frames.join(","))).unwrap();
+}

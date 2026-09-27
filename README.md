@@ -9,6 +9,8 @@ your terminal. It understands how a book comes together, from parts and
 chapters down to scenes and word goals, and it keeps every word you write in
 plain files you can open with anything, even `cat`.
 
+<p align="center"><img src="assets/readme/demo.webp" alt="Twenty seconds with Grimoire: a sentence being written, Esc opening a short menu where each row explains itself, the themes changing live, and the Progress page's weekly bars" width="100%"></p>
+
 <p align="center"><img src="assets/screenshots/themes.webp" alt="Grimoire's desk — the outline under a spellbook, a scene being written, the Pomodoro and the music pane — changing through all nineteen themes, from Rainbow to GitHub Dark" width="100%"></p>
 
 <p align="center"><b>Nineteen themes, and you can switch any time with <code>F9</code>.</b><br>
@@ -61,6 +63,23 @@ brew install grimoire
 
 `brew upgrade` then brings each new release.
 
+**Debian and Ubuntu** — a package, handy for a school lab or anywhere IT
+installs things for everyone:
+
+```sh
+curl -LO https://github.com/kelsierbot/GrimoireTUI/releases/latest/download/grimoire_amd64.deb
+sudo apt install ./grimoire_amd64.deb
+```
+
+**Fedora** (and other RPM systems):
+
+```sh
+sudo dnf install https://github.com/kelsierbot/GrimoireTUI/releases/latest/download/grimoire.x86_64.rpm
+```
+
+On ARM it's `grimoire_arm64.deb` and `grimoire.aarch64.rpm`. The same commands
+again bring you up to date.
+
 Settings live in `~/.config/grimoire` (`%USERPROFILE%\.config\grimoire` on
 Windows) and a first manuscript goes in `Documents/Grimoire`.
 
@@ -94,11 +113,20 @@ C++ build tools.
 grimoire                          open your manuscript
 grimoire ~/novels/the-archive     open a specific one
 grimoire new ~/novels/next-one    start one
+grimoire import draft.docx        bring in a draft you already have
 grimoire music-setup              install + connect YouTube Music
 ```
 
 Already inside Grimoire? *Esc › Start a new book…* asks for a name and opens it
 right there, and *Esc › Open another book…* hops between the ones you've had open.
+
+**Got a draft already?** Grimoire brings in a Word file (`.docx`), Markdown or
+plain text and splits it into chapters and scenes for you: chapters at its
+headings, scenes at its scene breaks (`***`, `#`), with italics and bold kept.
+Anything before the first chapter, like a title page, lands in Notes, and every
+word comes across. From Google Docs, download it as Word first. In the app it's
+*Esc › Open another book… › Bring in a draft…*, or type the draft's path into
+*Start a new book…*.
 
 With no arguments it opens the current directory if it's a manuscript,
 otherwise the last one you had open, otherwise it creates one in
@@ -248,6 +276,10 @@ row* goes through every row, and *Every key* lists every key. *About Grimoire…
 - **Sprints and targets.** *Start a sprint…* sets a word goal and minutes and
   starts the timer; the status bar counts `sprint 212/500 · 14:32`. A scene's
   `target:` shows as progress in the editor's title.
+- **Progress.** Click the word count at the bottom left (or *Esc › Writing
+  tools › Progress…*) for your words each week, your pace lately, and roughly
+  when you'll reach your goal. It's there to cheer you on: no streaks, no days
+  in a row, and a quiet week is just a short bar.
 - **Revision passes.** *Next scene still in draft* walks the book by status;
   *Echo words* lights a word used again within forty words.
 - **A scene beside** (`v` in the tree): another scene, read-only, next to the
@@ -738,6 +770,16 @@ The **Release** workflow ([dist](https://github.com/axodotdev/cargo-dist))
 builds every platform and publishes the GitHub release with both installers;
 **installer-check** then installs it with the one-liners on Windows, macOS and
 Linux and runs it. Nothing is published unless every build succeeds.
+**packages** builds the `.deb` and `.rpm` for x86-64 and ARM, attaches them to
+the release, and installs each on a clean Debian, Ubuntu and Fedora to run it.
+Then `tools/winget.py <version>` sends the release to winget.
+
+The moving demo at the top is drawn by Grimoire itself, frame by frame:
+
+```sh
+GRIMOIRE_DEMO=/tmp/demo.json cargo test --locked demo -- --ignored
+python3 tools/demo.py /tmp/demo.json assets/readme/demo
+```
 
 Issues and pull requests welcome.
 
