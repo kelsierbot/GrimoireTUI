@@ -1,6 +1,6 @@
 # Getting started
 
-Grimoire is a writing desk for one book at a time. The book is a folder of plain Markdown files, so everything you write can be read, copied and backed up without Grimoire.
+Grimoire is a writing desk for one book at a time. The book is a folder of plain Markdown files, so everything you write can be read, copied and backed up without Grimoire. You can have as many books as you like: *Esc › Start a new book…* starts another, and *Esc › Open another book…* switches (see *Your books*).
 
 ## The desk
 
@@ -13,7 +13,7 @@ Grimoire is a writing desk for one book at a time. The book is a folder of plain
 ## Getting around
 
 - `Tab` and `Shift-Tab` move between the panes.
-- `Esc` opens **the menu**, from anywhere. Everything Grimoire can do is in it, down to *Quit Grimoire* at the bottom. `Esc` again closes it and leaves you where you were.
+- `Esc` opens **the menu**, from anywhere. The first screen is short, and rows with a › open a group of their own, so everything Grimoire can do is a step or two away. The highlighted row says what it does, and `?` opens the help on it (see *The menu, row by row*). `Esc` again closes it and leaves you where you were.
 - `Ctrl-K` **finds anything**: every action, scene, note and theme by a few letters of its name, with the key that does the same thing.
 - `?` or `F1` opens this help, on the topic for wherever you are. On the page, and in any box you type into, `?` is just a question mark, so use `F1` there.
 
@@ -31,8 +31,8 @@ Click a pane to move to it, a chapter to fold it, a scene to open it, and the pr
 
 ## About Grimoire
 
-*About Grimoire…* in the menu (or `Ctrl-K` › *About Grimoire*) shows which version you're running and who made it: Grimoire is made by Catfinity Studios. `Enter`, or a click on the link, opens catfinity.com in your browser, and `l` opens the License topic. Catfinity Studios also makes **Catfinity**, an idle cat RPG for iPhone and Android: `c` in *About Grimoire…* (or a click on its line) opens its page. From a terminal, `grimoire --version` says the same.
+*Esc › Help & about › About Grimoire…* (or `Ctrl-K` › *About Grimoire*) shows which version you're running and who made it: Grimoire is made by Catfinity Studios. `Enter`, or a click on the link, opens catfinity.com in your browser, and `l` opens the License topic. Catfinity Studios also makes **Catfinity**, an idle cat RPG for iPhone and Android: `c` in *About Grimoire…* (or a click on its line) opens its page. From a terminal, `grimoire --version` says the same.
 
 ## Donate
 
-Grimoire is free, and a donation is never required. It's always appreciated, though, and it all goes toward Grimoire's development. *Donate…* in the menu (or `Ctrl-K` › *Donate (Ko-fi)*, or `d` in *About Grimoire…*) opens the Ko-fi page in your browser.
+Grimoire is free, and a donation is never required. It's always appreciated, though, and it all goes toward Grimoire's development. *Esc › Help & about › Donate…* (or `Ctrl-K` › *Donate (Ko-fi)*, or `d` in *About Grimoire…*) opens the Ko-fi page in your browser.

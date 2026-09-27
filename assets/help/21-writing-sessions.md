@@ -21,4 +21,4 @@ If that history has a Git remote, sessions are sent to it in the background, so 
 
 ## Older books
 
-A book from an earlier version may keep its history in a `.git` folder inside the book. That keeps working — but if the book is in a sync service, the menu offers **Move writing history out…** (in `Ctrl-K`, *Move writing history out of the synced folder*), which copies it to the data folder, checks the copy, and moves the old one to the Trash. Your scenes are never touched.
+A book from an earlier version may keep its history in a `.git` folder inside the book. That keeps working — but if the book is in a sync service, *Esc › This book* offers **Move writing history out…** (in `Ctrl-K`, *Move writing history out of the synced folder*), which copies it to the data folder, checks the copy, and moves the old one to the Trash. Your scenes are never touched.

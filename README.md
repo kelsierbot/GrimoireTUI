@@ -97,6 +97,9 @@ grimoire new ~/novels/next-one    start one
 grimoire music-setup              install + connect YouTube Music
 ```
 
+Already inside Grimoire? *Esc › Start a new book…* asks for a name and opens it
+right there, and *Esc › Open another book…* hops between the ones you've had open.
+
 With no arguments it opens the current directory if it's a manuscript,
 otherwise the last one you had open, otherwise it creates one in
 `~/Documents/Grimoire`.
@@ -176,21 +179,25 @@ heard of.
 
 ## Keys
 
-Everything is one `Esc` away:
+Everything is one `Esc` away. The first screen is short, and the rest sits one
+step down in a few small groups: *This book*, *Writing tools*, *Settings* and
+*Help & about*. Whatever row you're on says what it does, in plain words, and
+`?` opens the help page for it.
 
-<p align="center"><img src="assets/screenshots/menu.png" alt="The Esc menu, in Tokyo Night" width="100%"></p>
+<p align="center"><img src="assets/screenshots/menu.png" alt="The Esc menu's writing tools in Tokyo Night, with Turn echo words on highlighted and explained underneath" width="100%"></p>
 
-And every feature is explained inside: `F1` (or `?` outside the page, or
-*Help…* in the menu) opens the help on the topic for where you are — the
-outline, the page, the Pomodoro, the export dialog. Type to search every topic;
-*Every key* lists them all. *About Grimoire…* in the menu says which version
-you're running, and who made it (`grimoire --version` from a terminal).
+And every feature is explained inside: `F1` (or `?` outside the page) opens the
+help on the topic for where you are, whether that's the outline, the page, the
+Pomodoro or the export dialog. Type to search every topic. *The menu, row by
+row* goes through every row, and *Every key* lists every key. *About Grimoire…*
+(in *Help & about*) says which version you're running, and who made it
+(`grimoire --version` from a terminal).
 
 <p align="center"><img src="assets/screenshots/help.png" alt="The help in Catppuccin Mocha, opened with F1 from the page: the topics on the left, Writing open on the right" width="100%"></p>
 
 | Key | |
 |---|---|
-| `Esc` | **the menu**, from anywhere — new, rename, delete, export, the writing tools, settings, and *Quit Grimoire* at the bottom. `Esc` again closes it; with a note or a scene open beside, the first `Esc` closes that |
+| `Esc` | **the menu**, from anywhere: find anything, this book, the writing tools, export, a new book or another one, settings, help, and *Quit Grimoire* at the bottom. `Esc` again closes it; with a note or a scene open beside, the first `Esc` closes that |
 | `F1` · `?` | **the help** — every feature explained, opened on the topic for where you are. `?` works wherever you aren't typing; on the page it's a question mark |
 | `Ctrl-K` | **find anything** — every action, scene, note and theme by name, with its key |
 | `Tab` / `Shift-Tab` | cycle panes — tree, editor, the open note, Pomodoro, music |
@@ -761,7 +768,7 @@ though, and it all goes toward Grimoire's development.
 
 <a href="https://ko-fi.com/F2F21E0DK0"><img height="36" style="border:0px;height:36px;" src="https://storage.ko-fi.com/cdn/kofi6.png?v=6" alt="Buy Me a Coffee at ko-fi.com"></a>
 
-The same is in the app: *Donate…* in the menu, or `d` in *About Grimoire…*.
+The same is in the app: *Esc › Help & about › Donate…*, or `d` in *About Grimoire…*.
 
 Another way to help: Grimoire comes from [Catfinity Studios](https://catfinity.com),
 and we also make **[Catfinity](https://catfinity.com/catfinity/)**, a cozy idle

@@ -7,8 +7,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use crate::books;
 use crate::music::{self, Music};
-use crate::palette::{self, Action};
+use crate::palette::{self, Action, Sub};
 use crate::scene::{Mode, Pomodoro};
 use crate::theme::{self, Theme};
 use crate::visualizer::Visualizer;
@@ -290,6 +291,11 @@ pub struct App {
     pub about_game_link: std::cell::Cell<Rect>,
     /// The last address handed to a browser (tests read it; nothing opens).
     pub last_opened: Option<String>,
+    /// Whether this app starts threads and reads ~/.config; off in tests.
+    background: bool,
+    /// Where the last book and the recent ones are kept; `None` in tests,
+    /// which set it to a temp file when they want a list.
+    pub state_file: Option<PathBuf>,
 }
 
 /// Set while the help is drawn: how far the article can scroll, how many
@@ -381,9 +387,24 @@ pub enum Overlay {
     Menu {
         sel: usize,
     },
-    /// The menu's Settings, one level down: themes, music, spellcheck, icons.
-    Settings {
+    /// One of the menu's groups, one level down: this book, the writing
+    /// tools, Settings, or Help & about.
+    Sub {
+        sub: Sub,
         sel: usize,
+    },
+    /// Naming a whole new book. A plain name goes beside the book that's
+    /// open; a path (`~/…`, `/…`) goes exactly there.
+    NewBook {
+        buf: String,
+    },
+    /// The books this machine has had open, to switch to one.
+    Books {
+        sel: usize,
+    },
+    /// A book's folder, typed, to open it.
+    BookPath {
+        buf: String,
     },
     /// Browsing presets. `restore` is put back if you press Esc.
     Themes {
@@ -624,7 +645,9 @@ impl App {
     }
 
     pub fn new(project: Project) -> Result<Self> {
-        Self::with(project, Setup::from_config())
+        let mut app = Self::with(project, Setup::from_config())?;
+        app.state_file = Some(books::state_path());
+        Ok(app)
     }
 
     /// An App from what [`Setup`] hands it: nothing read from ~/.config, and
@@ -752,6 +775,8 @@ impl App {
             about_link: std::cell::Cell::default(),
             about_game_link: std::cell::Cell::default(),
             last_opened: None,
+            background: setup.background,
+            state_file: None,
         })
         .map(|mut app: App| {
             if setup.background {
@@ -1477,17 +1502,13 @@ impl App {
             Action::Menu => self.open_menu(),
             Action::Quit => self.quit = true,
             Action::FindAnything => self.open_palette(),
-            Action::Settings => self.overlay = Overlay::Settings { sel: 0 },
-            Action::MenuBack => {
-                let sel = self
-                    .menu()
-                    .iter()
-                    .position(|(_, a)| *a == Action::Settings)
-                    .unwrap_or(0);
-                self.overlay = Overlay::Menu { sel };
-            }
-            // run_action has already put the menu away.
-            Action::CloseMenu => {}
+            Action::Submenu(sub) => self.overlay = Overlay::Sub { sub, sel: 0 },
+            // The menu's own key handling brings you back to the group you
+            // were in; from anywhere else, the top.
+            Action::MenuBack => self.open_menu(),
+            Action::NewBook => self.overlay = Overlay::NewBook { buf: String::new() },
+            Action::OpenBook => self.overlay = Overlay::Books { sel: 0 },
+            Action::OpenBookAt(root) => self.open_book(&root),
             Action::Open(path) => {
                 if let Some(i) = self.project.nodes.iter().position(|n| n.path == path) {
                     self.reveal(i);
@@ -4189,63 +4210,102 @@ impl App {
         v
     }
 
-    /// The menu, in the book's own words — it offers a new act if that is what
-    /// this book calls its parts. Preferences live one level down, in Settings.
+    /// The menu's first screen: a handful of rows, most of them doors into
+    /// a short group of their own. Everything is still here, one step down.
     pub fn menu(&self) -> Vec<(String, Action)> {
         let row = |label: &str, key: &str| format!("{label:<26}{key}");
         let m = self.mod_label();
-        let on_off =
-            |on: bool, what: &str| format!("Turn {what} {}", if on { "off" } else { "on" });
-        let writing = self.open.is_some();
         let mut items = vec![
             (
                 row("Find anything…", &format!("({m}K)")),
                 Action::FindAnything,
             ),
-            // Making and unmaking.
-            (row("New scene…", "(n)"), Action::NewScene),
-            (row("New chapter…", "(c)"), Action::NewChapter),
-            (
-                row(&format!("New {}…", self.project.meta.part_noun()), "(p)"),
-                Action::NewPart,
-            ),
-            (row("New folder…", "(N)"), Action::NewFolder),
-            (row("Rename…", "(r)"), Action::Rename),
-            (row("Delete…", "(d)"), Action::Delete),
-            // Writing and revising.
-            (
-                row(
-                    if self.focus_mode {
-                        "Leave focus mode"
-                    } else {
-                        "Focus mode"
-                    },
-                    &format!("({m}D)"),
-                ),
-                Action::FocusMode,
-            ),
-            (row("Open a scene beside…", "(v)"), Action::BesidePicker),
-            (row("Notes & TKs…", &format!("({m}T)")), Action::NotesList),
-            (row("Next scene still in draft", ""), Action::NextDraft),
-            (on_off(self.echo_on, "echo words"), Action::EchoWords),
-            if self.sprint.is_some() {
-                ("Stop the sprint".into(), Action::EndSprint)
-            } else {
-                ("Start a sprint…".into(), Action::StartSprint)
-            },
-            (row("Music player…", "(F7)"), Action::MusicPlayer),
-            // Word, EPUB and Markdown. The project map and a bare Markdown
-            // compile are still in the palette.
+            // Only while there's something to settle: it can't wait.
             ("Settle conflicts…".into(), Action::Conflicts),
+            (row("This book", "›"), Action::Submenu(Sub::Book)),
+            (row("Writing tools", "›"), Action::Submenu(Sub::Writing)),
             ("Export…".into(), Action::Export),
-            ("Move writing history out…".into(), Action::MoveHistoryOut),
-            ("Settings…".into(), Action::Settings),
-            ("About Grimoire…".into(), Action::About),
-            ("Donate…".into(), Action::Donate),
-            (row("Help…", "(?)"), Action::Help),
-            (row("Close", "(Esc)"), Action::CloseMenu),
+            ("Start a new book…".into(), Action::NewBook),
+            ("Open another book…".into(), Action::OpenBook),
+            (row("Settings", "›"), Action::Submenu(Sub::Settings)),
+            (row("Help & about", "›"), Action::Submenu(Sub::Help)),
             (row("Quit Grimoire", &format!("({m}Q)")), Action::Quit),
         ];
+        items.retain(|(_, a)| *a != Action::Conflicts || !self.conflicts().is_empty());
+        items
+    }
+
+    /// One of the menu's groups, in the book's own words: it offers a new act
+    /// if that is what this book calls its parts. Each ends with Back.
+    pub fn submenu(&self, sub: Sub) -> Vec<(String, Action)> {
+        let row = |label: &str, key: &str| format!("{label:<26}{key}");
+        let m = self.mod_label();
+        let on_off =
+            |on: bool, what: &str| format!("Turn {what} {}", if on { "off" } else { "on" });
+        let writing = self.open.is_some();
+        let mut items = match sub {
+            Sub::Book => vec![
+                (row("New scene…", "(n)"), Action::NewScene),
+                (row("New chapter…", "(c)"), Action::NewChapter),
+                (
+                    row(&format!("New {}…", self.project.meta.part_noun()), "(p)"),
+                    Action::NewPart,
+                ),
+                (row("New folder…", "(N)"), Action::NewFolder),
+                (row("Rename…", "(r)"), Action::Rename),
+                (row("Delete…", "(d)"), Action::Delete),
+                ("Move writing history out…".into(), Action::MoveHistoryOut),
+            ],
+            Sub::Writing => vec![
+                (
+                    row(
+                        if self.focus_mode {
+                            "Leave focus mode"
+                        } else {
+                            "Focus mode"
+                        },
+                        &format!("({m}D)"),
+                    ),
+                    Action::FocusMode,
+                ),
+                (row("Open a scene beside…", "(v)"), Action::BesidePicker),
+                (row("Notes & TKs…", &format!("({m}T)")), Action::NotesList),
+                (row("Next scene still in draft", ""), Action::NextDraft),
+                (on_off(self.echo_on, "echo words"), Action::EchoWords),
+                if self.sprint.is_some() {
+                    ("Stop the sprint".into(), Action::EndSprint)
+                } else {
+                    ("Start a sprint…".into(), Action::StartSprint)
+                },
+                (row("Music player…", "(F7)"), Action::MusicPlayer),
+            ],
+            Sub::Settings => vec![
+                (row("Themes…", "(F9)"), Action::Themes),
+                ("Music source…".into(), Action::MusicSource),
+                (on_off(self.music.enabled, "music"), Action::MusicToggle),
+                (on_off(self.spell_on, "spellcheck"), Action::Spellcheck),
+                (on_off(self.icons_on, "tree icons"), Action::Icons),
+                (
+                    match self.line_width {
+                        0 => "Line width: the whole pane".to_string(),
+                        w => format!("Line width: {w} columns"),
+                    },
+                    Action::LineWidth,
+                ),
+                (
+                    on_off(self.typewriter, "typewriter scrolling"),
+                    Action::Typewriter,
+                ),
+                ("Manuscript look…".into(), Action::ManuscriptLook),
+                ("Author details…".into(), Action::AuthorDetails),
+            ],
+            Sub::Help => vec![
+                (row("Help…", "(?)"), Action::Help),
+                ("About Grimoire…".into(), Action::About),
+                ("License…".into(), Action::License),
+                ("Donate…".into(), Action::Donate),
+            ],
+        };
         // Rows that couldn't do anything right now aren't offered: nothing to
         // play with music off (Settings is where it comes back on), and the
         // writing tools want a scene open.
@@ -4256,37 +4316,10 @@ impl App {
             Action::EchoWords => writing || self.echo_on,
             // Only while a synced book still keeps its history inside it.
             Action::MoveHistoryOut => self.history_in_book && self.cloud.is_some(),
-            Action::Conflicts => !self.conflicts().is_empty(),
             _ => true,
         });
+        items.push(("Back".into(), Action::MenuBack));
         items
-    }
-
-    /// How Grimoire looks and sounds: the menu's Settings, nested.
-    pub fn settings_menu(&self) -> Vec<(String, Action)> {
-        let on_off =
-            |on: bool, what: &str| format!("Turn {what} {}", if on { "off" } else { "on" });
-        vec![
-            ("Themes…".into(), Action::Themes),
-            ("Music source…".into(), Action::MusicSource),
-            (on_off(self.music.enabled, "music"), Action::MusicToggle),
-            (on_off(self.spell_on, "spellcheck"), Action::Spellcheck),
-            (on_off(self.icons_on, "tree icons"), Action::Icons),
-            (
-                match self.line_width {
-                    0 => "Line width: the whole pane".to_string(),
-                    w => format!("Line width: {w} columns"),
-                },
-                Action::LineWidth,
-            ),
-            (
-                on_off(self.typewriter, "typewriter scrolling"),
-                Action::Typewriter,
-            ),
-            ("Manuscript look…".into(), Action::ManuscriptLook),
-            ("Author details…".into(), Action::AuthorDetails),
-            ("Back".into(), Action::MenuBack),
-        ]
     }
 
     pub fn open_menu(&mut self) {

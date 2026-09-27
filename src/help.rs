@@ -29,6 +29,8 @@ pub const TOPICS: &[Topic] = &[
         "Getting started",
         "01-getting-started.md"
     ),
+    topic!("menu", "The menu, row by row", "27-the-menu.md"),
+    topic!("books", "Your books", "26-your-books.md"),
     topic!("outline", "The outline", "02-the-outline.md"),
     topic!("writing", "Writing", "03-writing.md"),
     topic!("focus", "Focus mode & typewriter", "04-focus-mode.md"),

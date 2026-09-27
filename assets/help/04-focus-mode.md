@@ -2,7 +2,7 @@
 
 ## Focus mode
 
-`Ctrl-D` hides everything but the prose: the outline, the Pomodoro and the music pane go away, and the scene sits centred on the screen with a quiet status line. `Ctrl-D` again (*Leave focus mode*) brings it all back. Both are in the menu and in `Ctrl-K` too.
+`Ctrl-D` hides everything but the prose: the outline, the Pomodoro and the music pane go away, and the scene sits centred on the screen with a quiet status line. `Ctrl-D` again (*Leave focus mode*) brings it all back. Both are in *Esc › Writing tools* and in `Ctrl-K` too.
 
 `Esc` still opens the menu in focus mode, and closing the menu brings you straight back to the page.
 

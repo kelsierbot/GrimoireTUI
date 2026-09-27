@@ -18,7 +18,7 @@ impl App {
     pub fn open_help(&mut self, topic: Option<&str>) {
         let id = topic.unwrap_or_else(|| self.help_context());
         let back = match std::mem::replace(&mut self.overlay, Overlay::None) {
-            Overlay::None | Overlay::Menu { .. } | Overlay::Palette { .. } => None,
+            Overlay::None | Overlay::Palette { .. } => None,
             Overlay::Help { back, .. } => back,
             other => Some(Box::new(other)),
         };
@@ -35,7 +35,12 @@ impl App {
     /// The topic that explains where you are.
     pub fn help_context(&self) -> &'static str {
         match &self.overlay {
-            Overlay::Settings { .. } => "settings",
+            // In the menu, the topic for the highlighted row.
+            Overlay::Menu { .. } | Overlay::Sub { .. } => self
+                .menu_highlight()
+                .map(|a| super::menu::about_row(&a, &self.project.meta.part_noun()).1)
+                .unwrap_or("getting-started"),
+            Overlay::NewBook { .. } | Overlay::Books { .. } | Overlay::BookPath { .. } => "books",
             Overlay::Themes { .. } | Overlay::Custom { .. } => "themes",
             Overlay::Sources { .. } | Overlay::Player { .. } => "music",
             Overlay::Export { .. } | Overlay::Look { .. } | Overlay::Author { .. } => "compile",
@@ -51,11 +56,9 @@ impl App {
             }
             Overlay::Find { .. } | Overlay::FindBook { .. } => "find",
             Overlay::Create { .. } | Overlay::Rename { .. } | Overlay::Confirm { .. } => "outline",
-            Overlay::Help { .. }
-            | Overlay::Menu { .. }
-            | Overlay::Palette { .. }
-            | Overlay::About
-            | Overlay::Donate => "getting-started",
+            Overlay::Help { .. } | Overlay::Palette { .. } | Overlay::About | Overlay::Donate => {
+                "getting-started"
+            }
             Overlay::None => match self.focus {
                 Focus::Tree => "outline",
                 Focus::Editor if self.focus_mode => "focus",
@@ -82,6 +85,8 @@ impl App {
             | Overlay::Rename { .. }
             | Overlay::Sprint { .. }
             | Overlay::Author { .. }
+            | Overlay::NewBook { .. }
+            | Overlay::BookPath { .. }
             | Overlay::Help { .. } => false,
             Overlay::Spelling { inline, .. } => !*inline,
             Overlay::Look { sel, .. } => *sel != super::readers::KEYWORD_ROW,

@@ -387,6 +387,27 @@ fn shots() {
     s.key(KeyCode::Esc, none);
     frames.push(s.json("menu", None));
 
+    // One step down: the writing tools, each row saying what it does.
+    s.key(KeyCode::Down, none);
+    s.key(KeyCode::Down, none);
+    s.key(KeyCode::Enter, none);
+    for _ in 0..8 {
+        if s.shows("▸ Turn echo words") {
+            break;
+        }
+        s.key(KeyCode::Down, none);
+    }
+    frames.push(s.json("menu-tools", None));
+
+    // Starting a whole new book.
+    let mut s = Shot::new("new-book", "Rainbow", w, h, false);
+    s.key(KeyCode::Tab, none);
+    s.app.run_action(crate::palette::Action::NewBook);
+    for c in "The Long Night".chars() {
+        s.key(KeyCode::Char(c), none);
+    }
+    frames.push(s.json("new-book", None));
+
     // The help, opened with F1 from the page: on the topic for writing.
     let mut s = Shot::new("help", "Catppuccin Mocha", w, h, false);
     s.key(KeyCode::Tab, none);

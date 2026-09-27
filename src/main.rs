@@ -1,15 +1,15 @@
 //! grimoire — a terminal writing desk for novels.
 
 mod app;
+mod books;
 mod help;
-mod theme;
-use grimoire_core::paths::home;
 mod library;
 mod music;
 mod palette;
 mod scene;
 mod scenery;
 mod shutdown;
+mod theme;
 mod ui;
 mod visualizer;
 mod viz_view;
@@ -382,50 +382,15 @@ fn part_numbers(list: &str) -> Result<Vec<usize>> {
     Ok(out)
 }
 
-/// Where a first-time manuscript goes if the user never names one.
-fn default_root() -> PathBuf {
-    home().join("Documents").join("Grimoire")
-}
-
-fn state_path() -> PathBuf {
-    home().join(".config").join("grimoire").join("state.toml")
-}
-
-/// Shorten the home folder to ~ so printed paths stay readable.
-fn pretty(p: &Path) -> String {
-    let s = p.display().to_string();
-    // Windows canonicalises to the \\?\C:\… form; nobody wants to read that.
-    let s = s.strip_prefix(r"\\?\").map(str::to_string).unwrap_or(s);
-    let h = home().display().to_string();
-    match s.strip_prefix(&h) {
-        Some(rest) if h != "." => format!("~{rest}"),
-        _ => s,
-    }
-}
-
-fn is_project(p: &Path) -> bool {
-    p.join("manuscript").is_dir()
-}
+use books::{default_root, is_book as is_project, pretty};
+use grimoire_core::paths::home;
 
 fn last_opened() -> Option<PathBuf> {
-    let s = std::fs::read_to_string(state_path()).ok()?;
-    for line in s.lines() {
-        if let Some(v) = line.strip_prefix("last = ") {
-            let v = v.trim().trim_matches('"');
-            if !v.is_empty() {
-                return Some(PathBuf::from(v));
-            }
-        }
-    }
-    None
+    books::last(&books::state_path())
 }
 
 fn remember(root: &Path) {
-    let path = state_path();
-    if let Some(dir) = path.parent() {
-        let _ = std::fs::create_dir_all(dir);
-    }
-    let _ = grimoire_core::atomic::write_text(&path, &format!("last = \"{}\"\n", root.display()));
+    books::remember(&books::state_path(), root);
 }
 
 /// Decide what `grimoire` with no arguments should open. In order: the current

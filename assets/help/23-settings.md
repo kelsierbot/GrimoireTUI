@@ -1,6 +1,6 @@
 # Settings
 
-*Esc › Settings…* opens a menu of its own. Switches stay open to show their new state; `←` or `Esc` goes back to the main menu.
+*Esc › Settings* opens a menu of its own. Switches stay open to show their new state; `←` or `Esc` goes back to the main menu. Each row says what it does while it's highlighted.
 
 - **Themes…**: the nineteen themes and your own (see *Themes*). Also `F9`.
 - **Music source…**: YouTube Music, Spotify, Jellyfin or Plex.

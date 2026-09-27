@@ -56,12 +56,11 @@ pub enum Action {
     EndSprint,
     Menu,
     Quit,
-    /// The menu's own rows: open the palette, go into Settings and back out,
-    /// and close the menu.
+    /// The menu's own rows: open the palette, and go into one of its groups
+    /// and back out.
     FindAnything,
-    Settings,
+    Submenu(Sub),
     MenuBack,
-    CloseMenu,
     FocusMode,
     /// Pick a scene to show beside the one being written.
     BesidePicker,
@@ -78,6 +77,23 @@ pub enum Action {
     Donate,
     License,
     Open(std::path::PathBuf),
+    /// A whole new book, beside the one that's open, and switch to it.
+    NewBook,
+    /// Switch to another book: a recent one, or one in a folder you name.
+    OpenBook,
+    OpenBookAt(std::path::PathBuf),
+}
+
+/// The menu's groups, each a short list of its own one level down.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Sub {
+    /// Making, renaming and deleting scenes, chapters and parts.
+    Book,
+    /// Focus mode, sprints, notes and the rest of what helps mid-scene.
+    Writing,
+    Settings,
+    /// The help, About, the license and Donate.
+    Help,
 }
 
 impl Action {
@@ -129,6 +145,8 @@ pub fn entries(app: &crate::app::App) -> Vec<Entry> {
         Entry::new("New chapter", "c", Action::NewChapter),
         Entry::new(format!("New {part}"), "p", Action::NewPart),
         Entry::new("New folder", "N", Action::NewFolder),
+        Entry::new("Start a new book", "", Action::NewBook),
+        Entry::new("Open another book", "", Action::OpenBook),
         Entry::new("Rename", "r", Action::Rename),
         Entry::new("Delete (to the trash)", "d", Action::Delete),
         Entry::new("Move up", "Alt ↑", Action::MoveUp),
@@ -170,9 +188,9 @@ pub fn entries(app: &crate::app::App) -> Vec<Entry> {
         Entry::new("Next scene still in draft", "", Action::NextDraft),
         Entry::new(
             if app.echo_on {
-                "Echo words off"
+                "Turn echo words off"
             } else {
-                "Echo words — repeated too close together"
+                "Turn echo words on: spot a word used twice, close together"
             },
             "",
             Action::EchoWords,
@@ -262,6 +280,16 @@ pub fn entries(app: &crate::app::App) -> Vec<Entry> {
                 Action::Conflicts,
             ),
         );
+    }
+    // The other books, by name, so switching is a few letters away.
+    for root in app.other_books() {
+        let mut e = Entry::new(
+            format!("Open the book {}", crate::books::title(&root)),
+            "",
+            Action::OpenBookAt(root.clone()),
+        );
+        e.detail = crate::books::pretty(&root);
+        v.push(e);
     }
     if app.music.enabled {
         v.extend([

@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.5.8 · A calmer menu, and new books from inside
+
+- **The menu is short now.** `Esc` opens nine rows instead of two dozen. The
+  rest sits one step down in small groups (*This book*, *Writing tools*,
+  *Settings*, *Help & about*), and `←` or `Esc` comes back out.
+- **Every row says what it does.** Whichever row is highlighted gets a line
+  of plain explanation underneath, and `?` opens the help page for it. So
+  *Turn echo words on* now tells you it lights up a word you've used again
+  too soon.
+- **Start a new book from inside Grimoire.** *Esc › Start a new book…* asks
+  for a name, shows where it'll live, saves and puts away the book you're
+  in, and opens the new one. No terminal needed.
+- **Switch books.** *Esc › Open another book…* lists the books you've had
+  open, newest first, or opens one from its folder. Each is in `Ctrl-K` by
+  name too. Music, the Pomodoro and your theme carry across.
+- Two new help pages: *Your books*, and *The menu, row by row*, which goes
+  through every row.
+
 ## 0.5.7 · Say hello to Catfinity
 
 - *About Grimoire…* now mentions the studio's other work: Catfinity Studios

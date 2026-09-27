@@ -6,6 +6,7 @@
 
 use super::*;
 use crate::app::Setup;
+use crate::palette::Sub;
 use grimoire_core::recovery;
 use grimoire_core::settings::Settings;
 use grimoire_core::spell;
@@ -124,6 +125,18 @@ impl Desk {
     fn menu_open(&self) -> bool {
         matches!(self.app.overlay, Overlay::Menu { .. })
     }
+
+    /// Down the menu screen that's up to the row starting `label`, and ↵.
+    fn choose(&mut self, label: &str) {
+        for _ in 0..40 {
+            if self.shows(&format!("▸ {label}")) {
+                self.key(KeyCode::Enter);
+                return;
+            }
+            self.key(KeyCode::Down);
+        }
+        panic!("no {label} row:\n{}", self.rows().join("\n"));
+    }
 }
 
 impl Drop for Desk {
@@ -202,16 +215,8 @@ fn the_menu_acts_on_the_scene_being_written() {
     d.keys(&[KeyCode::Down, KeyCode::Down]);
     d.key(KeyCode::Tab);
     d.key(KeyCode::Esc);
-    let at = d
-        .app
-        .menu()
-        .iter()
-        .position(|(_, a)| *a == palette::Action::Delete)
-        .unwrap();
-    for _ in 0..at {
-        d.key(KeyCode::Down);
-    }
-    d.key(KeyCode::Enter);
+    d.choose("This book");
+    d.choose("Delete…");
     match &d.app.overlay {
         Overlay::Confirm { name, .. } => assert_eq!(name, "Scene One"),
         other => panic!("expected the delete prompt, got {other:?}"),
@@ -219,9 +224,30 @@ fn the_menu_acts_on_the_scene_being_written() {
 }
 
 #[test]
-fn the_menu_offers_the_writing_tools_and_hides_what_cant_act() {
+fn the_first_menu_is_short_and_the_rest_is_one_step_down() {
     let d = Desk::open(book("menu-rows", true), 120, 35);
-    let labels: Vec<String> = d.app.menu().into_iter().map(|(l, _)| l).collect();
+    let labels = |rows: Vec<(String, palette::Action)>| -> Vec<String> {
+        rows.into_iter().map(|(l, _)| l).collect()
+    };
+    let top = labels(d.app.menu());
+    assert!(top.len() <= 10, "{top:?}");
+    for want in [
+        "Find anything…",
+        "This book",
+        "Writing tools",
+        "Export…",
+        "Start a new book…",
+        "Open another book…",
+        "Settings",
+        "Help & about",
+    ] {
+        assert!(
+            top.iter().any(|l| l.starts_with(want)),
+            "no {want} in {top:?}"
+        );
+    }
+    assert!(top.last().unwrap().starts_with("Quit Grimoire"));
+    let writing = labels(d.app.submenu(Sub::Writing));
     for want in [
         "Focus mode",
         "Open a scene beside…",
@@ -229,20 +255,70 @@ fn the_menu_offers_the_writing_tools_and_hides_what_cant_act() {
         "Next scene still in draft",
         "Turn echo words on",
         "Start a sprint…",
-        "Export…",
-        "Settings…",
     ] {
         assert!(
-            labels.iter().any(|l| l.starts_with(want)),
-            "no {want} in {labels:?}"
+            writing.iter().any(|l| l.starts_with(want)),
+            "no {want} in {writing:?}"
         );
     }
     assert!(
-        !labels.iter().any(|l| l.contains("Music player")),
+        !writing.iter().any(|l| l.contains("Music player")),
         "music is off"
     );
-    assert!(labels.last().unwrap().starts_with("Quit Grimoire"));
-    assert!(labels[labels.len() - 2].starts_with("Close"));
+    for sub in [Sub::Book, Sub::Writing, Sub::Settings, Sub::Help] {
+        assert_eq!(labels(d.app.submenu(sub)).last().unwrap(), "Back");
+    }
+}
+
+#[test]
+fn every_menu_row_says_what_it_does_and_has_a_help_topic() {
+    let d = Desk::open(book("menu-about", true), 120, 35);
+    let mut rows = d.app.menu();
+    for sub in [Sub::Book, Sub::Writing, Sub::Settings, Sub::Help] {
+        rows.extend(d.app.submenu(sub));
+    }
+    for (label, action) in rows {
+        let (says, topic) = crate::app::overlays::about_row(&action, "part");
+        assert!(!says.is_empty(), "{label} says nothing");
+        assert!(!says.contains('—'), "{label}: no em dashes");
+        assert_eq!(
+            crate::help::TOPICS[crate::help::index(topic)].id,
+            topic,
+            "{label}"
+        );
+    }
+}
+
+#[test]
+fn the_highlighted_row_explains_itself_and_question_mark_opens_its_page() {
+    let mut d = Desk::open(book("menu-explain", true), 120, 35);
+    d.key(KeyCode::Tab);
+    d.key(KeyCode::Esc);
+    d.choose("Writing tools");
+    for _ in 0..10 {
+        if d.shows("▸ Turn echo words on") {
+            break;
+        }
+        d.key(KeyCode::Down);
+    }
+    assert!(
+        d.shows("like \"the lamp… the lamp\""),
+        "{}",
+        d.rows().join("\n")
+    );
+    d.key(KeyCode::Char('?'));
+    assert_eq!(help_topic(&d), Some("revision"));
+    d.key(KeyCode::Esc);
+    assert!(
+        matches!(
+            d.app.overlay,
+            Overlay::Sub {
+                sub: Sub::Writing,
+                ..
+            }
+        ),
+        "closing the help comes back to the group"
+    );
 }
 
 #[test]
@@ -253,13 +329,19 @@ fn settings_and_back_again() {
         .app
         .menu()
         .iter()
-        .position(|(_, a)| *a == palette::Action::Settings)
+        .position(|(_, a)| *a == palette::Action::Submenu(Sub::Settings))
         .unwrap();
     for _ in 0..at {
         d.key(KeyCode::Down);
     }
     d.key(KeyCode::Enter);
-    assert!(matches!(d.app.overlay, Overlay::Settings { .. }));
+    assert!(matches!(
+        d.app.overlay,
+        Overlay::Sub {
+            sub: Sub::Settings,
+            ..
+        }
+    ));
     assert!(d.shows("Line width: 72 columns"));
     assert!(d.shows("typewriter scrolling"));
     d.key(KeyCode::Esc);
@@ -1081,21 +1163,14 @@ fn a_synced_book_with_history_inside_offers_to_move_it_out() {
     );
     d.draw();
     d.key(KeyCode::Esc);
+    d.choose("This book");
     assert!(d.shows("Move writing history out…"), "offered in the menu");
-    for _ in 0..30 {
-        if d.rows()
-            .iter()
-            .any(|r| r.contains("▸ Move writing history out"))
-        {
-            break;
-        }
-        d.key(KeyCode::Down);
-    }
-    d.key(KeyCode::Enter);
+    d.choose("Move writing history out");
     assert!(!root.join(".git").exists(), "moved out: {}", d.status());
     assert!(!d.app.history_in_book);
     assert!(d.status().contains("moved out"), "{}", d.status());
     d.key(KeyCode::Esc);
+    d.choose("This book");
     assert!(!d.shows("Move writing history out…"), "no longer offered");
     drop(d);
     let _ = fs::remove_dir_all(&base);
@@ -1518,14 +1593,13 @@ fn reading(d: &Desk) -> bool {
 fn the_menu_has_a_help_row_that_opens_it() {
     let mut d = Desk::open(book("help-menu", true), 120, 35);
     d.key(KeyCode::Esc);
-    assert!(d.shows("Help…"), "the menu offers it");
-    // It sits just above Close and Quit, at the bottom.
-    let rows: Vec<String> = d.app.menu().into_iter().map(|(l, _)| l).collect();
-    let help = rows.iter().position(|l| l.starts_with("Help…")).unwrap();
-    assert_eq!(rows.len() - help, 3, "{rows:?}");
-    for _ in 0..3 {
-        d.key(KeyCode::Up); // round from the top: Quit, Close, Help
+    // Just above Quit, at the bottom: Help & about, then Help first in it.
+    for _ in 0..2 {
+        d.key(KeyCode::Up); // round from the top: Quit, Help & about
     }
+    assert!(d.shows("▸ Help & about"));
+    d.key(KeyCode::Enter);
+    assert!(d.shows("▸ Help…"), "the menu offers it");
     d.key(KeyCode::Enter);
     assert_eq!(
         help_topic(&d),
@@ -2202,13 +2276,8 @@ fn every_key_in_every_key_does_something() {
 fn about_says_the_version_and_who_made_it_and_links_to_the_studio() {
     let mut d = Desk::open(book("about", true), 120, 40);
     d.key(KeyCode::Esc);
-    for _ in 0..30 {
-        if d.shows("▸ About Grimoire") {
-            break;
-        }
-        d.key(KeyCode::Down);
-    }
-    d.key(KeyCode::Enter);
+    d.choose("Help & about");
+    d.choose("About Grimoire");
     assert!(matches!(d.app.overlay, Overlay::About));
     assert!(d.shows(&format!("version {}", env!("CARGO_PKG_VERSION"))));
     assert!(d.shows("Catfinity Studios"));
@@ -2278,13 +2347,8 @@ fn about_opens_the_license_which_says_commercial_use_is_fine_with_credit() {
 fn donate_says_it_is_never_required_and_links_to_kofi() {
     let mut d = Desk::open(book("donate", true), 120, 40);
     d.key(KeyCode::Esc);
-    for _ in 0..30 {
-        if d.shows("▸ Donate…") {
-            break;
-        }
-        d.key(KeyCode::Down);
-    }
-    d.key(KeyCode::Enter);
+    d.choose("Help & about");
+    d.choose("Donate…");
     assert!(matches!(d.app.overlay, Overlay::Donate));
     assert!(d.shows("never"));
     assert!(d.shows("required"));
@@ -2302,4 +2366,70 @@ fn donate_says_it_is_never_required_and_links_to_kofi() {
     d.draw();
     d.key(KeyCode::Char('d'));
     assert!(matches!(d.app.overlay, Overlay::Donate));
+}
+
+// ---- more than one book --------------------------------------------------
+
+#[test]
+fn a_new_book_from_the_menu_saves_this_one_and_opens_the_new_one() {
+    let first = book("book-first", true);
+    let scene = first_scene(&first);
+    let state = first.with_extension("state.toml");
+    let name = format!("grimoire-ui-book-second-{}", std::process::id());
+    let second = first.parent().unwrap().join(&name);
+    let _ = fs::remove_dir_all(&second);
+    let mut d = Desk::open(first.clone(), 120, 35);
+    d.app.state_file = Some(state.clone());
+    d.key(KeyCode::Tab);
+    d.typed("Words from the first book");
+    d.key(KeyCode::Esc);
+    d.choose("Start a new book…");
+    assert!(d.shows("START A NEW BOOK"));
+    // Typing is typing here: ? and q are letters.
+    d.typed("?q");
+    assert!(matches!(d.app.overlay, Overlay::NewBook { .. }));
+    d.key(KeyCode::Backspace);
+    d.key(KeyCode::Backspace);
+    d.typed(&name);
+    assert!(d.shows("it'll live in"), "says where before it makes it");
+    d.key(KeyCode::Enter);
+
+    assert_eq!(d.app.project.root, fs::canonicalize(&second).unwrap());
+    assert!(second.join("manuscript").is_dir());
+    assert!(d.status().contains("is ready"), "{}", d.status());
+    assert!(
+        fs::read_to_string(&scene)
+            .unwrap()
+            .contains("Words from the first book"),
+        "the first book was saved before it was put away"
+    );
+    let remembered = fs::read_to_string(&state).unwrap();
+    assert!(remembered.starts_with(&format!("last = \"{}\"", d.app.project.root.display())));
+
+    // And back again, from Open another book.
+    d.key(KeyCode::Esc);
+    d.choose("Open another book…");
+    assert!(d.shows("OPEN ANOTHER BOOK"));
+    d.key(KeyCode::Enter);
+    assert_eq!(d.app.project.root, fs::canonicalize(&first).unwrap());
+    assert!(d.status().contains("opened"), "{}", d.status());
+    let _ = fs::remove_dir_all(&second);
+    let _ = fs::remove_file(&state);
+}
+
+#[test]
+fn a_new_book_never_lands_in_a_folder_with_other_things_in_it() {
+    let first = book("book-taken", true);
+    let name = format!("grimoire-ui-taken-folder-{}", std::process::id());
+    let taken = first.parent().unwrap().join(&name);
+    fs::create_dir_all(&taken).unwrap();
+    fs::write(taken.join("shopping.txt"), "eggs").unwrap();
+    let mut d = Desk::open(first.clone(), 120, 35);
+    d.app.run_action(palette::Action::NewBook);
+    d.typed(&name);
+    assert!(d.shows("has other things in it"), "{}", d.rows().join("\n"));
+    d.key(KeyCode::Enter);
+    assert_eq!(d.app.project.root, first, "still the same book");
+    assert!(!taken.join("manuscript").exists());
+    let _ = fs::remove_dir_all(&taken);
 }
