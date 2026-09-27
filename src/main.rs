@@ -108,6 +108,8 @@ fn main() -> Result<()> {
         println!("  grimoire                    open your current manuscript");
         println!("  grimoire <dir>              open a specific one");
         println!("  grimoire new <dir>          start a new one");
+        println!("  grimoire import <draft>     bring in a draft (Word, Markdown or");
+        println!("                              text) as a new book beside it");
         println!("  grimoire index              refresh project.md, the project map");
         println!("  grimoire compile            assemble the manuscript");
         println!("  grimoire export [dir]       DOCX + EPUB into exports/; pick formats");
@@ -122,6 +124,31 @@ fn main() -> Result<()> {
         println!("With no arguments grimoire opens the current directory if it is a");
         println!("manuscript, otherwise the last one you had open, otherwise it creates");
         println!("{}.", pretty(&default_root()));
+        return Ok(());
+    }
+
+    if first.as_deref() == Some("import") {
+        let Some(draft) = args.next().map(PathBuf::from) else {
+            anyhow::bail!("which draft?\n\n  grimoire import <draft.docx|.md|.txt> [book folder]");
+        };
+        let book = grimoire_core::import::read(&draft)?;
+        let dir = match args.next() {
+            Some(d) => PathBuf::from(d),
+            None => books::beside(draft.parent().unwrap_or(Path::new(".")), &book.title),
+        };
+        if dir.exists() && std::fs::read_dir(&dir).is_ok_and(|mut d| d.next().is_some()) {
+            anyhow::bail!(
+                "{} already has things in it\n\n  grimoire import {} <another folder>",
+                pretty(&dir),
+                pretty(&draft)
+            );
+        }
+        grimoire_core::import::make_book(&dir, &book)?;
+        println!("Brought in {}: {}", book.title, books::tally(&book));
+        if !book.before.trim().is_empty() {
+            println!("What came before the first chapter is in Notes.");
+        }
+        println!("Open it with:  grimoire {}", pretty(&dir));
         return Ok(());
     }
 

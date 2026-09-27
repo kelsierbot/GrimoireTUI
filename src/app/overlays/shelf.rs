@@ -1,6 +1,9 @@
-//! Books: starting a new one, and switching to another. The book that's open
-//! is saved and put away first, just as quitting would, and the music, the
-//! Pomodoro and the look carry across.
+//! Books: starting a new one, bringing in a draft written elsewhere, and
+//! switching to another. The book that's open is saved and put away first,
+//! just as quitting would, and the music, the Pomodoro and the look carry
+//! across.
+
+use grimoire_core::import;
 
 use super::*;
 
@@ -11,8 +14,10 @@ enum Where {
     Free(PathBuf),
     /// Already a book.
     Book(PathBuf),
-    /// A folder with other things in it.
+    /// A folder with other things in it, or a file that isn't a draft.
     Taken(PathBuf),
+    /// A Word, Markdown or text file to bring in as a new book.
+    Draft(PathBuf),
 }
 
 fn look(beside: &Path, typed: &str) -> Where {
@@ -21,7 +26,9 @@ fn look(beside: &Path, typed: &str) -> Where {
     };
     if books::is_book(&p) {
         Where::Book(p)
-    } else if fs::read_dir(&p).is_ok_and(|mut d| d.next().is_some()) {
+    } else if import::is_draft(&p) {
+        Where::Draft(p)
+    } else if p.is_file() || fs::read_dir(&p).is_ok_and(|mut d| d.next().is_some()) {
         Where::Taken(p)
     } else {
         Where::Free(p)
@@ -71,8 +78,9 @@ impl App {
         let Overlay::Books { sel } = &mut self.overlay else {
             return;
         };
-        // The books, then "a book in another folder", then "a new book".
-        let rows = others.len() + 2;
+        // The books, then "a book in another folder", "bring in a draft" and
+        // "a new book".
+        let rows = others.len() + 3;
         if list_nav(key, sel, rows, RING) {
             return;
         }
@@ -84,7 +92,15 @@ impl App {
                     self.overlay = Overlay::None;
                     let _ = self.open_book(&root);
                 } else if at == others.len() {
-                    self.overlay = Overlay::BookPath { buf: String::new() };
+                    self.overlay = Overlay::BookPath {
+                        buf: String::new(),
+                        draft: false,
+                    };
+                } else if at == others.len() + 1 {
+                    self.overlay = Overlay::BookPath {
+                        buf: String::new(),
+                        draft: true,
+                    };
                 } else {
                     self.overlay = Overlay::NewBook { buf: String::new() };
                 }
@@ -95,18 +111,27 @@ impl App {
     }
 
     pub(super) fn on_book_path_key(&mut self, key: Key) {
-        let Overlay::BookPath { buf } = &mut self.overlay else {
+        let Overlay::BookPath { buf, draft } = &mut self.overlay else {
             return;
         };
+        let draft = *draft;
         match key {
             Key::Enter => match look(&self.project.root, buf) {
                 Where::Book(root) => {
                     self.overlay = Overlay::None;
                     let _ = self.open_book(&root);
                 }
+                Where::Draft(file) => self.bring_in(&file),
                 Where::Nothing => {}
                 Where::Free(p) | Where::Taken(p) => {
-                    self.msg = format!("there's no book in {}", books::pretty(&p));
+                    self.msg = if draft {
+                        format!(
+                            "{} isn't a draft Grimoire can read: a Word file (.docx), Markdown (.md) or text (.txt)",
+                            books::pretty(&p)
+                        )
+                    } else {
+                        format!("there's no book in {}", books::pretty(&p))
+                    };
                 }
             },
             Key::Esc => self.overlay = Overlay::None,
@@ -136,6 +161,10 @@ impl App {
                 }
                 return;
             }
+            Where::Draft(file) => {
+                self.bring_in(&file);
+                return;
+            }
             Where::Free(p) => p,
         };
         if let Err(e) = fs::create_dir_all(&root)
@@ -150,6 +179,38 @@ impl App {
             self.msg = format!(
                 "{} is ready · this first page shows how a book is laid out · Tab to read it, Esc for the menu",
                 self.project.meta.title
+            );
+        }
+    }
+
+    /// Bring in the draft at `file` as a new book beside the one that's open,
+    /// and switch to it.
+    fn bring_in(&mut self, file: &Path) {
+        let draft = match import::read(file) {
+            Ok(d) => d,
+            Err(e) => {
+                self.msg = format!("{e:#}");
+                return;
+            }
+        };
+        let here = self.project.root.clone();
+        let root = books::beside(here.parent().unwrap_or(&here), &draft.title);
+        if let Err(e) = import::make_book(&root, &draft) {
+            self.msg = format!("couldn't bring it in: {e:#}");
+            return;
+        }
+        self.overlay = Overlay::None;
+        if self.open_book(&root) {
+            self.msg = format!(
+                "brought in {}: {}{} · it lives in {}",
+                draft.title,
+                books::tally(&draft),
+                if draft.before.trim().is_empty() {
+                    ""
+                } else {
+                    " · what came before the first chapter is in Notes"
+                },
+                books::pretty(&root)
             );
         }
     }
@@ -266,12 +327,20 @@ fn typed_box(
     let block = pane_block(title, true, t);
     let inner = block.inner(box_area);
     f.render_widget(block, box_area);
+    // A long path shows its end, where the typing is.
+    let room = (inner.width as usize).saturating_sub(5);
+    let n = buf.chars().count();
+    let shown: String = if n > room {
+        format!("…{}", buf.chars().skip(n + 1 - room).collect::<String>())
+    } else {
+        buf.to_string()
+    };
     let lines = vec![
         Line::from(Span::styled(format!(" {lead}"), Style::default().fg(t.dim))),
         Line::from(""),
         Line::from(vec![
             Span::styled(" ▸ ", Style::default().fg(t.accent)),
-            Span::styled(buf.to_string(), Style::default().fg(t.text)),
+            Span::styled(shown, Style::default().fg(t.text)),
             Span::styled("█", Style::default().fg(t.accent)),
         ]),
         Line::from(""),
@@ -316,6 +385,7 @@ pub(super) fn draw_new_book(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             )),
             " try another name   esc cancel",
         ),
+        Where::Draft(p) => draft_line(&p, t),
     };
     typed_box(
         f,
@@ -323,7 +393,7 @@ pub(super) fn draw_new_book(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
         t,
         (
             "START A NEW BOOK",
-            "What's it called? A folder path works too.",
+            "What's it called? Or type the path to a draft to bring it in.",
         ),
         buf,
         under,
@@ -331,18 +401,33 @@ pub(super) fn draw_new_book(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
 }
 
 pub(super) fn draw_book_path(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
-    let Overlay::BookPath { buf } = &app.overlay else {
+    let Overlay::BookPath { buf, draft } = &app.overlay else {
         return;
     };
     let dim = Style::default().fg(t.dim);
     let under = match look(&app.project.root, buf) {
+        Where::Nothing if *draft => (
+            Line::from(Span::styled(
+                " it comes in split into chapters and scenes",
+                dim,
+            )),
+            " type or drop in a file   esc cancel",
+        ),
         Where::Nothing => (Line::from(""), " type a folder   esc cancel"),
+        Where::Draft(p) => draft_line(&p, t),
         Where::Book(p) => (
             Line::from(vec![
                 Span::styled(" ✓ ", Style::default().fg(t.accent)),
                 Span::styled(books::title(&p), Style::default().fg(t.text)),
             ]),
             " ↵ open it   esc cancel",
+        ),
+        Where::Free(_) | Where::Taken(_) if *draft => (
+            Line::from(Span::styled(
+                " not a draft yet: a Word file, Markdown or text",
+                dim,
+            )),
+            " keep typing   esc cancel",
         ),
         Where::Free(_) | Where::Taken(_) => (
             Line::from(Span::styled(" no book there yet", dim)),
@@ -353,13 +438,38 @@ pub(super) fn draw_book_path(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
         f,
         area,
         t,
-        (
-            "OPEN A BOOK",
-            "The book's folder, like ~/Documents/My Novel",
-        ),
+        if *draft {
+            (
+                "BRING IN A DRAFT",
+                "A Word file (.docx), Markdown (.md) or text (.txt)",
+            )
+        } else {
+            (
+                "OPEN A BOOK",
+                "The book's folder, like ~/Documents/My Novel",
+            )
+        },
         buf,
         under,
     );
+}
+
+/// A draft that's there to bring in, by its file name.
+fn draft_line<'a>(p: &Path, t: &Theme) -> (Line<'a>, &'static str) {
+    let name = p
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+    (
+        Line::from(vec![
+            Span::styled(" ✓ ", Style::default().fg(t.accent)),
+            Span::styled(
+                name.chars().take(52).collect::<String>(),
+                Style::default().fg(t.text),
+            ),
+        ]),
+        " ↵ bring it in as a new book   esc cancel",
+    )
 }
 
 pub(super) fn draw_books(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
@@ -372,6 +482,7 @@ pub(super) fn draw_books(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
         .map(|p| (books::title(p), books::pretty(p)))
         .collect();
     rows.push(("A book in another folder…".into(), String::new()));
+    rows.push(("Bring in a draft…".into(), "Word, Markdown or text".into()));
     rows.push(("Start a new book…".into(), String::new()));
     let width = 64;
     let empty = others.is_empty();

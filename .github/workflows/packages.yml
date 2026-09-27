@@ -1,0 +1,107 @@
+name: packages
+
+# After a release is published: build Debian/Ubuntu (.deb) and Fedora (.rpm)
+# packages for x86-64 and ARM, attach them to the release under names that
+# stay the same from version to version (so .../releases/latest/download/…
+# always fetches the newest), then install each one on a clean system and run
+# it, the way a school's IT would. (Windows: tools/winget.py sends each
+# release to winget.)
+#
+# Built on Ubuntu 22.04 so the packages need nothing newer than its glibc
+# (2.35): Debian 12, Ubuntu 22.04 and every Fedora since 36 run them.
+
+on:
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "The release to package, like v0.6.0"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  linux:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            deb: amd64
+            rpm: x86_64
+          - runner: ubuntu-22.04-arm
+            deb: arm64
+            rpm: aarch64
+    runs-on: ${{ matrix.runner }}
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TAG: ${{ inputs.tag || github.event.workflow_run.head_branch }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.TAG }}
+          persist-credentials: false
+      - name: Tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libasound2-dev dpkg-dev
+          rustup toolchain install stable --profile minimal
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deb,cargo-generate-rpm
+      - name: Build
+        run: cargo build --release --locked
+      - name: Package
+        run: |
+          cargo deb --no-build -p grimoire-tui -o "grimoire_${{ matrix.deb }}.deb"
+          cargo generate-rpm -p . -o "grimoire.${{ matrix.rpm }}.rpm"
+          # The one library it needs beyond libc must be declared, or a
+          # minimal system installs it and then can't start it.
+          dpkg-deb -f "grimoire_${{ matrix.deb }}.deb" Depends | tee /dev/stderr | grep -q libasound
+          dpkg-deb -f "grimoire_${{ matrix.deb }}.deb" Version | grep -q "^${TAG#v}"
+      - name: Attach to the release
+        run: gh release upload "$TAG" "grimoire_${{ matrix.deb }}.deb" "grimoire.${{ matrix.rpm }}.rpm" --clobber
+      - uses: actions/upload-artifact@v7
+        with:
+          name: packages-${{ matrix.deb }}
+          path: |
+            grimoire_${{ matrix.deb }}.deb
+            grimoire.${{ matrix.rpm }}.rpm
+
+  # Install each package from the release, the way the README says to, on a
+  # system that has never seen it, and run it.
+  install:
+    needs: linux
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-22.04, image: "debian:12", kind: deb, arch: amd64 }
+          - { runner: ubuntu-22.04, image: "ubuntu:24.04", kind: deb, arch: amd64 }
+          - { runner: ubuntu-22.04-arm, image: "debian:12", kind: deb, arch: arm64 }
+          - { runner: ubuntu-22.04, image: "fedora:latest", kind: rpm, arch: x86_64 }
+          - { runner: ubuntu-22.04-arm, image: "fedora:latest", kind: rpm, arch: aarch64 }
+    runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.image }}
+    env:
+      BASE: https://github.com/kelsierbot/GrimoireTUI/releases/download/${{ inputs.tag || github.event.workflow_run.head_branch }}
+    steps:
+      - name: Install from the release
+        run: |
+          if [ "${{ matrix.kind }}" = deb ]; then
+            apt-get update -qq && apt-get install -y -qq curl ca-certificates
+            curl -fsSLo /tmp/grimoire_${{ matrix.arch }}.deb "$BASE/grimoire_${{ matrix.arch }}.deb"
+            apt-get install -y -qq /tmp/grimoire_${{ matrix.arch }}.deb
+          else
+            dnf install -y -q "$BASE/grimoire.${{ matrix.arch }}.rpm"
+          fi
+      - name: Run it
+        run: |
+          grimoire --version | tee /dev/stderr | grep -q "Catfinity"
+          cd /tmp && grimoire new book-check && test -d book-check/manuscript

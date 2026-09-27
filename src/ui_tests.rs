@@ -2433,3 +2433,81 @@ fn a_new_book_never_lands_in_a_folder_with_other_things_in_it() {
     assert!(!taken.join("manuscript").exists());
     let _ = fs::remove_dir_all(&taken);
 }
+
+#[test]
+fn a_draft_brought_in_becomes_a_book_split_at_its_chapters() {
+    let first = book("draft-home", true);
+    let dir = first.with_extension("drafts");
+    fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("Wolf Winter.md");
+    fs::write(
+        &file,
+        "Wolf Winter\nby Sam\n\n# Chapter One\n\nThe snow came early.\n\n***\n\nNobody left the valley.\n\n# Chapter Two\n\nThaw.\n\nTHE END\n",
+    )
+    .unwrap();
+    let mut d = Desk::open(first.clone(), 120, 35);
+    d.app.run_action(palette::Action::BringInDraft);
+    d.draw();
+    assert!(d.shows("BRING IN A DRAFT"));
+    // Dropped into the terminal: quoted, spaces and all.
+    d.typed(&format!("'{}'", file.display()));
+    assert!(
+        d.shows("bring it in as a new book"),
+        "{}",
+        d.rows().join("\n")
+    );
+    d.key(KeyCode::Enter);
+
+    let root = d.app.project.root.clone();
+    assert_ne!(root, fs::canonicalize(&first).unwrap(), "{}", d.status());
+    assert_eq!(d.app.project.meta.title, "Wolf Winter");
+    assert!(
+        d.status().contains("brought in Wolf Winter"),
+        "{}",
+        d.status()
+    );
+    assert!(
+        d.status().contains("2 chapters, 3 scenes"),
+        "{}",
+        d.status()
+    );
+    let scenes: Vec<String> = d
+        .app
+        .project
+        .nodes
+        .iter()
+        .filter(|n| n.kind == grimoire_core::project::Kind::Scene && n.in_manuscript)
+        .map(|n| n.body.trim().to_string())
+        .collect();
+    assert_eq!(
+        scenes,
+        ["The snow came early.", "Nobody left the valley.", "Thaw."]
+    );
+    let notes = fs::read_dir(root.join("notes"))
+        .unwrap()
+        .map(|e| fs::read_to_string(e.unwrap().path()).unwrap())
+        .collect::<String>();
+    assert!(notes.contains("by Sam"), "the title page is kept, in Notes");
+    let _ = fs::remove_dir_all(&root);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn start_a_new_book_also_takes_a_draft() {
+    let first = book("draft-new", true);
+    let file = first.with_extension("draft.txt");
+    fs::write(&file, "CHAPTER ONE\n\nIt began with a letter.\n").unwrap();
+    let mut d = Desk::open(first.clone(), 120, 35);
+    d.app.run_action(palette::Action::NewBook);
+    d.typed(&file.display().to_string());
+    assert!(d.shows("bring it in as a new book"));
+    d.key(KeyCode::Enter);
+    assert!(
+        d.status().contains("1 chapter, 1 scene, 5 words"),
+        "{}",
+        d.status()
+    );
+    let root = d.app.project.root.clone();
+    let _ = fs::remove_dir_all(&root);
+    let _ = fs::remove_file(&file);
+}

@@ -1,0 +1,8 @@
+# Windows: link the C runtime into grimoire.exe, so it runs on a PC that has
+# never installed the Visual C++ Redistributable (a fresh school lab machine,
+# winget's own test sandbox) with nothing else to fetch.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
+
+[target.aarch64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

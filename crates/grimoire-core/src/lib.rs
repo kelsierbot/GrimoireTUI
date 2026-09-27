@@ -14,6 +14,7 @@ pub mod editor;
 pub mod export;
 pub mod export_print;
 pub mod history;
+pub mod import;
 pub mod manuscript;
 pub mod names;
 pub mod notes;

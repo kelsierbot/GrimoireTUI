@@ -97,10 +97,48 @@ pub fn title(root: &Path) -> String {
         })
 }
 
+/// A new folder in `dir` for a book called `title`, numbered if that name
+/// is taken.
+pub fn beside(dir: &Path, title: &str) -> PathBuf {
+    let name = grimoire_core::names::stem(title).replace('-', " ");
+    let mut path = dir.join(&name);
+    let mut n = 2;
+    while path.exists() {
+        path = dir.join(format!("{name} {n}"));
+        n += 1;
+    }
+    path
+}
+
+/// "12 chapters, 40 scenes, 84,210 words".
+pub fn tally(d: &grimoire_core::import::Draft) -> String {
+    let n = |k: usize, one: &str, many: &str| {
+        format!(
+            "{} {}",
+            grimoire_core::manuscript::commas(k),
+            if k == 1 { one } else { many }
+        )
+    };
+    format!(
+        "{}, {}, {}",
+        n(d.chapters(), "chapter", "chapters"),
+        n(d.scenes(), "scene", "scenes"),
+        n(d.words(), "word", "words")
+    )
+}
+
 /// What was typed for a book's folder, as a path: `~/…` and `/…` are taken
 /// as they are, and a plain name goes beside the book that's open.
 pub fn typed_path(beside: &Path, typed: &str) -> Option<PathBuf> {
-    let typed = typed.trim();
+    // A file dragged into the terminal arrives quoted, or with its spaces
+    // escaped.
+    let typed = typed.trim().trim_matches(['\'', '"']);
+    let unescaped = if cfg!(windows) {
+        typed.to_string()
+    } else {
+        typed.replace("\\ ", " ")
+    };
+    let typed = unescaped.as_str();
     if typed.is_empty() {
         return None;
     }
@@ -154,5 +192,15 @@ mod tests {
             Some(PathBuf::from("/elsewhere/Book"))
         );
         assert_eq!(typed_path(open, "  "), None);
+        assert_eq!(
+            typed_path(open, "'/drafts/My Novel.docx'"),
+            Some(PathBuf::from("/drafts/My Novel.docx"))
+        );
+        if !cfg!(windows) {
+            assert_eq!(
+                typed_path(open, "/drafts/My\\ Novel.docx"),
+                Some(PathBuf::from("/drafts/My Novel.docx"))
+            );
+        }
     }
 }

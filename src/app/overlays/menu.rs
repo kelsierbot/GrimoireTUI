@@ -102,7 +102,7 @@ pub fn about_row(action: &Action, part: &str) -> (String, &'static str) {
             "compile",
         ),
         Action::NewBook => (
-            "A whole new book, with parts, chapters and scenes ready to fill in. This one is saved and put away first.",
+            "A whole new book, ready to fill in, or bring in a draft you already have. This one is saved first.",
             "books",
         ),
         Action::OpenBook => (

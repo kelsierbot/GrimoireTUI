@@ -35,6 +35,39 @@ signal-hook = "0.3"
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Console"] }
 
+# `.deb` and `.rpm` packages, built for each release by .github/workflows/packages.yml.
+[package.metadata.deb]
+name = "grimoire"
+maintainer = "Catfinity Studios"
+copyright = "Josh King, Catfinity Studios"
+section = "editors"
+priority = "optional"
+extended-description = """\
+A writing desk for novels that lives in your terminal: an outline of parts, \
+chapters and scenes, a quiet page to write on, notes and TKs, spelling, \
+sprints, a Pomodoro, music, and export to Word, PDF, EPUB and paperback. \
+Your book is a folder of plain Markdown files. Made by Catfinity Studios, \
+makers of Catfinity. https://grimoiretui.com"""
+depends = "$auto"
+assets = [
+    ["target/release/grimoire", "usr/bin/", "755"],
+    ["README.md", "usr/share/doc/grimoire/README.md", "644"],
+    ["LICENSE", "usr/share/doc/grimoire/LICENSE", "644"],
+    ["assets/dict/DICTIONARY-LICENSE", "usr/share/doc/grimoire/DICTIONARY-LICENSE", "644"],
+]
+
+[package.metadata.generate-rpm]
+name = "grimoire"
+summary = "A terminal writing desk for novels"
+url = "https://grimoiretui.com"
+auto-req = "builtin"
+assets = [
+    { source = "target/release/grimoire", dest = "/usr/bin/grimoire", mode = "755" },
+    { source = "README.md", dest = "/usr/share/doc/grimoire/README.md", mode = "644", doc = true },
+    { source = "LICENSE", dest = "/usr/share/licenses/grimoire/LICENSE", mode = "644", doc = true },
+    { source = "assets/dict/DICTIONARY-LICENSE", dest = "/usr/share/licenses/grimoire/DICTIONARY-LICENSE", mode = "644", doc = true },
+]
+
 [profile.release]
 opt-level = 3
 lto = true

@@ -81,6 +81,8 @@ pub enum Action {
     NewBook,
     /// Switch to another book: a recent one, or one in a folder you name.
     OpenBook,
+    /// A draft from elsewhere (Word, Markdown, text) as a new book.
+    BringInDraft,
     OpenBookAt(std::path::PathBuf),
 }
 
@@ -147,6 +149,11 @@ pub fn entries(app: &crate::app::App) -> Vec<Entry> {
         Entry::new("New folder", "N", Action::NewFolder),
         Entry::new("Start a new book", "", Action::NewBook),
         Entry::new("Open another book", "", Action::OpenBook),
+        Entry::new(
+            "Bring in a draft (Word, Markdown or text)",
+            "",
+            Action::BringInDraft,
+        ),
         Entry::new("Rename", "r", Action::Rename),
         Entry::new("Delete (to the trash)", "d", Action::Delete),
         Entry::new("Move up", "Alt ↑", Action::MoveUp),

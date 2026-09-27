@@ -11,7 +11,7 @@ Whichever row is highlighted says what it does, just under the list. `?` opens t
 - **This book ›**: making, renaming and deleting.
 - **Writing tools ›**: help while you're in the middle of a scene.
 - **Export…**: the book as a Word file, a PDF, an EPUB or a paperback. See *Compile*.
-- **Start a new book…** and **Open another book…**: see *Your books*.
+- **Start a new book…** and **Open another book…**: see *Your books*. *Open another book…* is also where *Bring in a draft…* lives, for a draft from Word, Markdown or a text file.
 - **Settings ›**: how Grimoire looks and sounds.
 - **Help & about ›**: this help, the version, the license, and Donate.
 - **Quit Grimoire** (`Ctrl-Q`): everything is saved first.

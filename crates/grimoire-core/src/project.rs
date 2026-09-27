@@ -1425,49 +1425,140 @@ pub fn trash_dir(root: &Path) -> PathBuf {
     root.join(".grimoire/trash")
 }
 
+/// What goes in a new book's manuscript. A part with no title isn't a
+/// folder: its chapters sit straight in `manuscript/`, a book with no parts.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Shape {
+    pub parts: Vec<ShapePart>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ShapePart {
+    pub title: Option<String>,
+    pub chapters: Vec<ShapeChapter>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ShapeChapter {
+    pub title: String,
+    pub scenes: Vec<ShapeScene>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ShapeScene {
+    pub title: String,
+    /// `outline` for an empty one waiting to be written, `draft` for words
+    /// brought in from elsewhere.
+    pub status: &'static str,
+    pub target: Option<usize>,
+    pub body: String,
+}
+
+impl Shape {
+    /// The three-part shape every new book starts with: every chapter named
+    /// and three empty scenes in each.
+    pub fn novel() -> Shape {
+        let mut chapter = 0usize;
+        Shape {
+            parts: (1..=PARTS)
+                .map(|part| ShapePart {
+                    title: Some(crate::manuscript::numbered("Part", part)),
+                    chapters: (1..=CHAPTERS_PER_PART)
+                        .map(|_| {
+                            // Chapters are numbered straight through the book,
+                            // the way the finished manuscript numbers them.
+                            chapter += 1;
+                            ShapeChapter {
+                                title: crate::manuscript::numbered("Chapter", chapter),
+                                scenes: (1..=SCENES_PER_CHAPTER)
+                                    .map(|s| ShapeScene {
+                                        title: crate::manuscript::numbered("Scene", s),
+                                        status: "outline",
+                                        target: Some(1500),
+                                        body: String::new(),
+                                    })
+                                    .collect(),
+                            }
+                        })
+                        .collect(),
+                })
+                .collect(),
+        }
+    }
+}
+
 /// Create a new book: every section, the three-part shape with every chapter
 /// named and three empty scenes in each, starter front matter for each
 /// edition, and the template sheets.
 pub fn scaffold(root: &Path) -> Result<()> {
+    scaffold_with(root, None, &Shape::novel())
+}
+
+/// Create a new book with `shape` in its manuscript, titled `title` (or
+/// after its folder), with the same sections and starter pages as any other.
+pub fn scaffold_with(root: &Path, title: Option<&str>, shape: &Shape) -> Result<()> {
     if root.join("manuscript").is_dir() {
         anyhow::bail!("{} already contains a manuscript/", root.display());
     }
 
-    let title = root
-        .file_name()
-        .map(|s| display_title(Path::new(s), None))
+    let title = title
+        .map(str::to_string)
+        .or_else(|| root.file_name().map(|s| display_title(Path::new(s), None)))
         .unwrap_or_else(|| "Untitled".into());
+    let quoted = |t: &str| t.replace('"', "'");
 
     write_new(
         &root.join("novel.toml"),
         &format!(
-            "title = \"{title}\"\nauthor = \"\"\ndraft = \"1\"\ntarget_words = 80000\ndaily_target = 1000\n\n# What this book calls its largest division: Part, Act, Book…\npart_label = \"Part\"\n"
+            "title = \"{}\"\nauthor = \"\"\ndraft = \"1\"\ntarget_words = 80000\ndaily_target = 1000\n\n# What this book calls its largest division: Part, Act, Book…\npart_label = \"Part\"\n",
+            quoted(&title)
         ),
     )?;
 
-    let mut chapter = 0usize;
-    for part in 1..=PARTS {
-        let part_dir = root.join("manuscript").join(numbered_dir(
-            part,
-            &crate::manuscript::numbered("Part", part),
-        ));
-        for c in 1..=CHAPTERS_PER_PART {
-            chapter += 1;
-            // Chapters are numbered straight through the book, the way the
-            // finished manuscript numbers them, not restarted in each part.
-            let ch_dir = part_dir.join(numbered_dir(
-                c,
-                &crate::manuscript::numbered("Chapter", chapter),
-            ));
+    let manuscript = root.join("manuscript");
+    fs::create_dir_all(&manuscript)
+        .with_context(|| format!("creating {}", manuscript.display()))?;
+    let folder = |dir: &Path, n: usize, name: &str, ext: &str| {
+        dir.join(crate::names::fit(
+            dir,
+            &format!("{n:02}-"),
+            &crate::names::stem(name),
+            ext,
+        ))
+    };
+    let mut place = 0usize;
+    for part in &shape.parts {
+        let part_dir = match &part.title {
+            Some(t) => {
+                place += 1;
+                folder(&manuscript, place, t, "")
+            }
+            None => manuscript.clone(),
+        };
+        for (c, chapter) in part.chapters.iter().enumerate() {
+            let n = if part.title.is_some() {
+                c + 1
+            } else {
+                place += 1;
+                place
+            };
+            let ch_dir = folder(&part_dir, n, &chapter.title, "");
             fs::create_dir_all(&ch_dir)
                 .with_context(|| format!("creating {}", ch_dir.display()))?;
-            for s in 1..=SCENES_PER_CHAPTER {
-                let name = crate::manuscript::numbered("Scene", s);
-                let path = ch_dir.join(format!("{}.md", numbered_dir(s, &name)));
+            for (i, scene) in chapter.scenes.iter().enumerate() {
+                let path = folder(&ch_dir, i + 1, &scene.title, ".md");
+                let target = scene
+                    .target
+                    .map(|t| format!("target: {t}\n"))
+                    .unwrap_or_default();
+                let body = scene.body.trim_end();
                 write_new(
                     &path,
                     &format!(
-                        "---\ntitle: \"{name}\"\npov:\nstatus: outline\nsynopsis:\ntarget: 1500\n---\n\n"
+                        "---\ntitle: \"{}\"\npov:\nstatus: {}\nsynopsis:\n{target}---\n\n{body}{}",
+                        quoted(&scene.title),
+                        scene.status,
+                        if body.is_empty() { "" } else { "\n" }
                     ),
                 )?;
             }

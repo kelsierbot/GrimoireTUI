@@ -402,9 +402,11 @@ pub enum Overlay {
     Books {
         sel: usize,
     },
-    /// A book's folder, typed, to open it.
+    /// A book's folder, typed, to open it; or with `draft`, a Word,
+    /// Markdown or text file to bring in as a new book.
     BookPath {
         buf: String,
+        draft: bool,
     },
     /// Browsing presets. `restore` is put back if you press Esc.
     Themes {
@@ -1508,6 +1510,12 @@ impl App {
             Action::MenuBack => self.open_menu(),
             Action::NewBook => self.overlay = Overlay::NewBook { buf: String::new() },
             Action::OpenBook => self.overlay = Overlay::Books { sel: 0 },
+            Action::BringInDraft => {
+                self.overlay = Overlay::BookPath {
+                    buf: String::new(),
+                    draft: true,
+                }
+            }
             Action::OpenBookAt(root) => {
                 let _ = self.open_book(&root);
             }
