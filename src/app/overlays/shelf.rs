@@ -82,7 +82,7 @@ impl App {
                 if let Some(root) = others.get(at) {
                     let root = root.clone();
                     self.overlay = Overlay::None;
-                    self.open_book(&root);
+                    let _ = self.open_book(&root);
                 } else if at == others.len() {
                     self.overlay = Overlay::BookPath { buf: String::new() };
                 } else {
@@ -102,7 +102,7 @@ impl App {
             Key::Enter => match look(&self.project.root, buf) {
                 Where::Book(root) => {
                     self.overlay = Overlay::None;
-                    self.open_book(&root);
+                    let _ = self.open_book(&root);
                 }
                 Where::Nothing => {}
                 Where::Free(p) | Where::Taken(p) => {
@@ -128,8 +128,7 @@ impl App {
             }
             Where::Book(p) => {
                 self.overlay = Overlay::None;
-                self.open_book(&p);
-                if self.project.root == p {
+                if self.open_book(&p) {
                     self.msg = format!(
                         "there was already a book at {}, so here it is",
                         books::pretty(&p)
@@ -147,8 +146,7 @@ impl App {
             return;
         }
         self.overlay = Overlay::None;
-        self.open_book(&root);
-        if self.project.root == root {
+        if self.open_book(&root) {
             self.msg = format!(
                 "{} is ready · this first page shows how a book is laid out · Tab to read it, Esc for the menu",
                 self.project.meta.title
@@ -158,19 +156,23 @@ impl App {
 
     /// Put this book away and open the one at `root` in its place. Anything
     /// that stops it (a save that can't happen, a folder that isn't a book)
-    /// leaves this book open and says why.
-    pub fn open_book(&mut self, root: &Path) {
-        if let Err(why) = self.switch_book(root) {
-            self.msg = why;
+    /// leaves this book open and says why. True if it switched.
+    pub fn open_book(&mut self, root: &Path) -> bool {
+        match self.switch_book(root) {
+            Ok(switched) => switched,
+            Err(why) => {
+                self.msg = why;
+                false
+            }
         }
     }
 
-    fn switch_book(&mut self, root: &Path) -> Result<(), String> {
+    fn switch_book(&mut self, root: &Path) -> Result<bool, String> {
         let root = fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
         let here = fs::canonicalize(&self.project.root).unwrap_or(self.project.root.clone());
         if root == here {
             self.msg = "that's the book you have open".into();
-            return Ok(());
+            return Ok(false);
         }
         if !books::is_book(&root) {
             return Err(format!(
@@ -234,8 +236,19 @@ impl App {
         } else {
             self.msg = format!("opened {} · {}", self.project.meta.title, self.msg);
         }
-        Ok(())
+        Ok(true)
     }
+}
+
+/// `p` as ~/…, cut down from the left to `width` characters.
+fn short_path(p: &Path, width: usize) -> String {
+    let s = books::pretty(p);
+    let n = s.chars().count();
+    if n <= width {
+        return s;
+    }
+    let tail: String = s.chars().skip(n + 1 - width).collect();
+    format!("…{tail}")
 }
 
 /// One line of typing, with where it will go (or what's there) under it,
@@ -285,20 +298,20 @@ pub(super) fn draw_new_book(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
         Where::Free(p) => (
             Line::from(vec![
                 Span::styled(" it'll live in ", dim),
-                Span::styled(books::pretty(&p), Style::default().fg(t.accent)),
+                Span::styled(short_path(&p, 46), Style::default().fg(t.accent)),
             ]),
             " ↵ start it   esc cancel",
         ),
         Where::Book(p) => (
             Line::from(Span::styled(
-                format!(" there's already a book at {}", books::pretty(&p)),
+                format!(" there's already a book there: {}", books::title(&p)),
                 dim,
             )),
             " ↵ open that one   esc cancel",
         ),
-        Where::Taken(p) => (
+        Where::Taken(_) => (
             Line::from(Span::styled(
-                format!(" {} has other things in it", books::pretty(&p)),
+                " that folder is already there, and has other things in it",
                 Style::default().fg(t.warn),
             )),
             " try another name   esc cancel",

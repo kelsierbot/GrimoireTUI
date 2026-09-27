@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.9 · New books on macOS and Windows
+
+- A new book started from the menu now says it's ready on macOS and Windows
+  too, and the new-book box keeps a long folder path inside its edges.
+
 ## 0.5.8 · A calmer menu, and new books from inside
 
 - **The menu is short now.** `Esc` opens nine rows instead of two dozen. The

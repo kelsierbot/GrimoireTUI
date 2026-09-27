@@ -1508,7 +1508,9 @@ impl App {
             Action::MenuBack => self.open_menu(),
             Action::NewBook => self.overlay = Overlay::NewBook { buf: String::new() },
             Action::OpenBook => self.overlay = Overlay::Books { sel: 0 },
-            Action::OpenBookAt(root) => self.open_book(&root),
+            Action::OpenBookAt(root) => {
+                let _ = self.open_book(&root);
+            }
             Action::Open(path) => {
                 if let Some(i) = self.project.nodes.iter().position(|n| n.path == path) {
                     self.reveal(i);
