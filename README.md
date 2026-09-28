@@ -345,7 +345,8 @@ row* goes through every row, and *Every key* lists every key. *About Grimoire…
 - **The corkboard** (`b`) shows a part as index cards chapter by chapter:
   POV (each character in its own colour), status, synopsis, words against
   target. `p` filters to one POV; `s`, `e` and `v` edit the card, changing only
-  that line of the scene's frontmatter.
+  that line of the scene's frontmatter. `n` adds a card, `r` renames one, `d`
+  sends one to the Trash, and `<` `>` move a card to try a scene somewhere else.
 
 <p align="center"><img src="assets/screenshots/spelling.png" alt="Clicking a misspelt word in Rosé Pine: fixes under the word, and three ways to ignore it" width="100%"></p>
 
