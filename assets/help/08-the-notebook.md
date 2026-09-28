@@ -19,7 +19,7 @@ Put the cursor on a name and press `Ctrl-O` (*Open the note for the name under t
 
 ## Names that drift
 
-*Check names for near-miss spellings* in `Ctrl-K` finds spellings one or two letters away from a name in your notebook — "Kaelan" where the note says "Kaelen" — with where each one is.
+*Esc › Writing tools › Check names…* (or *Check names for near-miss spellings* in `Ctrl-K`) finds spellings one or two letters away from a name in your notebook — "Kaelan" where the note says "Kaelen" — with where each one is.
 
 - `Enter` goes to the first place it's used.
 - `f` fixes it everywhere in the manuscript at once.

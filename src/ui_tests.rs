@@ -2714,3 +2714,96 @@ fn the_corkboard_is_named_in_the_outline_hints_and_the_menu() {
     d.choose("Corkboard…");
     assert!(matches!(d.app.overlay, Overlay::Cork { .. }));
 }
+
+#[test]
+fn cards_are_added_renamed_moved_and_deleted_from_the_corkboard() {
+    let root = book("cork-edit", true);
+    let mut d = Desk::open(root, 150, 44);
+    d.key(KeyCode::Char('b'));
+    assert!(matches!(d.app.overlay, Overlay::Cork { .. }));
+    assert!(d.shows("n new"), "{}", d.rows().join("\n"));
+    let scenes = |d: &Desk| {
+        d.app
+            .project
+            .nodes
+            .iter()
+            .filter(|n| n.kind == grimoire_core::project::Kind::Scene && n.in_manuscript)
+            .count()
+    };
+    let before = scenes(&d);
+
+    // A new card, named, and the board comes back with it highlighted.
+    d.key(KeyCode::Char('n'));
+    assert!(matches!(d.app.overlay, Overlay::Create { .. }));
+    d.typed("The Lighthouse");
+    d.key(KeyCode::Enter);
+    assert!(
+        matches!(d.app.overlay, Overlay::Cork { .. }),
+        "back to the board"
+    );
+    assert_eq!(scenes(&d), before + 1);
+    let card = |d: &Desk| {
+        let Overlay::Cork { sel, scope, .. } = &d.app.overlay else {
+            panic!("not the board")
+        };
+        let groups = grimoire_core::cork::board(&d.app.project, d.app.cork_scope(scope));
+        let cards: Vec<_> = groups.iter().flat_map(|g| g.cards.clone()).collect();
+        d.app.project.nodes[cards[*sel].idx].title.clone()
+    };
+    assert_eq!(card(&d), "The Lighthouse");
+
+    // Moved one place earlier, still highlighted.
+    d.key(KeyCode::Char('<'));
+    assert!(matches!(d.app.overlay, Overlay::Cork { .. }));
+    assert_eq!(card(&d), "The Lighthouse");
+
+    // Renamed.
+    d.key(KeyCode::Char('r'));
+    assert!(matches!(d.app.overlay, Overlay::Rename { .. }));
+    d.typed("The Pier");
+    d.key(KeyCode::Enter);
+    assert_eq!(card(&d), "The Pier");
+
+    // To the Trash, asking first; a no leaves it.
+    d.key(KeyCode::Char('d'));
+    assert!(matches!(d.app.overlay, Overlay::Confirm { .. }));
+    d.key(KeyCode::Char('n'));
+    assert!(matches!(d.app.overlay, Overlay::Cork { .. }));
+    assert_eq!(scenes(&d), before + 1);
+    d.key(KeyCode::Char('d'));
+    d.key(KeyCode::Char('y'));
+    assert!(matches!(d.app.overlay, Overlay::Cork { .. }));
+    assert_eq!(scenes(&d), before);
+}
+
+#[test]
+fn find_names_history_and_moving_are_in_the_menu_and_hints() {
+    let mut d = Desk::open(book("pass", true), 150, 40);
+    let labels = |rows: Vec<(String, palette::Action)>| -> Vec<String> {
+        rows.into_iter().map(|(l, _)| l).collect()
+    };
+    let bookrows = labels(d.app.submenu(Sub::Book));
+    for want in [
+        "Corkboard…",
+        "Move up",
+        "Move down",
+        "Scene history…",
+        "Search the whole book…",
+        "Writing sessions…",
+    ] {
+        assert!(
+            bookrows.iter().any(|l| l.starts_with(want)),
+            "no {want} in {bookrows:?}"
+        );
+    }
+    d.key(KeyCode::Tab);
+    let tools = labels(d.app.submenu(Sub::Writing));
+    for want in ["Find & replace…", "Check names…", "Read aloud"] {
+        assert!(
+            tools.iter().any(|l| l.starts_with(want)),
+            "no {want} in {tools:?}"
+        );
+    }
+    assert!(d.status().contains("^F find"), "{}", d.status());
+    assert!(d.status().contains("^T notes"), "{}", d.status());
+}

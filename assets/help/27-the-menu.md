@@ -25,7 +25,11 @@ Whichever row is highlighted says what it does, just under the list. `?` opens t
 - **New folder…** (`N`): beside the one selected, for anything that isn't a chapter.
 - **Rename…** (`r`): the file is renamed to match.
 - **Delete…** (`d`): moves it to the Trash at the bottom of the outline, and asks first.
+- **Move up** (`K`) and **Move down** (`J`): the scene or folder you're on, one place. You can also drag rows with the mouse.
+- **Scene history…** (`H`): every saved version of the scene, to compare or bring back. See *History & recovery*.
+- **Search the whole book…** (`/`): a word or phrase in every scene and note, with replace. See *Find & replace*.
 - **Goals…**: how many words the book is aiming for, and each day. Presets include a month of drafting (50,000 words).
+- **Writing sessions…**: your sittings, like a diary, each one to look back at. See *Writing sessions*.
 - **Move writing history out…**: only for an older book in a synced folder. See *Writing sessions*.
 
 ## Writing tools
@@ -33,10 +37,12 @@ Whichever row is highlighted says what it does, just under the list. `?` opens t
 Some of these want a scene open, so they show up once you're in one.
 
 - **Focus mode** (`Ctrl-D`): everything but the page goes away, so it's just you and the words. `Ctrl-D` again brings it all back.
+- **Find & replace…** (`Ctrl-F`): in this scene; press it again for the whole book.
 - **Open a scene beside…** (`v`): another scene next to this one, to read from while you write.
 - **Notes & TKs…** (`Ctrl-T`): every note and TK in the book, in one list. TK is the editor's mark for "to come": something to fill in later.
 - **Next scene still in draft**: opens the next scene that isn't marked revised or done. Handy for a revision pass.
 - **Turn echo words on**: lights up a word you've used again within about forty words of the last time, like "the lamp… the lamp". Little words like *the* and *and*, and your characters' names, are left out. It's easy to miss while you write and easy to fix once you can see it. The same row turns it off.
+- **Check names…**: finds names spelled two ways, like Oren and Orin. See *The notebook & names*.
 - **Start a sprint…**: a word goal and a number of minutes, and the status bar keeps count. See *Sprints & targets*.
 - **Progress…**: your words each week, your pace lately, and roughly when you'll reach your goal. No streaks, ever.
 - **Read aloud**: reads the scene out loud from where you are, highlighting each sentence. `Space` pauses, `←` `→` skip, `Esc` stops. See *Revision*.

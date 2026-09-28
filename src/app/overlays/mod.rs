@@ -41,6 +41,19 @@ pub(crate) use menu::about_row;
 impl App {
     /// A key while an overlay is up goes to that overlay alone.
     pub fn on_overlay_key(&mut self, key: Key) {
+        self.route_overlay_key(key);
+        // A card named, renamed or deleted from the corkboard: back to it.
+        if self.cork_back.is_some()
+            && !matches!(
+                self.overlay,
+                Overlay::Create { .. } | Overlay::Rename { .. } | Overlay::Confirm { .. }
+            )
+        {
+            self.back_to_cork();
+        }
+    }
+
+    fn route_overlay_key(&mut self, key: Key) {
         match self.overlay {
             Overlay::None => {}
             Overlay::Marks { .. } => self.on_marks_key(key),

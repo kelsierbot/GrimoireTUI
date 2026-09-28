@@ -304,6 +304,9 @@ pub struct App {
     background: bool,
     /// The reading aloud in progress, if there is one.
     pub reading: Option<Reading>,
+    /// The corkboard to come back to after naming, renaming or deleting a
+    /// card from it.
+    pub cork_back: Option<Overlay>,
     /// When the day's words were last written down for the Progress page,
     /// and what they were.
     day_noted: Option<(Instant, usize, i64)>,
@@ -813,6 +816,7 @@ impl App {
             background: setup.background,
             day_noted: None,
             reading: None,
+            cork_back: None,
             state_file: None,
         })
         .map(|mut app: App| {
@@ -4356,7 +4360,12 @@ impl App {
                 (row("New folder…", "(N)"), Action::NewFolder),
                 (row("Rename…", "(r)"), Action::Rename),
                 (row("Delete…", "(d)"), Action::Delete),
+                (row("Move up", "(K)"), Action::MoveUp),
+                (row("Move down", "(J)"), Action::MoveDown),
+                (row("Scene history…", "(H)"), Action::History),
+                (row("Search the whole book…", "(/)"), Action::FindInBook),
                 ("Goals…".into(), Action::Goals),
+                ("Writing sessions…".into(), Action::Sessions),
                 ("Move writing history out…".into(), Action::MoveHistoryOut),
             ],
             Sub::Writing => vec![
@@ -4371,10 +4380,15 @@ impl App {
                     ),
                     Action::FocusMode,
                 ),
+                (
+                    row("Find & replace…", &format!("({m}F)")),
+                    Action::FindInScene,
+                ),
                 (row("Open a scene beside…", "(v)"), Action::BesidePicker),
                 (row("Notes & TKs…", &format!("({m}T)")), Action::NotesList),
                 (row("Next scene still in draft", ""), Action::NextDraft),
                 (on_off(self.echo_on, "echo words"), Action::EchoWords),
+                ("Check names…".into(), Action::CheckNames),
                 if self.sprint.is_some() {
                     ("Stop the sprint".into(), Action::EndSprint)
                 } else {
@@ -4420,6 +4434,8 @@ impl App {
             Action::FocusMode => writing || self.focus_mode,
             Action::BesidePicker => writing,
             Action::ReadAloud => writing,
+            Action::FindInScene => writing,
+            Action::History => writing || !self.visible.is_empty(),
             Action::EchoWords => writing || self.echo_on,
             // Only while a synced book still keeps its history inside it.
             Action::MoveHistoryOut => self.history_in_book && self.cloud.is_some(),
@@ -4801,7 +4817,7 @@ impl App {
             }
             Focus::Editor => {
                 format!(
-                    "{esc}{focus}  Tab pane  {m}K find anything  {m}Z undo  F8 spelling  F1 help  {m}Q quit "
+                    "{esc}{focus}  Tab pane  {m}K find anything  F8 spelling  {m}F find  {m}T notes  {m}Z undo  F1 help  {m}Q quit "
                 )
             }
             Focus::Beside => "Esc close  Tab pane  ↑↓ PgDn scroll  ↵ write in this one ".into(),

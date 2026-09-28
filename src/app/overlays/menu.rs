@@ -142,6 +142,34 @@ pub fn about_row(action: &Action, part: &str) -> (String, &'static str) {
             "How many words the book is aiming for, and each day. Try a month of drafting: 50,000 words.",
             "sprints",
         ),
+        Action::MoveUp => (
+            "Moves the scene or folder you're on up one place. At the top of a chapter, a scene crosses into the one before.",
+            "outline",
+        ),
+        Action::MoveDown => (
+            "Moves the scene or folder you're on down one place. At the bottom of a chapter, a scene crosses into the next.",
+            "outline",
+        ),
+        Action::History => (
+            "Every saved version of this scene, to compare with now or bring back. Nothing is ever lost.",
+            "history",
+        ),
+        Action::FindInBook => (
+            "Search every scene and note for a word or phrase, and replace it everywhere if you like.",
+            "find",
+        ),
+        Action::Sessions => (
+            "Your writing sittings, like a diary: when you wrote, where, and how many words. Each one can be looked back at.",
+            "sessions",
+        ),
+        Action::FindInScene => (
+            "Find a word in this scene, and replace it if you like. Press it again to search the whole book.",
+            "find",
+        ),
+        Action::CheckNames => (
+            "Finds names spelled two ways, like Oren and Orin, so a character stays the same person all the way through.",
+            "notebook",
+        ),
         Action::MoveHistoryOut => (
             "Moves this book's writing history out of the synced folder, where sync can't damage it.",
             "sessions",

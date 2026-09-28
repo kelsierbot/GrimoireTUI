@@ -448,6 +448,11 @@ fn shots() {
     s.draw();
     frames.push(s.json("reading", None));
 
+    // The corkboard, with its keys.
+    let mut s = Shot::new("cork", "Everforest", w, h, false);
+    s.key(KeyCode::Char('b'), none);
+    frames.push(s.json("cork", None));
+
     // Goals, with the presets.
     let mut s = Shot::new("goals", "Tokyo Night", w, h, false);
     s.key(KeyCode::Tab, none);

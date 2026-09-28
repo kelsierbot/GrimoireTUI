@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.7.2 · A corkboard you can change, and nothing hidden
+
+- **The corkboard does more.** `n` adds a card (a new scene) to the
+  highlighted card's chapter, `r` renames one, `d` sends one to the Trash
+  (asking first), and `<` `>` move a card earlier or later. The board comes
+  back after each, on the right card. Its help page now says what a
+  corkboard is for.
+- **Nothing is only in `Ctrl-K` any more.** *Esc › This book* now has the
+  corkboard, moving up and down, scene history, searching the whole book and
+  writing sessions. *Esc › Writing tools* has find & replace and the name
+  check. The page's key hints add `Ctrl-F` find and `Ctrl-T` notes.
+- The corkboard says "other parts" (or acts, or books) in the book's own word.
+
 ## 0.7.1 · Find the corkboard
 
 - The outline's key hints now include `b corkboard`, and *Esc › This book*

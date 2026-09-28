@@ -98,8 +98,72 @@ impl App {
                 self.reveal(card.idx);
                 self.open_scene(card.idx);
             }
+            // Cards come and go like scenes do in the outline: a new one at
+            // the end of this card's chapter, renamed, or to the Trash, each
+            // asking first, then back to the board.
+            Key::Char('n') | Key::Char('r') | Key::Char('d') => {
+                self.cork_back = Some(self.overlay.clone());
+                self.overlay = Overlay::None;
+                self.focus = Focus::Tree;
+                self.reveal(card.idx);
+                match key {
+                    Key::Char('n') => self.start_create(New::Scene),
+                    Key::Char('r') => self.start_rename(),
+                    _ => self.start_delete(),
+                }
+                if self.overlay == Overlay::None {
+                    self.back_to_cork();
+                }
+            }
+            // Rearranging: the card, and its scene, one place earlier or later.
+            Key::Char('<') | Key::Char('>') | Key::Char(',') | Key::Char('.') => {
+                let board = self.overlay.clone();
+                self.overlay = Overlay::None;
+                self.focus = Focus::Tree;
+                self.reveal(card.idx);
+                self.move_selected(matches!(key, Key::Char('<') | Key::Char(',')));
+                self.overlay = board;
+                // A move renumbers files, but the outline's highlight goes
+                // with the scene.
+                if let Some(moved) = self.visible.get(self.sel).copied() {
+                    let path = self.project.nodes[moved].path.clone();
+                    self.cork_select(|n| n.path == path);
+                }
+            }
             Key::Esc | Key::Char('b') => self.overlay = Overlay::None,
             _ => {}
+        }
+    }
+
+    /// Back to the corkboard after a prompt from it, on the scene that's open
+    /// if it's on the board (a card just made), or where it was.
+    pub(super) fn back_to_cork(&mut self) {
+        let Some(board) = self.cork_back.take() else {
+            return;
+        };
+        let note = std::mem::take(&mut self.msg);
+        self.overlay = board;
+        self.msg = note;
+        if let Some(open) = self.open {
+            let path = self.project.nodes[open].path.clone();
+            self.cork_select(|n| n.path == path);
+        }
+    }
+
+    /// Put the corkboard's highlight on the first card that `is` picks.
+    fn cork_select(&mut self, is: impl Fn(&grimoire_core::project::Node) -> bool) {
+        let Overlay::Cork { scope, .. } = &self.overlay else {
+            return;
+        };
+        let scope_idx = scope
+            .as_ref()
+            .and_then(|p| self.project.nodes.iter().position(|n| &n.path == p));
+        let found = cork::board(&self.project, scope_idx)
+            .iter()
+            .flat_map(|g| g.cards.iter())
+            .position(|c| is(&self.project.nodes[c.idx]));
+        if let (Some(i), Overlay::Cork { sel, .. }) = (found, &mut self.overlay) {
+            *sel = i;
         }
     }
 }
@@ -353,11 +417,11 @@ pub(super) fn draw_cork(
         " type   ↵ save   esc cancel".to_string()
     } else {
         format!(
-            " ←→↑↓ move   ↵ open   s status   e synopsis   v POV   p filter by POV{}   esc close",
+            " ↵ open  n new  r rename  d delete  < > move card  s status  e synopsis  v POV  p POV filter{}  esc close",
             if cork::parts(&app.project).len() > 1 {
-                "   [ ] other acts"
+                format!("  [ ] other {}s", app.project.meta.part_noun())
             } else {
-                ""
+                String::new()
             }
         )
     };
