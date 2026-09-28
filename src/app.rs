@@ -32,6 +32,15 @@ mod aids;
 pub(crate) mod overlays;
 pub use aids::{MarkRow, Sprint, filter_marks as aids_filter};
 
+/// A scene being read aloud: the voice at work on its own thread, the
+/// scene's sentences, and which one it's on.
+pub struct Reading {
+    pub reader: crate::voice::Reader,
+    pub sentences: Vec<crate::voice::Sentence>,
+    pub at: usize,
+    pub voice: String,
+}
+
 /// Save a couple of seconds after typing stops…
 const AUTOSAVE_IDLE: Duration = Duration::from_secs(2);
 /// …and never let unsaved words sit longer than this, however fast you type.
@@ -293,6 +302,8 @@ pub struct App {
     pub last_opened: Option<String>,
     /// Whether this app starts threads and reads ~/.config; off in tests.
     background: bool,
+    /// The reading aloud in progress, if there is one.
+    pub reading: Option<Reading>,
     /// When the day's words were last written down for the Progress page,
     /// and what they were.
     day_noted: Option<(Instant, usize, i64)>,
@@ -405,6 +416,21 @@ pub enum Overlay {
     },
     /// Words each week, the pace lately, and when the book's goal comes.
     Progress,
+    /// The book's word goal and a day's: two numbers to type, or a preset.
+    Goals {
+        sel: usize,
+        book: String,
+        day: String,
+    },
+    /// Reading the scene aloud: the sentence being read is highlighted, and
+    /// the keys pause, skip and stop.
+    Reading,
+    /// Choosing the voice that reads aloud, from the ones this computer
+    /// has (found once, when the list opens).
+    Voices {
+        sel: usize,
+        list: Vec<crate::voice::Engine>,
+    },
     /// The books this machine has had open, to switch to one.
     Books {
         sel: usize,
@@ -786,6 +812,7 @@ impl App {
             last_opened: None,
             background: setup.background,
             day_noted: None,
+            reading: None,
             state_file: None,
         })
         .map(|mut app: App| {
@@ -1559,6 +1586,15 @@ impl App {
                 self.note_day(true);
                 self.overlay = Overlay::Progress;
             }
+            Action::ReadAloud => self.start_reading(),
+            Action::Goals => {
+                self.overlay = Overlay::Goals {
+                    sel: 0,
+                    book: self.project.meta.target_words.to_string(),
+                    day: self.project.meta.daily_target.to_string(),
+                }
+            }
+            Action::Voices => self.open_voices(),
             Action::BringInDraft => {
                 self.overlay = Overlay::BookPath {
                     buf: String::new(),
@@ -4319,6 +4355,7 @@ impl App {
                 (row("New folder…", "(N)"), Action::NewFolder),
                 (row("Rename…", "(r)"), Action::Rename),
                 (row("Delete…", "(d)"), Action::Delete),
+                ("Goals…".into(), Action::Goals),
                 ("Move writing history out…".into(), Action::MoveHistoryOut),
             ],
             Sub::Writing => vec![
@@ -4343,6 +4380,7 @@ impl App {
                     ("Start a sprint…".into(), Action::StartSprint)
                 },
                 ("Progress…".into(), Action::Progress),
+                ("Read aloud".into(), Action::ReadAloud),
                 (row("Music player…", "(F7)"), Action::MusicPlayer),
             ],
             Sub::Settings => vec![
@@ -4362,6 +4400,7 @@ impl App {
                     on_off(self.typewriter, "typewriter scrolling"),
                     Action::Typewriter,
                 ),
+                ("Reading voice…".into(), Action::Voices),
                 ("Manuscript look…".into(), Action::ManuscriptLook),
                 ("Author details…".into(), Action::AuthorDetails),
             ],
@@ -4379,6 +4418,7 @@ impl App {
             Action::MusicPlayer => self.music.enabled,
             Action::FocusMode => writing || self.focus_mode,
             Action::BesidePicker => writing,
+            Action::ReadAloud => writing,
             Action::EchoWords => writing || self.echo_on,
             // Only while a synced book still keeps its history inside it.
             Action::MoveHistoryOut => self.history_in_book && self.cloud.is_some(),

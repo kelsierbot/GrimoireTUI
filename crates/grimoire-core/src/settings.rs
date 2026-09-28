@@ -15,6 +15,9 @@ pub struct Settings {
     /// In focus mode, the line being written stays near the middle of the
     /// screen. On unless turned off.
     pub typewriter: bool,
+    /// The voice *Read aloud* uses: a Piper voice's file, `say`, `spd-say`,
+    /// `espeak-ng` or `windows`. Empty picks the most natural one there is.
+    pub voice: String,
 }
 
 /// A comfortable measure for prose: about twelve words a line.
@@ -27,6 +30,7 @@ impl Default for Settings {
             icons: false,
             line_width: LINE_WIDTH,
             typewriter: true,
+            voice: String::new(),
         }
     }
 }
@@ -60,6 +64,7 @@ impl Settings {
                     }
                 }
                 "typewriter" => out.typewriter = v.trim() != "false",
+                "voice" => out.voice = v.trim().trim_matches('"').to_string(),
                 _ => {}
             }
         }
@@ -78,8 +83,14 @@ impl Settings {
         format!(
             "spellcheck = {}\nicons = {}\n\
              # Widest a line of prose runs, in columns; 0 fills the pane.\n\
-             line_width = {}\ntypewriter = {}\n",
-            self.spellcheck, self.icons, self.line_width, self.typewriter
+             line_width = {}\ntypewriter = {}\n\
+             # The voice for Read aloud; empty picks the most natural one.\n\
+             voice = \"{}\"\n",
+            self.spellcheck,
+            self.icons,
+            self.line_width,
+            self.typewriter,
+            self.voice.replace('"', "")
         )
     }
 }
@@ -129,6 +140,7 @@ mod tests {
             icons: true,
             line_width: 60,
             typewriter: false,
+            voice: "/home/me/voices/en_US-lessac-high.onnx".into(),
         };
         assert_eq!(Settings::parse(&s.to_text()), s);
     }

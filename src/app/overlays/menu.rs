@@ -134,6 +134,10 @@ pub fn about_row(action: &Action, part: &str) -> (String, &'static str) {
             "Moves it to the Trash at the bottom of the outline. It asks first, by name.",
             "outline",
         ),
+        Action::Goals => (
+            "How many words the book is aiming for, and each day. Try a month of drafting: 50,000 words.",
+            "sprints",
+        ),
         Action::MoveHistoryOut => (
             "Moves this book's writing history out of the synced folder, where sync can't damage it.",
             "sessions",
@@ -163,6 +167,14 @@ pub fn about_row(action: &Action, part: &str) -> (String, &'static str) {
             "sprints",
         ),
         Action::EndSprint => ("Ends the sprint now.", "sprints"),
+        Action::ReadAloud => (
+            "Reads the scene out loud from where you are, highlighting each sentence. Hearing it catches what the eye skips.",
+            "revision",
+        ),
+        Action::Voices => (
+            "Which voice reads aloud: a natural Piper voice if you have one, or your computer's own.",
+            "revision",
+        ),
         Action::Progress => (
             "Your words each week, your pace lately, and roughly when you'll reach your goal. No streaks.",
             "sprints",

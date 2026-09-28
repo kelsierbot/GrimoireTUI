@@ -2,6 +2,14 @@
 
 ## Word targets
 
+*Esc › This book › Goals…* sets how many words the book is aiming for and how many a day. Type the numbers, or start from a preset:
+
+- **A month of drafting**: 50,000 words, about 1,667 a day for thirty days.
+- **A short story**: 5,000 words, 500 a day.
+- **A novel**: 80,000 words, 1,000 a day.
+
+They're kept in the book's `novel.toml`, so you can change them there too:
+
 - **The book**: `target_words` in `novel.toml` (80,000 to begin with). The status bar shows the book's words against it, with a progress bar.
 - **Each day**: `daily_target` in `novel.toml`. *today* in the status bar is what the book has grown by since midnight — it goes below zero after a day of cutting, and turns to the accent colour once you reach the day's target.
 - **A scene**: `target:` in its frontmatter. The page's title then shows the scene's progress, like `Scene One · 812 / 1,500`, and the corkboard shows it on the card.

@@ -85,6 +85,12 @@ pub enum Action {
     BringInDraft,
     /// Words each week, the pace lately, and when the goal comes.
     Progress,
+    /// Read the scene aloud from the cursor, a sentence at a time.
+    ReadAloud,
+    /// The book's word goal and a day's, with presets.
+    Goals,
+    /// Which voice reads aloud.
+    Voices,
     OpenBookAt(std::path::PathBuf),
 }
 
@@ -195,6 +201,13 @@ pub fn entries(app: &crate::app::App) -> Vec<Entry> {
         Entry::new("Notes & TKs", &format!("{m}T"), Action::NotesList),
         Entry::new("Next TK (or note)", "", Action::NextTk),
         Entry::new("Next scene still in draft", "", Action::NextDraft),
+        Entry::new("Read aloud from here", "", Action::ReadAloud),
+        Entry::new(
+            "Goals: the book's word goal and each day's",
+            "",
+            Action::Goals,
+        ),
+        Entry::new("Reading voice", "", Action::Voices),
         Entry::new(
             "Progress: words each week, and when you'll reach your goal",
             "",

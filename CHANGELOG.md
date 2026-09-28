@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.7.0 · Hear it, shape it, set your goals
+
+- **Read aloud.** *Esc › Writing tools › Read aloud* reads the scene out loud
+  from the sentence you're on and highlights each sentence as it goes.
+  `Space` pauses, `←` `→` go back or forward a sentence, `Esc` stops with the
+  cursor where you stopped. Notes are never read out. It uses a natural Piper
+  voice if one is installed, or the computer's own (the Mac and Windows
+  voices, Speech Dispatcher or eSpeak on Linux), and nothing leaves your
+  computer. *Settings › Reading voice…* picks another.
+- **Book shapes.** *Start a new book…* now starts a **novel**, a **short
+  story** (three chapters: a beginning, a middle and an end) or a **blank**
+  book; `Tab` picks. From a terminal: `grimoire new --short-story <dir>`. The
+  classroom lessons now start with a short story, so there's nothing to
+  delete on Day 2.
+- **Goals.** *Esc › This book › Goals…* sets the book's word goal and a
+  day's, by typing or from a preset: a month of drafting (50,000 words, 1,667
+  a day), a short story, or a novel. `g` on the Progress page gets there too.
+- WAV files now play in the music player (Jellyfin and Plex).
+- A draft brought in that's already past 80,000 words aims for the next ten
+  thousand.
+
 ## 0.6.0 · Bring your draft, see your progress
 
 - **Bring in a draft you already have.** A Word file, Markdown or plain text

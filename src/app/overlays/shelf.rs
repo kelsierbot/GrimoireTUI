@@ -273,6 +273,7 @@ impl App {
                 icons: self.icons_on,
                 line_width: self.line_width,
                 typewriter: self.typewriter,
+                ..Settings::default()
             },
             background: self.background,
         };
@@ -443,7 +444,7 @@ pub(super) fn draw_new_book(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
         t,
         (
             "START A NEW BOOK",
-            "What's it called? Or type the path to a draft to bring it in.",
+            "What's it called? Or a draft's path, to bring it in.",
         ),
         buf,
         under,

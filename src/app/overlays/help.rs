@@ -48,7 +48,8 @@ impl App {
             Overlay::Cork { .. } => "corkboard",
             Overlay::History { .. } | Overlay::Recover { .. } => "history",
             Overlay::Marks { .. } => "notes",
-            Overlay::Sprint { .. } | Overlay::Progress => "sprints",
+            Overlay::Sprint { .. } | Overlay::Progress | Overlay::Goals { .. } => "sprints",
+            Overlay::Reading | Overlay::Voices { .. } => "revision",
             Overlay::Spelling { .. } => "spelling",
             Overlay::Names { .. } => "notebook",
             Overlay::SessionsOff | Overlay::Sessions { .. } | Overlay::SessionDiff { .. } => {
@@ -86,6 +87,7 @@ impl App {
             | Overlay::Sprint { .. }
             | Overlay::Author { .. }
             | Overlay::NewBook { .. }
+            | Overlay::Goals { .. }
             | Overlay::BookPath { .. }
             | Overlay::Help { .. } => false,
             Overlay::Spelling { inline, .. } => !*inline,

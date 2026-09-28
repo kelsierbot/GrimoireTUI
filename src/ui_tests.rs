@@ -2591,3 +2591,115 @@ fn tab_picks_a_short_story_and_it_starts_with_three_chapters() {
     assert_eq!(p.meta.target_words, 5_000);
     let _ = fs::remove_dir_all(&story);
 }
+
+/// Tick the reading until `done` holds, or give up.
+fn until(d: &mut Desk, done: impl Fn(&Desk) -> bool) -> bool {
+    for _ in 0..200 {
+        d.app.tick_reading();
+        d.draw();
+        if done(d) {
+            return true;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    false
+}
+
+#[test]
+fn read_aloud_highlights_each_sentence_and_the_keys_skip_pause_and_stop() {
+    let root = book("read-aloud", true);
+    fs::write(
+        first_scene(&root),
+        "---\ntitle: \"Scene One\"\nstatus: draft\n---\n\nThe rain had stopped. Oren was late.\n\nShe waited.\n",
+    )
+    .unwrap();
+    let mut d = Desk::open(root, 120, 35);
+    d.key(KeyCode::Tab);
+    d.key(KeyCode::Esc);
+    d.choose("Writing tools");
+    d.choose("Read aloud");
+    assert_eq!(d.app.overlay, Overlay::Reading);
+    assert!(d.shows("reading aloud"), "{}", d.status());
+    assert!(d.shows("sentence 1 of 3"), "{}", d.status());
+    assert_eq!(
+        d.app.editor.selected_text().as_deref(),
+        Some("The rain had stopped.")
+    );
+    d.key(KeyCode::Right);
+    assert!(until(&mut d, |d| d.app.editor.selected_text().as_deref()
+        == Some("Oren was late.")));
+    d.key(KeyCode::Char(' '));
+    assert!(d.status().contains("paused"), "{}", d.status());
+    d.key(KeyCode::Char(' '));
+    d.key(KeyCode::Right);
+    assert!(until(&mut d, |d| d.app.editor.selected_text().as_deref()
+        == Some("She waited.")));
+    // Past the last sentence: the end of the scene.
+    d.key(KeyCode::Right);
+    assert!(until(&mut d, |d| d.app.reading.is_none()));
+    assert!(d.status().contains("end of the scene"), "{}", d.status());
+    assert!(!d.app.editor.has_selection());
+    assert_eq!(d.app.overlay, Overlay::None);
+
+    // Esc stops it anywhere.
+    d.app.run_action(palette::Action::ReadAloud);
+    d.draw();
+    d.key(KeyCode::Esc);
+    assert!(d.app.reading.is_none());
+    assert!(d.status().contains("stopped reading"));
+}
+
+#[test]
+fn the_reading_voice_is_picked_in_settings() {
+    let mut d = Desk::open(book("voices", true), 120, 35);
+    d.key(KeyCode::Esc);
+    d.choose("Settings");
+    d.choose("Reading voice…");
+    assert!(d.shows("READING VOICE"));
+    assert!(d.shows("Automatic: the most natural one here"));
+    d.key(KeyCode::Down);
+    d.key(KeyCode::Enter);
+    assert!(
+        d.status().contains("Read aloud will use Silent"),
+        "{}",
+        d.status()
+    );
+}
+
+#[test]
+fn goals_take_a_month_of_drafting_preset_and_save_to_novel_toml() {
+    let root = book("goals", true);
+    let mut d = Desk::open(root.clone(), 120, 35);
+    d.key(KeyCode::Esc);
+    d.choose("This book");
+    d.choose("Goals…");
+    assert!(d.shows("GOALS"));
+    assert!(d.shows("A month of drafting"));
+    assert!(!d.shows("NaNo"));
+    d.keys(&[KeyCode::Down, KeyCode::Down, KeyCode::Enter]);
+    assert!(d.shows("50000"), "{}", d.rows().join("\n"));
+    d.key(KeyCode::Enter);
+    assert_eq!(d.app.overlay, Overlay::None);
+    assert!(d.status().contains("goals saved"), "{}", d.status());
+    assert_eq!(d.app.project.meta.target_words, 50_000);
+    assert_eq!(d.app.project.meta.daily_target, 1_667);
+    let toml = fs::read_to_string(root.join("novel.toml")).unwrap();
+    assert!(toml.contains("target_words = 50000"), "{toml}");
+    assert!(toml.contains("daily_target = 1667"), "{toml}");
+    assert!(
+        toml.contains("part_label"),
+        "everything else is kept: {toml}"
+    );
+    // And typed by hand.
+    d.app.run_action(palette::Action::Goals);
+    d.draw();
+    d.keys(&[
+        KeyCode::Backspace,
+        KeyCode::Backspace,
+        KeyCode::Backspace,
+        KeyCode::Backspace,
+    ]);
+    d.typed("2000");
+    d.key(KeyCode::Esc);
+    assert_eq!(d.app.project.meta.target_words, 52_000);
+}

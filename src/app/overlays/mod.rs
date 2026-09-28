@@ -26,6 +26,7 @@ mod naming;
 mod player;
 mod progress;
 mod readers;
+mod reading;
 mod recover;
 mod session_list;
 mod shelf;
@@ -61,11 +62,14 @@ impl App {
             Overlay::Menu { .. } | Overlay::Sub { .. } => self.on_menu_key(key),
             Overlay::NewBook { .. } => self.on_new_book_key(key),
             Overlay::Books { .. } => self.on_books_key(key),
-            Overlay::Progress => {
-                if matches!(key, Key::Esc | Key::Enter | Key::Char('q' | ' ')) {
-                    self.overlay = Overlay::None;
-                }
-            }
+            Overlay::Reading => self.on_reading_key(key),
+            Overlay::Goals { .. } => self.on_goals_key(key),
+            Overlay::Voices { .. } => self.on_voices_key(key),
+            Overlay::Progress => match key {
+                Key::Char('g') => self.run_action(Action::Goals),
+                Key::Esc | Key::Enter | Key::Char('q' | ' ') => self.overlay = Overlay::None,
+                _ => {}
+            },
             Overlay::BookPath { .. } => self.on_book_path_key(key),
             Overlay::Sources { .. } => self.on_sources_key(key),
             Overlay::Themes { .. } => self.on_themes_key(key),
@@ -194,6 +198,9 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
         Overlay::NewBook { .. } => shelf::draw_new_book(f, app, area, t),
         Overlay::Books { .. } => shelf::draw_books(f, app, area, t),
         Overlay::Progress => progress::draw_progress(f, app, area, t),
+        Overlay::Reading => reading::draw_reading(f, app, area, t),
+        Overlay::Goals { .. } => progress::draw_goals(f, app, area, t),
+        Overlay::Voices { .. } => reading::draw_voices(f, app, area, t),
         Overlay::BookPath { .. } => shelf::draw_book_path(f, app, area, t),
         Overlay::Player { .. } => player::draw_player(f, app, area, t),
         Overlay::Create { .. } => naming::draw_create(f, app, area, t),

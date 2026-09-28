@@ -13,6 +13,7 @@ mod theme;
 mod ui;
 mod visualizer;
 mod viz_view;
+mod voice;
 
 #[cfg(test)]
 mod shots;
@@ -558,6 +559,7 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
             };
         }
         app.tick_sprint();
+        app.tick_reading();
 
         // The spectrum listens only while it's on screen.
         let spectrum = app.pane_mode == scene::Mode::Visualizer && app.scene_visible;
@@ -573,7 +575,7 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
             return Err(e.into());
         }
 
-        let tick = if spectrum {
+        let tick = if spectrum || app.reading.is_some() {
             FAST_TICK
         } else if app.theme.is_rainbow() {
             RAINBOW_TICK

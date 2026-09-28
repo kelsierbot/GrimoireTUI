@@ -24,6 +24,7 @@ Whichever row is highlighted says what it does, just under the list. `?` opens t
 - **New folder…** (`N`): beside the one selected, for anything that isn't a chapter.
 - **Rename…** (`r`): the file is renamed to match.
 - **Delete…** (`d`): moves it to the Trash at the bottom of the outline, and asks first.
+- **Goals…**: how many words the book is aiming for, and each day. Presets include a month of drafting (50,000 words).
 - **Move writing history out…**: only for an older book in a synced folder. See *Writing sessions*.
 
 ## Writing tools
@@ -37,6 +38,7 @@ Some of these want a scene open, so they show up once you're in one.
 - **Turn echo words on**: lights up a word you've used again within about forty words of the last time, like "the lamp… the lamp". Little words like *the* and *and*, and your characters' names, are left out. It's easy to miss while you write and easy to fix once you can see it. The same row turns it off.
 - **Start a sprint…**: a word goal and a number of minutes, and the status bar keeps count. See *Sprints & targets*.
 - **Progress…**: your words each week, your pace lately, and roughly when you'll reach your goal. No streaks, ever.
+- **Read aloud**: reads the scene out loud from where you are, highlighting each sentence. `Space` pauses, `←` `→` skip, `Esc` stops. See *Revision*.
 - **Music player…** (`F7`): while music is on.
 
 ## Settings
@@ -47,6 +49,7 @@ Some of these want a scene open, so they show up once you're in one.
 - **Turn tree icons on / off**: a little symbol beside each row of the outline.
 - **Line width**: how long a line of prose can run. Each press tries the next: 60, 72, 80 or 100 columns, or the whole pane.
 - **Turn typewriter scrolling off / on**: in focus mode, the line you're writing stays near the middle of the screen.
+- **Reading voice…**: who reads aloud. A natural Piper voice if you have one, or your computer's own. See *Revision*.
 - **Manuscript look…** and **Author details…**: how the exported manuscript looks, and the name and contact details on its title page.
 
 Switches stay on screen after you press them, so you can see the change.

@@ -9,6 +9,7 @@
 - **Turn tree icons on / off**: a small symbol beside each row of the outline.
 - **Line width**: how wide the prose runs — 60, 72, 80 or 100 columns, or the whole pane.
 - **Turn typewriter scrolling on / off**: in focus mode, keep the line you're writing mid-screen (see *Focus mode*).
+- **Reading voice…**: the voice for *Read aloud* (see *Revision*).
 - **Manuscript look…**: the submission manuscript's format (see *Compile*).
 - **Author details…**: your name and contact block for the title page.
 

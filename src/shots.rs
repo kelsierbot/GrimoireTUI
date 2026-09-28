@@ -431,6 +431,41 @@ fn shots() {
     }
     frames.push(s.json("draft", None));
 
+    // Reading aloud: the sentence being read, highlighted.
+    let mut s = Shot::new("reading", "Lost Forest", w, h, false);
+    s.key(KeyCode::Tab, none);
+    s.app.editor.cy = 0;
+    s.app.editor.cx = 0;
+    s.app.run_action(crate::palette::Action::ReadAloud);
+    s.app.reading.as_mut().unwrap().reader.jump(1);
+    for _ in 0..100 {
+        s.app.tick_reading();
+        if s.app.reading.as_ref().is_some_and(|r| r.at == 1) {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    s.draw();
+    frames.push(s.json("reading", None));
+
+    // Goals, with the presets.
+    let mut s = Shot::new("goals", "Tokyo Night", w, h, false);
+    s.key(KeyCode::Tab, none);
+    s.app.run_action(crate::palette::Action::Goals);
+    s.key(KeyCode::Down, none);
+    s.key(KeyCode::Down, none);
+    frames.push(s.json("goals", None));
+
+    // A new book's shapes.
+    let mut s = Shot::new("shapes", "Nord", w, h, false);
+    s.key(KeyCode::Tab, none);
+    s.app.run_action(crate::palette::Action::NewBook);
+    s.key(KeyCode::Tab, none);
+    for c in "The Long Night".chars() {
+        s.key(KeyCode::Char(c), none);
+    }
+    frames.push(s.json("shapes", None));
+
     // Starting a whole new book.
     let mut s = Shot::new("new-book", "Rainbow", w, h, false);
     s.key(KeyCode::Tab, none);

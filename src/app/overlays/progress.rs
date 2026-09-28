@@ -159,7 +159,7 @@ pub(super) fn draw_progress(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
         ),
     ]));
     lines.push(Line::from(""));
-    lines.push(hint_line(" esc close   goals live in novel.toml", t));
+    lines.push(hint_line(" esc close   g goals", t));
 
     // A short window keeps the top and the hint; the weeks give way.
     let room_h = inner.height as usize;
@@ -168,5 +168,144 @@ pub(super) fn draw_progress(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
         lines.truncate(room_h - 1);
         lines.extend(hint);
     }
+    f.render_widget(Paragraph::new(lines), inner);
+}
+
+/// The presets on the Goals page: a name, the book's goal, a day's.
+pub const PRESETS: [(&str, usize, usize); 3] = [
+    ("A month of drafting", 50_000, 1_667),
+    ("A short story", 5_000, 500),
+    ("A novel", 80_000, 1_000),
+];
+
+impl App {
+    pub(super) fn on_goals_key(&mut self, key: Key) {
+        let Overlay::Goals { sel, book, day } = &mut self.overlay else {
+            return;
+        };
+        let rows = 2 + PRESETS.len();
+        match key {
+            Key::Up | Key::BackTab => *sel = (*sel + rows - 1) % rows,
+            Key::Down | Key::Tab => *sel = (*sel + 1) % rows,
+            Key::Char(c) if c.is_ascii_digit() && *sel < 2 => {
+                let field = if *sel == 0 { book } else { day };
+                if field.len() < 7 {
+                    field.push(c);
+                }
+            }
+            Key::Backspace if *sel < 2 => {
+                let field = if *sel == 0 { book } else { day };
+                field.pop();
+            }
+            // A preset fills both numbers in; ↵ on a number keeps them.
+            Key::Enter if *sel >= 2 => {
+                let (_, b, d) = PRESETS[*sel - 2];
+                *book = b.to_string();
+                *day = d.to_string();
+                *sel = 0;
+            }
+            Key::Enter | Key::Esc => {
+                let (b, d) = (book.parse().unwrap_or(0), day.parse().unwrap_or(0));
+                self.save_goals(b, d);
+            }
+            _ => {}
+        }
+    }
+
+    fn save_goals(&mut self, book: usize, day: usize) {
+        if book == 0 || day == 0 {
+            self.msg = "a goal needs a number above zero".into();
+            return;
+        }
+        match grimoire_core::submission::save_goals(&self.project.root, book, day) {
+            Ok(()) => {
+                self.project.meta.target_words = book;
+                self.project.meta.daily_target = day;
+                self.overlay = Overlay::None;
+                self.msg = format!(
+                    "goals saved: {} words for the book, {} a day",
+                    thousands(book),
+                    thousands(day)
+                );
+            }
+            Err(e) => self.msg = format!("{e:#}"),
+        }
+    }
+}
+
+pub(super) fn draw_goals(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
+    let Overlay::Goals { sel, book, day } = &app.overlay else {
+        return;
+    };
+    let box_area = centred(area, 60, 14);
+    f.render_widget(Clear, box_area);
+    let title = format!("GOALS · {}", app.project.meta.title.to_uppercase());
+    let block = pane_block(&title, true, t);
+    let inner = block.inner(box_area);
+    f.render_widget(block, box_area);
+    let dim = Style::default().fg(t.dim);
+    let row = |i: usize, spans: Vec<Span<'static>>| {
+        let on = i == *sel;
+        let mut all = vec![Span::styled(
+            if on { " ▸ " } else { "   " },
+            Style::default().fg(if on { t.accent } else { t.dim }),
+        )];
+        all.extend(spans);
+        Line::from(all).style(if on {
+            Style::default().bg(t.sel)
+        } else {
+            Style::default()
+        })
+    };
+    let number = |i: usize, label: &str, value: &str| {
+        let on = i == *sel;
+        row(
+            i,
+            vec![
+                Span::styled(format!("{label:<12}"), Style::default().fg(t.text)),
+                Span::styled(
+                    value.to_string(),
+                    Style::default().fg(if on { t.accent } else { t.text }),
+                ),
+                Span::styled(
+                    if on { "█" } else { "" }.to_string(),
+                    Style::default().fg(t.accent),
+                ),
+                Span::styled(" words".to_string(), dim),
+            ],
+        )
+    };
+    let mut lines = vec![
+        number(0, "The book", book),
+        number(1, "Each day", day),
+        Line::from(""),
+        Line::from(Span::styled(" Or start from one of these:", dim)),
+    ];
+    for (k, (name, b, d)) in PRESETS.iter().enumerate() {
+        lines.push(row(
+            k + 2,
+            vec![
+                Span::styled(format!("{name:<22}"), Style::default().fg(t.text)),
+                Span::styled(
+                    format!("{} words, {} a day", thousands(*b), thousands(*d)),
+                    dim,
+                ),
+            ],
+        ));
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        " No streaks: a day you don't write is just a day.",
+        Style::default().fg(t.dim).add_modifier(Modifier::ITALIC),
+    )));
+    lines.push(Line::from(""));
+    lines.push(hint_line(
+        if *sel < 2 {
+            " type a number   ↑ ↓ move   ↵ save   esc save and close"
+        } else {
+            " ↵ use these   ↑ ↓ move   esc save and close"
+        },
+        t,
+    ));
     f.render_widget(Paragraph::new(lines), inner);
 }

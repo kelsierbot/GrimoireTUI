@@ -278,6 +278,14 @@ row* goes through every row, and *Every key* lists every key. *About Grimoire…
 - **Sprints and targets.** *Start a sprint…* sets a word goal and minutes and
   starts the timer; the status bar counts `sprint 212/500 · 14:32`. A scene's
   `target:` shows as progress in the editor's title.
+- **Read aloud.** *Esc › Writing tools › Read aloud* reads the scene out loud
+  from where you are, highlighting each sentence, because hearing prose catches
+  what the eye skips. `Space` pauses, `←` `→` skip, `Esc` stops. It uses a
+  natural [Piper](https://github.com/OHF-Voice/piper1-gpl) voice if you have
+  one, or your computer's own (the Mac and Windows voices, Speech Dispatcher or
+  eSpeak on Linux). Nothing leaves your computer.
+- **Goals.** *Esc › This book › Goals…* sets the book's word goal and a day's,
+  with presets: a month of drafting (50,000 words), a short story, a novel.
 - **Progress.** Click the word count at the bottom left (or *Esc › Writing
   tools › Progress…*) for your words each week, your pace lately, and roughly
   when you'll reach your goal. It's there to cheer you on: no streaks, no days
