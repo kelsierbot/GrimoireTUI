@@ -11,7 +11,16 @@ Open a scene from the outline and press `Tab` (or click the page) to write in it
 ## Selecting, cutting and pasting
 
 - **Drag** with the mouse to select.
-- `Ctrl-C` copies the selection and `Ctrl-X` cuts it. Paste with your terminal's own paste (`Ctrl-Shift-V`, or `Cmd-V` on a Mac); a paste is one step to undo.
+- `Ctrl-C` copies the selection and `Ctrl-X` cuts it. `Ctrl-V` pastes (so does your terminal's own paste, `Ctrl-Shift-V` or `Cmd-V`); a paste is one step to undo.
+- `Ctrl-A` selects the whole scene (*Select the whole scene* in `Ctrl-K`).
+
+## Italics and bold
+
+- `Ctrl-I` puts **italics** on the selected words, or on the word the cursor is in. `Ctrl-I` again takes them off.
+- `Ctrl-B` does the same with **bold**.
+- Both are in *Esc › Writing tools* too, and in `Ctrl-K` (*Italic*, *Bold*). Some terminals send `Ctrl-I` as `Tab`; the menu always works.
+
+In the file, italics are `*stars*` and bold is `**double stars**`, the way Markdown writes them, and every export turns them into real italics and bold.
 - Typing over a selection replaces it. `Backspace` or `Delete` removes it.
 - `Esc` lets go of a selection. With nothing selected, `Esc` opens the menu.
 

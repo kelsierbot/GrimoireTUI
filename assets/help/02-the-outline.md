@@ -22,6 +22,7 @@ Each asks for a name, with a suggestion already filled in. Type to replace it, o
 - `r` renames what's selected. The file is renamed to match, and keeps its number and place.
 - `d` deletes it. Grimoire asks first, by name, and moves it to the **Trash** section at the bottom of the outline.
 - Deleting something that is **already in the Trash** removes it for good. That one asks too.
+- `u` on something in the Trash **restores** it: back to its old folder under its old name (*Restore from the Trash* in `Esc › This book` and `Ctrl-K` too). If its folder has gone since, it's made again.
 
 ## Moving things
 

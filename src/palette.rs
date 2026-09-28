@@ -89,6 +89,13 @@ pub enum Action {
     ReadAloud,
     /// The book's word goal and a day's, with presets.
     Goals,
+    /// Italics or bold on the selection, or off again.
+    Italic,
+    Bold,
+    Paste,
+    SelectAll,
+    /// Take what's selected in the Trash back where it was.
+    Restore,
     /// Which voice reads aloud.
     Voices,
     OpenBookAt(std::path::PathBuf),
@@ -197,6 +204,14 @@ pub fn entries(app: &crate::app::App) -> Vec<Entry> {
         Entry::new("Undo", &format!("{m}Z"), Action::Undo),
         Entry::new("Redo", &format!("{m}Y"), Action::Redo),
         Entry::new("Save now", &format!("{m}S"), Action::Save),
+        Entry::new("Paste", &format!("{m}V"), Action::Paste),
+        Entry::new(
+            "Select the whole scene",
+            &format!("{m}A"),
+            Action::SelectAll,
+        ),
+        Entry::new("Italic (on or off)", &format!("{m}I"), Action::Italic),
+        Entry::new("Bold (on or off)", &format!("{m}B"), Action::Bold),
         Entry::new("Corkboard", "b", Action::Corkboard),
         Entry::new("Notes & TKs", &format!("{m}T"), Action::NotesList),
         Entry::new("Next TK (or note)", "", Action::NextTk),
@@ -286,6 +301,12 @@ pub fn entries(app: &crate::app::App) -> Vec<Entry> {
             Action::MusicToggle,
         ),
     ];
+    if app.selection_in_trash() {
+        v.insert(
+            0,
+            Entry::new("Restore from the Trash", "u", Action::Restore),
+        );
+    }
     if app.history_in_book {
         v.push(Entry::new(
             "Move writing history out of the synced folder",

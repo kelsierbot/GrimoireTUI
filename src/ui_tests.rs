@@ -2092,6 +2092,10 @@ const EVERY_KEY: &[(&str, &str, &[&str])] = &[
     ("Everywhere", "Ctrl-D", &[]),
     ("Everywhere", "Ctrl-T", &[]),
     ("Everywhere", "Ctrl-O", &["Tab"]),
+    ("Everywhere", "Ctrl-V", &["Tab"]),
+    ("Everywhere", "Ctrl-A", &["Tab"]),
+    ("Everywhere", "Ctrl-B", &["Tab"]),
+    ("Everywhere", "Ctrl-I", &["Tab"]),
     ("Everywhere", "Alt-↑", &["n", "Enter"]),
     ("Everywhere", "Alt-↓", &[]),
     ("Everywhere", "F2", &[]),
@@ -2118,6 +2122,7 @@ const EVERY_KEY: &[(&str, &str, &[&str])] = &[
     ("The outline", "N", &[]),
     ("The outline", "r", &[]),
     ("The outline", "d", &[]),
+    ("The outline", "u", &[]),
     ("The outline", "K", &["n", "Enter"]),
     ("The outline", "J", &[]),
     ("The outline", "H", &[]),
@@ -2806,4 +2811,106 @@ fn find_names_history_and_moving_are_in_the_menu_and_hints() {
     }
     assert!(d.status().contains("^F find"), "{}", d.status());
     assert!(d.status().contains("^T notes"), "{}", d.status());
+}
+
+#[test]
+fn ctrl_v_pastes_what_was_copied_and_ctrl_a_selects_the_scene() {
+    let mut d = Desk::open(book("paste", true), 120, 35);
+    d.key(KeyCode::Tab);
+    d.typed("The lamp was lit.");
+    d.ctrl('a');
+    assert!(
+        d.app
+            .editor
+            .selected_text()
+            .is_some_and(|t| t.contains("The lamp was lit."))
+    );
+    d.app.editor.select((0, 4), (0, 8));
+    d.ctrl('c');
+    d.app.editor.clear_selection();
+    d.key(KeyCode::End);
+    d.ctrl('v');
+    assert!(
+        d.app.editor.lines[0].ends_with("lit.lamp"),
+        "{:?}",
+        d.app.editor.lines[0]
+    );
+    // Into a box being typed in, too.
+    d.key(KeyCode::Esc);
+    d.app.run_action(palette::Action::NewBook);
+    d.ctrl('v');
+    assert!(matches!(&d.app.overlay, Overlay::NewBook { buf, .. } if buf == "lamp"));
+}
+
+#[test]
+fn ctrl_b_and_ctrl_i_mark_the_word_at_the_cursor() {
+    let mut d = Desk::open(book("emph", true), 120, 35);
+    d.key(KeyCode::Tab);
+    d.typed("very late");
+    d.app.editor.place(0, 2);
+    d.ctrl('i');
+    assert!(
+        d.app.editor.lines[0].starts_with("*very* late"),
+        "{:?}",
+        d.app.editor.lines[0]
+    );
+    d.ctrl('i');
+    assert!(
+        d.app.editor.lines[0].starts_with("very late"),
+        "again takes it off"
+    );
+    d.app.editor.place(0, 7);
+    d.ctrl('b');
+    assert!(
+        d.app.editor.lines[0].starts_with("very **late**"),
+        "{:?}",
+        d.app.editor.lines[0]
+    );
+    // Both are in Writing tools, for terminals where Ctrl-I is Tab.
+    let tools: Vec<String> = d
+        .app
+        .submenu(Sub::Writing)
+        .into_iter()
+        .map(|(l, _)| l)
+        .collect();
+    assert!(
+        tools.iter().any(|l| l.starts_with("Italic"))
+            && tools.iter().any(|l| l.starts_with("Bold"))
+    );
+}
+
+#[test]
+fn u_in_the_trash_puts_a_deleted_scene_back_where_it_was() {
+    let root = book("restore", true);
+    let scene = first_scene(&root);
+    let mut d = Desk::open(root.clone(), 150, 40);
+    // Delete Scene One (the tree starts on it after Novel Format).
+    for _ in 0..30 {
+        if d.app
+            .visible
+            .get(d.app.sel)
+            .is_some_and(|&i| d.app.project.nodes[i].path == scene)
+        {
+            break;
+        }
+        d.key(KeyCode::Down);
+    }
+    d.key(KeyCode::Char('d'));
+    d.key(KeyCode::Char('y'));
+    assert!(!scene.exists());
+    // Highlight it in the Trash.
+    let trashed = d
+        .app
+        .project
+        .nodes
+        .iter()
+        .position(|n| n.path.to_string_lossy().ends_with("-01-Scene-One.md"))
+        .expect("in the Trash");
+    d.app.reveal(trashed);
+    d.draw();
+    assert!(d.app.selection_in_trash(), "found it in the Trash");
+    assert!(d.status().contains("u restore"), "{}", d.status());
+    d.key(KeyCode::Char('u'));
+    assert!(scene.exists(), "back where it was: {}", d.status());
+    assert!(d.status().contains("restored"), "{}", d.status());
 }

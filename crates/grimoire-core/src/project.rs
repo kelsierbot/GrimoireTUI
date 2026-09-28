@@ -2079,6 +2079,87 @@ pub fn trash(root: &Path, path: &Path) -> Result<PathBuf> {
         n += 1;
     }
     fs::rename(path, &target).with_context(|| format!("moving {} to the trash", path.display()))?;
+    // Where it came from, so Restore can put it back there. A hidden file,
+    // so the Trash section never shows it.
+    if let (Ok(rel), Some(went)) = (path.strip_prefix(root), target.file_name()) {
+        let line = format!("{}\t{}\n", went.to_string_lossy(), rel.to_string_lossy());
+        let origins = dir.join(ORIGINS);
+        let mut text = fs::read_to_string(&origins).unwrap_or_default();
+        text.push_str(&line);
+        let _ = crate::atomic::write_text(&origins, &text);
+    }
+    Ok(target)
+}
+
+/// The Trash's record of where each thing in it came from.
+const ORIGINS: &str = ".origins";
+
+/// Where something in the Trash was before it was deleted, if the Trash
+/// remembers (things deleted before 0.7.3 have no record).
+pub fn trashed_from(root: &Path, trashed: &Path) -> Option<PathBuf> {
+    let name = trashed.file_name()?.to_string_lossy().to_string();
+    let text = fs::read_to_string(trash_dir(root).join(ORIGINS)).ok()?;
+    text.lines().rev().find_map(|l| {
+        let (went, from) = l.split_once('\t')?;
+        (went == name).then(|| root.join(from))
+    })
+}
+
+/// Take something out of the Trash and put it back where it was: in its old
+/// folder (made again if it's gone), under its old name, or numbered if that
+/// name has been taken since. With no record of where it was, it goes to the
+/// end of the manuscript. Returns where it went.
+pub fn restore(root: &Path, trashed: &Path) -> Result<PathBuf> {
+    let name = trashed
+        .file_name()
+        .context("there is nothing there to restore")?
+        .to_string_lossy()
+        .to_string();
+    // "1727380000-01-Scene-One.md" and "1727380000-2-01-Scene-One.md" were
+    // both "01-Scene-One.md": a time stamp, then a count if two went in the
+    // same second.
+    let digits = |h: &str| !h.is_empty() && h.chars().all(|c| c.is_ascii_digit());
+    let after_stamp = match name.split_once('-') {
+        Some((h, t)) if h.len() >= 9 && digits(h) => t,
+        _ => name.as_str(),
+    };
+    let original_name = match after_stamp.split_once('-') {
+        Some((h, t)) if h.len() == 1 && digits(h) => t,
+        _ => after_stamp,
+    }
+    .to_string();
+    let wanted =
+        trashed_from(root, trashed).unwrap_or_else(|| root.join("manuscript").join(&original_name));
+    let dir = wanted
+        .parent()
+        .context("nowhere to put it back")?
+        .to_path_buf();
+    fs::create_dir_all(&dir).with_context(|| format!("making {} again", dir.display()))?;
+    let mut target = wanted.clone();
+    let mut n = 2;
+    while target.symlink_metadata().is_ok() {
+        let stem = wanted
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_default();
+        let ext = wanted
+            .extension()
+            .map(|e| format!(".{}", e.to_string_lossy()))
+            .unwrap_or_default();
+        target = dir.join(format!("{stem}-{n}{ext}"));
+        n += 1;
+    }
+    fs::rename(trashed, &target)
+        .with_context(|| format!("moving {} out of the trash", trashed.display()))?;
+    let origins = trash_dir(root).join(ORIGINS);
+    if let Ok(text) = fs::read_to_string(&origins) {
+        let kept: String = text
+            .lines()
+            .filter(|l| l.split_once('\t').is_none_or(|(went, _)| went != name))
+            .map(|l| format!("{l}\n"))
+            .collect();
+        let _ = crate::atomic::write_text(&origins, &kept);
+    }
     Ok(target)
 }
 
@@ -2884,6 +2965,37 @@ pub fn leading_number(path: &Path) -> Option<usize> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn restore_puts_a_deleted_scene_back_where_it_was() {
+        let root = std::env::temp_dir().join(format!("grimoire-restore-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let ch = root.join("manuscript/01-Part-One/01-Chapter-One");
+        fs::create_dir_all(&ch).unwrap();
+        let scene = ch.join("02-Scene-Two.md");
+        fs::write(&scene, "words").unwrap();
+        let went = trash(&root, &scene).unwrap();
+        assert!(!scene.exists());
+        assert_eq!(trashed_from(&root, &went), Some(scene.clone()));
+        // Its name was taken meanwhile: it comes back numbered, not over it.
+        fs::write(&scene, "newer").unwrap();
+        let back = restore(&root, &went).unwrap();
+        assert_eq!(back, ch.join("02-Scene-Two-2.md"));
+        assert_eq!(fs::read_to_string(&back).unwrap(), "words");
+        assert_eq!(fs::read_to_string(&scene).unwrap(), "newer");
+        assert!(
+            trashed_from(&root, &went).is_none(),
+            "the record goes with it"
+        );
+        // A folder that's gone is made again; with no record, the manuscript.
+        let lone = trash_dir(&root).join("1727380000-2-05-Old-Scene.md");
+        fs::write(&lone, "old").unwrap();
+        assert_eq!(
+            restore(&root, &lone).unwrap(),
+            root.join("manuscript/05-Old-Scene.md")
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
+
     use super::*;
 
     fn temp_dir(tag: &str) -> PathBuf {

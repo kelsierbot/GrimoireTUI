@@ -686,6 +686,19 @@ fn on_key(app: &mut App, k: KeyEvent, confirm_quit: &mut bool) -> bool {
             }
             KeyCode::Char('c') => app.copy_selection(),
             KeyCode::Char('x') => app.cut(),
+            // Paste: into the page, or into whatever box is being typed in.
+            KeyCode::Char('v') if matches!(app.overlay, Overlay::None) => app.paste_clipboard(),
+            KeyCode::Char('v') => {
+                for c in app.clipboard_text().chars().filter(|c| !c.is_control()) {
+                    app.on_overlay_key(Key::Char(c));
+                }
+            }
+            KeyCode::Char('a') if matches!(app.overlay, Overlay::None) => app.select_all(),
+            // Bold and italics. Ctrl-I reaches Grimoire only where the
+            // terminal tells it apart from Tab (Ghostty, Kitty, WezTerm,
+            // foot); everywhere, the menu's Writing tools have both.
+            KeyCode::Char('b') if matches!(app.overlay, Overlay::None) => app.emphasis("**"),
+            KeyCode::Char('i') if matches!(app.overlay, Overlay::None) => app.emphasis("*"),
             KeyCode::Char('k') if matches!(app.overlay, Overlay::None) => app.open_palette(),
             KeyCode::Char('f') => match &app.overlay {
                 Overlay::None => app.open_find(),

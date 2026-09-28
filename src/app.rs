@@ -307,6 +307,9 @@ pub struct App {
     /// The corkboard to come back to after naming, renaming or deleting a
     /// card from it.
     pub cork_back: Option<Overlay>,
+    /// What was last copied or cut, for Ctrl-V when the system clipboard
+    /// can't be read (and in tests, which never touch it).
+    pub clip: String,
     /// When the day's words were last written down for the Progress page,
     /// and what they were.
     day_noted: Option<(Instant, usize, i64)>,
@@ -817,6 +820,7 @@ impl App {
             day_noted: None,
             reading: None,
             cork_back: None,
+            clip: String::new(),
             state_file: None,
         })
         .map(|mut app: App| {
@@ -1459,7 +1463,8 @@ impl App {
         }
         match self.editor.selected_text() {
             Some(text) if !text.is_empty() => {
-                if copy_to_clipboard(&text) {
+                self.clip = text.clone();
+                if !self.background || copy_to_clipboard(&text) {
                     self.editor.delete_selection();
                     self.flush();
                     self.msg = "cut — undo puts it back".into();
@@ -1468,6 +1473,112 @@ impl App {
                 }
             }
             _ => self.msg = "nothing selected".into(),
+        }
+    }
+
+    /// Ctrl-V: what's on the computer's clipboard, or failing that what
+    /// was last copied here.
+    pub fn paste_clipboard(&mut self) {
+        if self.focus != Focus::Editor || self.open.is_none() {
+            self.msg = "open a scene and click into it to paste".into();
+            return;
+        }
+        let text = self.clipboard_text();
+        if text.is_empty() {
+            self.msg = "the clipboard is empty".into();
+            return;
+        }
+        self.paste(&text);
+    }
+
+    /// What Ctrl-V would paste.
+    pub fn clipboard_text(&self) -> String {
+        if self.background {
+            read_clipboard().unwrap_or_else(|| self.clip.clone())
+        } else {
+            self.clip.clone()
+        }
+    }
+
+    /// Ctrl-A: the whole scene.
+    pub fn select_all(&mut self) {
+        if self.focus == Focus::Editor && self.open.is_some() {
+            self.editor.select_all();
+            let words = self
+                .editor
+                .selected_text()
+                .map_or(0, |t| grimoire_core::notes::count_words(&t));
+            self.msg = format!(
+                "the whole scene is selected · {} words",
+                thousands_plain(words)
+            );
+        } else {
+            self.msg = "open a scene and click into it to select it all".into();
+        }
+    }
+
+    /// Italics (`*`) or bold (`**`) on the selection or the word at the
+    /// cursor, or off again.
+    pub fn emphasis(&mut self, mark: &str) {
+        if self.focus != Focus::Editor || self.open.is_none() {
+            self.msg = "open a scene and select some words first".into();
+            return;
+        }
+        if self.editor.toggle_wrap(mark) {
+            self.flush();
+        } else {
+            self.msg = "select some words in one paragraph, or put the cursor in a word".into();
+        }
+    }
+
+    /// Whether the outline's highlight is on something in the Trash.
+    pub fn selection_in_trash(&self) -> bool {
+        self.visible
+            .get(self.sel)
+            .is_some_and(|&i| self.project.in_trash(i) && !self.project.roots.contains(&i))
+    }
+
+    /// Take the selected thing out of the Trash, back where it was.
+    pub fn restore_selected(&mut self) {
+        let Some(idx) = self.visible.get(self.sel).copied() else {
+            return;
+        };
+        let path = self.project.nodes[idx].path.clone();
+        let trash = project::trash_dir(&self.project.root);
+        if path.parent() != Some(trash.as_path()) {
+            self.msg = if self.project.in_trash(idx) {
+                "restore the folder it's in, and it comes back too".into()
+            } else {
+                "that isn't in the Trash".into()
+            };
+            return;
+        }
+        self.flush();
+        if !self.commit_saves() {
+            return;
+        }
+        let name = self.project.nodes[idx].title.clone();
+        let before = self.project.total_words();
+        match project::restore(&self.project.root, &path) {
+            Ok(to) => {
+                self.follow_paths(&path, &to);
+                self.record(TreeStep::Moved {
+                    what: format!("restore {name}"),
+                    batches: vec![vec![(path, to.clone())]],
+                    links: false,
+                });
+                if let Err(e) = self.reload_tree() {
+                    self.msg = format!("restored, but couldn't re-read the tree: {e}");
+                    return;
+                }
+                self.keep_today(before);
+                if let Some(i) = self.project.nodes.iter().position(|n| n.path == to) {
+                    self.reveal(i);
+                }
+                let m = self.mod_label();
+                self.msg = format!("restored {name} · {m}Z puts it back in the Trash");
+            }
+            Err(e) => self.msg = format!("couldn't restore it: {e:#}"),
         }
     }
 
@@ -1591,6 +1702,11 @@ impl App {
                 self.overlay = Overlay::Progress;
             }
             Action::ReadAloud => self.start_reading(),
+            Action::Italic => self.emphasis("*"),
+            Action::Bold => self.emphasis("**"),
+            Action::Paste => self.paste_clipboard(),
+            Action::SelectAll => self.select_all(),
+            Action::Restore => self.restore_selected(),
             Action::Goals => {
                 self.overlay = Overlay::Goals {
                     sel: 0,
@@ -3921,6 +4037,7 @@ impl App {
             Key::Char('N') => self.start_create(New::Folder),
             Key::Char('r') => self.start_rename(),
             Key::Char('d') => self.start_delete(),
+            Key::Char('u') => self.restore_selected(),
             Key::Char('H') => self.open_history(),
             Key::Char('b') => self.open_cork(),
             Key::Char('K') => self.move_selected(true),
@@ -4265,10 +4382,12 @@ impl App {
         match self.editor.selected_text() {
             Some(text) if !text.is_empty() => {
                 let n = text.chars().count();
-                if copy_to_clipboard(&text) {
+                self.clip = text.clone();
+                // Tests never touch the computer's clipboard.
+                if !self.background || copy_to_clipboard(&text) {
                     self.msg = format!("copied {n} char{}", if n == 1 { "" } else { "s" });
                 } else {
-                    self.msg = "no clipboard tool found".into();
+                    self.msg = "copied for Ctrl-V here · no clipboard tool found to share it with other apps".into();
                 }
             }
             _ => self.msg = "nothing selected".into(),
@@ -4360,6 +4479,7 @@ impl App {
                 (row("New folder…", "(N)"), Action::NewFolder),
                 (row("Rename…", "(r)"), Action::Rename),
                 (row("Delete…", "(d)"), Action::Delete),
+                (row("Restore from the Trash", "(u)"), Action::Restore),
                 (row("Move up", "(K)"), Action::MoveUp),
                 (row("Move down", "(J)"), Action::MoveDown),
                 (row("Scene history…", "(H)"), Action::History),
@@ -4380,6 +4500,8 @@ impl App {
                     ),
                     Action::FocusMode,
                 ),
+                (row("Italic", &format!("({m}I)")), Action::Italic),
+                (row("Bold", &format!("({m}B)")), Action::Bold),
                 (
                     row("Find & replace…", &format!("({m}F)")),
                     Action::FindInScene,
@@ -4435,6 +4557,8 @@ impl App {
             Action::BesidePicker => writing,
             Action::ReadAloud => writing,
             Action::FindInScene => writing,
+            Action::Italic | Action::Bold => writing,
+            Action::Restore => self.selection_in_trash(),
             Action::History => writing || !self.visible.is_empty(),
             Action::EchoWords => writing || self.echo_on,
             // Only while a synced book still keeps its history inside it.
@@ -4807,6 +4931,12 @@ impl App {
                     .collect();
                 // The corkboard right after the making keys: it's the other
                 // way to see the book, and nothing else says where it is.
+                // In the Trash, putting back matters more than making.
+                if self.selection_in_trash() {
+                    return format!(
+                        "{esc}  u restore  d delete for good  ? help  Tab pane  {m}Z undo  {m}Q quit "
+                    );
+                }
                 format!(
                     "{esc}{focus}  ? help  Tab pane  ↵ fold  {}  b corkboard  r rename  d delete  {m}Z undo  H history  {m}Q quit ",
                     keys.join("  ")
@@ -4977,6 +5107,50 @@ fn write_baseline(dir: &Path, path: &Path, today: &str, total: usize) {
 }
 
 /// Hand text to whatever clipboard tool this machine has.
+fn thousands_plain(n: usize) -> String {
+    grimoire_core::manuscript::commas(n)
+}
+
+fn read_clipboard() -> Option<String> {
+    use std::process::{Command, Stdio};
+    const TOOLS: &[(&str, &[&str])] = &[
+        ("pbpaste", &[]),                              // macOS
+        ("wl-paste", &["--no-newline"]),               // Wayland
+        ("xclip", &["-selection", "clipboard", "-o"]), // X11
+        ("xsel", &["--clipboard", "--output"]),        // X11 alternative
+        (
+            "powershell",
+            &[
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "[Console]::OutputEncoding = [Text.Encoding]::UTF8; Get-Clipboard -Raw",
+            ],
+        ),
+    ];
+    for (cmd, args) in TOOLS {
+        let Ok(out) = Command::new(cmd)
+            .args(*args)
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .output()
+        else {
+            continue;
+        };
+        if out.status.success() {
+            let text = String::from_utf8_lossy(&out.stdout).replace("\r\n", "\n");
+            // PowerShell ends what it prints with a line break of its own.
+            let text = if *cmd == "powershell" {
+                text.strip_suffix('\n').unwrap_or(&text).to_string()
+            } else {
+                text
+            };
+            return Some(text);
+        }
+    }
+    None
+}
+
 fn copy_to_clipboard(text: &str) -> bool {
     use std::io::Write;
     use std::process::{Command, Stdio};

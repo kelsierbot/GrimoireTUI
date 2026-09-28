@@ -237,6 +237,71 @@ impl Editor {
         self.hist.last = Some((Edit::Whole, Instant::now()));
     }
 
+    /// Select the whole scene.
+    pub fn select_all(&mut self) {
+        let last = self.lines.len().saturating_sub(1);
+        let end = self.line_len(last);
+        self.select((0, 0), (last, end));
+    }
+
+    /// The word the cursor is in or touching, as (line, start, end).
+    fn word_at_cursor(&self) -> Option<(usize, usize, usize)> {
+        let chars: Vec<char> = self.lines.get(self.cy)?.chars().collect();
+        let is_word = |c: char| c.is_alphanumeric() || c == '\'' || c == '’';
+        let mut start = self.cx.min(chars.len());
+        while start > 0 && is_word(chars[start - 1]) {
+            start -= 1;
+        }
+        let mut end = self.cx.min(chars.len());
+        while end < chars.len() && is_word(chars[end]) {
+            end += 1;
+        }
+        (end > start).then_some((self.cy, start, end))
+    }
+
+    /// Put `mark` on both sides of the selection (or the word at the cursor),
+    /// or take it off if it's already there: `*` for italics, `**` for bold.
+    /// One paragraph at a time. The words stay selected, so pressing it
+    /// again undoes it. False if there was nothing to mark.
+    pub fn toggle_wrap(&mut self, mark: &str) -> bool {
+        let (line, a, b) = match self.selection() {
+            Some(((l0, c0), (l1, c1))) if l0 == l1 && c0 < c1 => (l0, c0, c1),
+            Some(_) => return false,
+            None => match self.word_at_cursor() {
+                Some(w) => w,
+                None => return false,
+            },
+        };
+        let chars: Vec<char> = self.lines[line].chars().collect();
+        let m: Vec<char> = mark.chars().collect();
+        let n = m.len();
+        // A single * mustn't be mistaken for half of a **.
+        let star = |i: Option<usize>| i.and_then(|i| chars.get(i)).is_some_and(|c| *c == '*');
+        let around = a >= n
+            && b + n <= chars.len()
+            && chars[a - n..a] == m[..]
+            && chars[b..b + n] == m[..]
+            && !(n == 1 && (star(a.checked_sub(2)) || star(Some(b + 1))));
+        let inside = b - a >= 2 * n
+            && chars[a..a + n] == m[..]
+            && chars[b - n..b] == m[..]
+            && !(n == 1
+                && (chars.get(a + 1) == Some(&'*') || chars.get(b.wrapping_sub(2)) == Some(&'*')));
+        let (start, end, with, sel) = if around {
+            let inner: String = chars[a..b].iter().collect();
+            (a - n, b + n, inner, (a - n, b - n))
+        } else if inside {
+            let inner: String = chars[a + n..b - n].iter().collect();
+            (a, b, inner, (a, b - 2 * n))
+        } else {
+            let inner: String = chars[a..b].iter().collect();
+            (a, b, format!("{mark}{inner}{mark}"), (a + n, b + n))
+        };
+        self.replace_in_line(line, start, end, &with);
+        self.select((line, sel.0), (line, sel.1));
+        true
+    }
+
     /// Insert text that may span paragraphs, as one undo step.
     pub fn insert_str(&mut self, text: &str) {
         let text = text.replace("\r\n", "\n").replace('\r', "\n");
@@ -630,6 +695,40 @@ fn char_at_width(line: &str, start: usize, end: usize, goal: usize) -> usize {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn italics_and_bold_go_on_and_come_off() {
+        let mut e = Editor::from_text("It was very late.");
+        e.select((0, 7), (0, 11));
+        assert!(e.toggle_wrap("*"));
+        assert_eq!(e.lines[0], "It was *very* late.");
+        assert_eq!(e.selected_text().as_deref(), Some("very"));
+        assert!(e.toggle_wrap("*"), "again takes it off");
+        assert_eq!(e.lines[0], "It was very late.");
+        // No selection: the word at the cursor.
+        e.clear_selection();
+        e.place(0, 13);
+        assert!(e.toggle_wrap("**"));
+        assert_eq!(e.lines[0], "It was very **late**.");
+        // Italic inside bold isn't mistaken for taking the bold off.
+        e.select((0, 14), (0, 18));
+        assert!(e.toggle_wrap("*"));
+        assert_eq!(e.lines[0], "It was very ***late***.");
+        // Selected with its marks, too.
+        let mut e = Editor::from_text("a *word* here");
+        e.select((0, 2), (0, 8));
+        assert!(e.toggle_wrap("*"));
+        assert_eq!(e.lines[0], "a word here");
+        assert!(e.undo());
+        assert_eq!(e.lines[0], "a *word* here", "one undo step");
+    }
+
+    #[test]
+    fn select_all_takes_every_paragraph() {
+        let mut e = Editor::from_text("One.\n\nTwo.");
+        e.select_all();
+        assert_eq!(e.selected_text().as_deref(), Some("One.\n\nTwo."));
+    }
+
     use super::*;
 
     #[test]

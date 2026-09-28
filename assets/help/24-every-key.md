@@ -17,6 +17,10 @@
 | `Ctrl-Y` | redo |
 | `Ctrl-F` | find in the scene; again for the whole book |
 | `Ctrl-D` | focus mode |
+| `Ctrl-V` | paste, from the computer's clipboard |
+| `Ctrl-A` | select the whole scene |
+| `Ctrl-B` | bold on the selection or the word at the cursor, or off again |
+| `Ctrl-I` | italics, the same way (where the terminal can tell it from `Tab`) |
 | `Ctrl-T` | every note and TK in the book |
 | `Ctrl-O` | the note for the name at the cursor |
 | `Alt-↑` | move the selected scene up; `Alt-↓` down |
@@ -43,6 +47,7 @@
 | `N` | new folder |
 | `r` | rename |
 | `d` | delete, to the Trash |
+| `u` | restore from the Trash |
 | `K` | move up; `J` down |
 | `H` | the scene's history |
 | `b` | the corkboard |

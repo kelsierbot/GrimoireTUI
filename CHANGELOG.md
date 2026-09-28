@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.7.3 · Paste, select all, italics, and a way back out of the Trash
+
+- **`Ctrl-V` pastes**, from the computer's clipboard, into the page or into
+  any box you're typing in. `Ctrl-A` selects the whole scene.
+- **Italics and bold.** `Ctrl-I` and `Ctrl-B` put them on the selected words
+  or the word at the cursor, and take them off again. Both are in
+  *Esc › Writing tools* too, for terminals that send `Ctrl-I` as `Tab`.
+- **Restore from the Trash.** `u` on something in the Trash puts it back in
+  its old folder under its old name (making the folder again if it's gone).
+  Also *Esc › This book › Restore from the Trash* and `Ctrl-K`. The outline's
+  hints say so whenever you're in the Trash.
+
 ## 0.7.2 · A corkboard you can change, and nothing hidden
 
 - **The corkboard does more.** `n` adds a card (a new scene) to the

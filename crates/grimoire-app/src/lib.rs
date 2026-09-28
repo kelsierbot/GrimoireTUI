@@ -896,6 +896,8 @@ mod tests {
         let trashed: Vec<String> = fs::read_dir(dir.join(".grimoire/trash"))
             .unwrap()
             .flatten()
+            // The Trash's own hidden record of where things came from.
+            .filter(|e| !e.file_name().to_string_lossy().starts_with('.'))
             .map(|e| fs::read_to_string(e.path()).unwrap())
             .collect();
         assert_eq!(
