@@ -93,7 +93,7 @@ const toc = [
 
           <h3>2. Do a practice run <span class="tag">15 minutes</span></h3>
           <ul class="check">
-            <li>Make a test book: <code>grimoire new ~/Documents/practice</code>, then open it with <code>grimoire ~/Documents/practice</code>.</li>
+            <li>Make a test book: <code>grimoire new --short-story ~/Documents/practice</code>, then open it with <code>grimoire ~/Documents/practice</code>.</li>
             <li>Walk through the Day 1 student handout yourself. You'll spot anything your machines do differently.</li>
             <li>Try <kbd>F1</kbd>, <kbd>F2</kbd> and <kbd>F9</kbd>. On some laptops the F-keys need <kbd>Fn</kbd> held down; note which ones do.</li>
             <li>Export once (<kbd>Esc</kbd> › <em>Export…</em> › <kbd>x</kbd>) and open the Word file, so Day 5 holds no surprises.</li>
@@ -155,7 +155,7 @@ const toc = [
             <tbody>
               <tr><td>0–5</td><td>Warm-up</td><td>Ask: where does your writing live? In an app, a website, a notebook? Most apps keep your work somewhere you can't see. This week, you can.</td></tr>
               <tr><td>5–12</td><td>Meet the terminal</td><td>Open a terminal on the projector. It's a window where you type commands instead of clicking. Everyone types <code>grimoire --version</code> and presses <kbd>Enter</kbd>.</td></tr>
-              <tr><td>12–20</td><td>Make a book</td><td>Together: <code>grimoire new ~/Documents/my-story</code>, then <code>grimoire ~/Documents/my-story</code>. The book opens on <em>Novel Format</em>, a short guide to how it's laid out. Read it aloud.</td></tr>
+              <tr><td>12–20</td><td>Make a book</td><td>Together: <code>grimoire new --short-story ~/Documents/my-story</code>, then <code>grimoire ~/Documents/my-story</code>. The book opens on <em>Novel Format</em>, a short guide to how it's laid out. Read it aloud.</td></tr>
               <tr><td>20–28</td><td>Tour the desk</td><td>Point out the outline (left), the page (right), the Pomodoro (under the outline) and the status bar. Show <kbd>Tab</kbd>, <kbd>Esc</kbd> for the menu, <kbd>F1</kbd> for help, and <kbd>↑</kbd> <kbd>↓</kbd> <kbd>Enter</kbd> in the outline.</td></tr>
               <tr><td>28–40</td><td>First words</td><td>Everyone opens <em>Chapter One › Scene One</em>, presses <kbd>Tab</kbd> and freewrites for ten minutes: <em>someone finds a door that shouldn't be open.</em></td></tr>
               <tr><td>40–45</td><td>Scavenger hunt</td><td>The checklist on the handout: find Quit in the menu, read a help topic, read what the <em>Writing tools</em> rows do, try <kbd>Ctrl-K</kbd>, find the Trash, pick a theme.</td></tr>
@@ -176,7 +176,7 @@ const toc = [
 
           <h3>Demo, step by step</h3>
           <ol class="steps">
-            <li>Open a terminal. On Windows the command is <code>grimoire new $HOME\Documents\my-story</code>; the <code>~</code> form works on macOS and Linux.</li>
+            <li>Open a terminal. On Windows the command is <code>grimoire new --short-story $HOME\Documents\my-story</code>; the <code>~</code> form works on macOS and Linux.</li>
             <li>After <code>grimoire new</code>, Grimoire prints the command to open the book. Type it.</li>
             <li>In the outline, move down to <em>Manuscript</em> and open <em>Part One › Chapter One › Scene One</em> with <kbd>Enter</kbd>.</li>
             <li>Press <kbd>Tab</kbd> to move to the page. The empty page says <em>Start writing</em>. Type a sentence and wait for <em>saved</em>.</li>
@@ -234,7 +234,7 @@ const toc = [
             <tbody>
               <tr><td>0–5</td><td>Warm-up</td><td>Pick any story everyone knows and tell it in three sentences: a beginning, a middle and an end.</td></tr>
               <tr><td>5–13</td><td>Three movements</td><td><strong>Beginning</strong>: who wants what, and where. <strong>Middle</strong>: what gets in the way, and how it gets worse. <strong>End</strong>: what changes. Students fill in the story planner.</td></tr>
-              <tr><td>13–25</td><td>Shape the outline</td><td>A new book has three parts; a short story needs one. Select <em>Part Two</em>, press <kbd>d</kbd>, then <kbd>y</kbd>: it goes to the Trash. Same for <em>Part Three</em>. Show <kbd>Ctrl-Z</kbd> bringing one back, then delete it again. Chapters One, Two and Three become the three movements; rename them with <kbd>r</kbd> if students like.</td></tr>
+              <tr><td>13–25</td><td>Shape the outline</td><td>The book started as a short story: three chapters, one for each movement. Rename them with <kbd>r</kbd> if students like. Show <kbd>n</kbd> adding a scene, <kbd>d</kbd> then <kbd>y</kbd> sending one to the Trash, and <kbd>Ctrl-Z</kbd> bringing it back.</td></tr>
               <tr><td>25–33</td><td>Under the hood</td><td><kbd>Ctrl-Q</kbd> to quit. Open the book's folder and open <code>novel.toml</code> in a plain text editor. Change <code>title</code>, <code>target_words</code> (say 2000) and <code>daily_target</code> (say 500). Save, reopen Grimoire, and the status bar shows the new target.</td></tr>
               <tr><td>33–45</td><td>Scene cards</td><td>In the outline press <kbd>b</kbd> for the corkboard. On each card: <kbd>e</kbd> for a one-sentence synopsis, <kbd>v</kbd> for whose eyes we're behind, <kbd>s</kbd> to set the status to <em>outline</em>. Aim for two or three scenes per chapter; <kbd>n</kbd> in the outline adds one.</td></tr>
               <tr><td>45–48</td><td>Pitch</td><td>Partners walk each other through their corkboard in one minute.</td></tr>
@@ -526,7 +526,7 @@ const toc = [
             <li><strong>College and adult workshops</strong>: aim for 3,000 to 5,000 words, add the EPUB and paperback exports on Day 5, and turn on <em>Writing sessions</em> (it needs Git) to see what changed in each sitting.</li>
             <li><strong>Short on time</strong>: fold Day 4 into Day 3's second half and Day 5.</li>
             <li><strong>One computer per pair</strong>: one student types while the other plans and watches the clock, swapping each sprint.</li>
-            <li><strong>Longer projects</strong>: the same book grows into a novel. A new book starts with room for 81 scenes in three parts.</li>
+            <li><strong>Longer projects</strong>: the same book keeps growing, with <kbd>c</kbd> for chapters and <kbd>p</kbd> for parts. Or start a novel-shaped book (leave off <code>--short-story</code>), with room for 81 scenes in three parts.</li>
             <li><strong>Students with a story already started</strong>: <kbd>Esc</kbd> › <em>Open another book…</em> › <em>Bring in a draft…</em> brings in a Word, Markdown or text file, split into chapters and scenes. From Google Docs, download it as Word first.</li>
           </ul>
         </section>

@@ -2558,3 +2558,36 @@ fn progress_shows_the_weeks_and_the_pace_and_a_click_on_the_count_opens_it() {
     d.app.on_click(3, bottom);
     assert_eq!(d.app.overlay, Overlay::Progress);
 }
+
+#[test]
+fn tab_picks_a_short_story_and_it_starts_with_three_chapters() {
+    let first = book("shape-home", true);
+    let name = format!("grimoire-ui-shape-{}", std::process::id());
+    let story = first.parent().unwrap().join(&name);
+    let _ = fs::remove_dir_all(&story);
+    let mut d = Desk::open(first.clone(), 120, 35);
+    d.app.run_action(palette::Action::NewBook);
+    d.draw();
+    assert!(d.shows("● Novel"));
+    d.key(KeyCode::Tab);
+    assert!(d.shows("● Short story"), "{}", d.rows().join("\n"));
+    assert!(d.shows("a beginning, a middle and an end"));
+    d.typed(&name);
+    d.key(KeyCode::Enter);
+    assert!(d.status().contains("(short story)"), "{}", d.status());
+    let p = &d.app.project;
+    let top: Vec<String> = fs::read_dir(story.join("manuscript"))
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
+        .collect();
+    assert_eq!(top.len(), 3, "three chapters, no parts: {top:?}");
+    assert!(top.iter().all(|n| n.contains("Chapter")), "{top:?}");
+    let scenes = p
+        .nodes
+        .iter()
+        .filter(|n| n.kind == grimoire_core::project::Kind::Scene && n.in_manuscript)
+        .count();
+    assert_eq!(scenes, 9);
+    assert_eq!(p.meta.target_words, 5_000);
+    let _ = fs::remove_dir_all(&story);
+}

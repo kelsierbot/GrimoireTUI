@@ -112,13 +112,15 @@ C++ build tools.
 ```sh
 grimoire                          open your manuscript
 grimoire ~/novels/the-archive     open a specific one
-grimoire new ~/novels/next-one    start one
+grimoire new ~/novels/next-one    start one (add --short-story or --blank)
 grimoire import draft.docx        bring in a draft you already have
 grimoire music-setup              install + connect YouTube Music
 ```
 
 Already inside Grimoire? *Esc › Start a new book…* asks for a name and opens it
 right there, and *Esc › Open another book…* hops between the ones you've had open.
+A new book starts as a **novel** (three parts of nine chapters), a **short story**
+(three chapters: a beginning, a middle and an end) or **blank**; `Tab` picks.
 
 **Got a draft already?** Grimoire brings in a Word file (`.docx`), Markdown or
 plain text and splits it into chapters and scenes for you: chapters at its

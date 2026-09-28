@@ -60,14 +60,19 @@ impl App {
     }
 
     pub(super) fn on_new_book_key(&mut self, key: Key) {
-        let Overlay::NewBook { buf } = &mut self.overlay else {
+        let Overlay::NewBook { buf, shape } = &mut self.overlay else {
             return;
         };
+        let all = project::Template::ALL;
+        let at = all.iter().position(|t| t == shape).unwrap_or(0);
         match key {
             Key::Enter => {
-                let typed = buf.clone();
-                self.create_book(&typed);
+                let (typed, shape) = (buf.clone(), *shape);
+                self.create_book(&typed, shape);
             }
+            // Tab steps through the shapes; the name stays as typed.
+            Key::Tab => *shape = all[(at + 1) % all.len()],
+            Key::BackTab => *shape = all[(at + all.len() - 1) % all.len()],
             Key::Esc => self.overlay = Overlay::None,
             k => edit(buf, k),
         }
@@ -102,7 +107,10 @@ impl App {
                         draft: true,
                     };
                 } else {
-                    self.overlay = Overlay::NewBook { buf: String::new() };
+                    self.overlay = Overlay::NewBook {
+                        buf: String::new(),
+                        shape: project::Template::Novel,
+                    };
                 }
             }
             Key::Esc => self.overlay = Overlay::None,
@@ -141,7 +149,7 @@ impl App {
 
     /// Start a whole new book from what was typed, and switch to it. It opens
     /// on the page that shows how a book is laid out.
-    fn create_book(&mut self, typed: &str) {
+    fn create_book(&mut self, typed: &str, shape: project::Template) {
         let root = match look(&self.project.root, typed) {
             Where::Nothing => return,
             Where::Taken(p) => {
@@ -169,7 +177,7 @@ impl App {
         };
         if let Err(e) = fs::create_dir_all(&root)
             .map_err(anyhow::Error::from)
-            .and_then(|()| project::scaffold(&root))
+            .and_then(|()| project::scaffold_with(&root, None, &shape.shape()))
         {
             self.msg = format!("couldn't start a book at {}: {e:#}", books::pretty(&root));
             return;
@@ -177,8 +185,9 @@ impl App {
         self.overlay = Overlay::None;
         if self.open_book(&root) {
             self.msg = format!(
-                "{} is ready · this first page shows how a book is laid out · Tab to read it, Esc for the menu",
-                self.project.meta.title
+                "{} is ready ({}) · this first page shows how a book is laid out · Tab to read it, Esc for the menu",
+                self.project.meta.title,
+                shape.name().to_lowercase()
             );
         }
     }
@@ -321,8 +330,9 @@ fn typed_box(
     (title, lead): (&str, &str),
     buf: &str,
     (below, keys): (Line, &str),
+    extra: Vec<Line>,
 ) {
-    let box_area = centred(area, 64, 9);
+    let box_area = centred(area, 64, 9 + extra.len() as u16);
     f.render_widget(Clear, box_area);
     let block = pane_block(title, true, t);
     let inner = block.inner(box_area);
@@ -345,31 +355,71 @@ fn typed_box(
         ]),
         Line::from(""),
         below,
-        Line::from(""),
-        hint_line(keys, t),
-    ];
+    ]
+    .into_iter()
+    .chain(extra)
+    .chain([Line::from(""), hint_line(keys, t)])
+    .collect::<Vec<_>>();
     f.render_widget(Paragraph::new(lines), inner);
 }
 
 pub(super) fn draw_new_book(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
-    let Overlay::NewBook { buf } = &app.overlay else {
+    let Overlay::NewBook { buf, shape } = &app.overlay else {
         return;
     };
     let dim = Style::default().fg(t.dim);
-    let under = match look(&app.project.root, buf) {
+    let found = look(&app.project.root, buf);
+    // The shapes, one chosen, and what the chosen one starts with; a draft
+    // brings its own shape, so they step aside for one.
+    let mut extra = Vec::new();
+    if !matches!(found, Where::Draft(_) | Where::Book(_)) {
+        extra.push(Line::from(""));
+        let mut row = vec![Span::styled(" ", dim)];
+        for t_ in project::Template::ALL {
+            let on = t_ == *shape;
+            row.push(Span::styled(
+                format!("{} {}   ", if on { "●" } else { "○" }, t_.name()),
+                if on {
+                    Style::default().fg(t.accent)
+                } else {
+                    dim
+                },
+            ));
+        }
+        extra.push(Line::from(row));
+        let mut line = String::new();
+        let mut said = Vec::new();
+        for word in shape.about().split(' ') {
+            if !line.is_empty() && line.chars().count() + 1 + word.chars().count() > 58 {
+                said.push(std::mem::take(&mut line));
+            }
+            if !line.is_empty() {
+                line.push(' ');
+            }
+            line.push_str(word);
+        }
+        said.push(line);
+        for l in said {
+            extra.push(Line::from(Span::styled(
+                format!(" {l}"),
+                Style::default().fg(t.dim).add_modifier(Modifier::ITALIC),
+            )));
+        }
+    }
+    let under = match found {
         Where::Nothing => (
             Line::from(Span::styled(
                 " parts, chapters and scenes come ready to fill in",
                 dim,
             )),
-            " type a name   esc cancel",
+            " type a name   tab shape   esc cancel",
         ),
         Where::Free(p) => (
             Line::from(vec![
                 Span::styled(" it'll live in ", dim),
                 Span::styled(short_path(&p, 46), Style::default().fg(t.accent)),
             ]),
-            " ↵ start it   esc cancel",
+            " ↵ start it   tab shape   esc cancel",
         ),
         Where::Book(p) => (
             Line::from(Span::styled(
@@ -397,6 +447,7 @@ pub(super) fn draw_new_book(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
         ),
         buf,
         under,
+        extra,
     );
 }
 
@@ -451,6 +502,7 @@ pub(super) fn draw_book_path(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
         },
         buf,
         under,
+        Vec::new(),
     );
 }
 

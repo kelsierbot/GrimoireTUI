@@ -107,7 +107,8 @@ fn main() -> Result<()> {
         println!("usage:");
         println!("  grimoire                    open your current manuscript");
         println!("  grimoire <dir>              open a specific one");
-        println!("  grimoire new <dir>          start a new one");
+        println!("  grimoire new <dir>          start a new one: a novel, or add");
+        println!("                              --short-story or --blank");
         println!("  grimoire import <draft>     bring in a draft (Word, Markdown or");
         println!("                              text) as a new book beside it");
         println!("  grimoire index              refresh project.md, the project map");
@@ -153,9 +154,21 @@ fn main() -> Result<()> {
     }
 
     if first.as_deref() == Some("new") {
-        let dir = args.next().map(PathBuf::from).unwrap_or_else(default_root);
+        // `--short-story` or `--blank`, before or after the folder.
+        let mut shape = project::Template::Novel;
+        let mut dir = None;
+        for a in args {
+            match project::Template::parse(&a).filter(|_| a.starts_with("--")) {
+                Some(t) => shape = t,
+                None if a.starts_with("--") => anyhow::bail!(
+                    "unknown shape {a}\n\n  grimoire new [--short-story | --blank] <dir>"
+                ),
+                None => dir = Some(PathBuf::from(a)),
+            }
+        }
+        let dir = dir.unwrap_or_else(default_root);
         std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
-        project::scaffold(&dir)?;
+        project::scaffold_with(&dir, None, &shape.shape())?;
         println!("Started a manuscript in {}", pretty(&dir));
         println!("Open it with:  grimoire {}", pretty(&dir));
         return Ok(());

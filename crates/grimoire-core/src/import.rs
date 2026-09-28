@@ -473,7 +473,20 @@ fn build(mut blocks: Vec<Block>, front_title: Option<String>, fallback: String) 
     parts.retain(|p| !p.chapters.is_empty());
     Draft {
         title: title.unwrap_or(fallback),
-        shape: Shape { parts },
+        shape: Shape {
+            // A draft already past 80,000 aims for the next ten thousand.
+            target_words: {
+                let words: usize = parts
+                    .iter()
+                    .flat_map(|p| &p.chapters)
+                    .flat_map(|c| &c.scenes)
+                    .map(|s| s.body.split_whitespace().count())
+                    .sum();
+                80_000.max((words / 10_000 + 1) * 10_000)
+            },
+            daily_target: 1_000,
+            parts,
+        },
         before: before.join("\n\n"),
     }
 }

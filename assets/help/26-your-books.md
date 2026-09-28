@@ -6,13 +6,19 @@ Every book lives in a folder of its own, and you can have as many as you like. S
 
 *Esc › Start a new book…* (or type *new book* in `Ctrl-K`).
 
-Type a name and press `Enter`. That's all. The book you had open is saved and put away first, and the new one opens on a page that shows how a book is laid out. It comes with parts, chapters and scenes already in place, ready to fill in, rename or delete.
+Type a name and press `Enter`. That's all. `Tab` first picks what it starts as:
+
+- **Novel**: three parts of nine chapters, three scenes in each, aiming for 80,000 words.
+- **Short story**: three chapters (a beginning, a middle and an end), three scenes in each, aiming for 5,000 words.
+- **Blank**: one chapter with one empty scene, to build your own way.
+
+Whichever you pick, you can add, rename and delete anything later. The book you had open is saved and put away first, and the new one opens on a page that shows how a book is laid out. It comes with parts, chapters and scenes already in place, ready to fill in, rename or delete.
 
 A plain name goes in a folder beside the book you had open. With *~/Documents/Grimoire* open, *The Long Night* becomes *~/Documents/The Long Night*. The box shows exactly where before you press `Enter`, and a path (like `~/Writing/The Long Night`) puts it anywhere you like.
 
 If there's already a book by that name, `Enter` opens it instead of making a second one. A folder that already has other things in it is left alone, so try another name.
 
-From a terminal, `grimoire new <folder>` starts one too.
+From a terminal, `grimoire new <folder>` starts one too, with `--short-story` or `--blank` for those shapes.
 
 Got a draft already? See *Bringing in a draft*, just below.
 

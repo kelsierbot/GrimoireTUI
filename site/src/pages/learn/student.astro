@@ -71,9 +71,9 @@ const toc = [
           <ol class="steps">
             <li>Open a terminal: <em>Terminal</em> on a Mac, <em>Windows Terminal</em> on Windows, or any terminal on Linux.</li>
             <li>Make your book. Type this and press <kbd>Enter</kbd> (if you share a computer, add your name, like <code>my-story-sam</code>):
-              <pre class="cmd"><code>grimoire new ~/Documents/my-story</code></pre>
-              On Windows, type <code>grimoire new $HOME\Documents\my-story</code> instead.
-              Already in Grimoire? <kbd>Esc</kbd> › <em>Start a new book…</em> does the same thing.</li>
+              <pre class="cmd"><code>grimoire new --short-story ~/Documents/my-story</code></pre>
+              On Windows, type <code>grimoire new --short-story $HOME\Documents\my-story</code> instead.
+              Already in Grimoire? <kbd>Esc</kbd> › <em>Start a new book…</em>, press <kbd>Tab</kbd> to pick <em>Short story</em>, and type a name.</li>
             <li>Open it with the command Grimoire shows you, like <code>grimoire ~/Documents/my-story</code>.</li>
             <li>Your book opens on a page called <em>Novel Format</em>. Read it: it explains how your book is laid out.</li>
             <li>Press <kbd>Tab</kbd> to move between the panes. Press <kbd>Esc</kbd> to open the menu, and <kbd>Esc</kbd> again to close it.</li>
@@ -124,9 +124,9 @@ const toc = [
 
           <h3>Shape your outline</h3>
           <ol class="steps">
-            <li>Your book starts with three parts. A short story needs one. In the outline, select <em>Part Two</em>, press <kbd>d</kbd>, then <kbd>y</kbd>. It goes to the Trash. Do the same for <em>Part Three</em>.</li>
+            <li>Your story starts with three chapters, one for each movement: <em>Chapter One</em>, <em>Chapter Two</em> and <em>Chapter Three</em>. To give one a name, select it and press <kbd>r</kbd>.</li>
+            <li>Need another scene? Press <kbd>n</kbd> in the outline. One you don't need? Select it, press <kbd>d</kbd>, then <kbd>y</kbd>, and it goes to the Trash.</li>
             <li>Changed your mind? <kbd>Ctrl-Z</kbd> in the outline brings back whatever you deleted.</li>
-            <li>Your three movements live in <em>Chapter One</em>, <em>Chapter Two</em> and <em>Chapter Three</em>. To give one a name, select it and press <kbd>r</kbd>. Empty chapters can stay: they're left out of your finished story.</li>
             <li>Press <kbd>Ctrl-Q</kbd>. Open your book's folder and open <code>novel.toml</code> in a plain text editor. Change the <code>title</code>, and set <code>target_words</code> and <code>daily_target</code> to the numbers your teacher gives you. Save, then open Grimoire again.</li>
           </ol>
 

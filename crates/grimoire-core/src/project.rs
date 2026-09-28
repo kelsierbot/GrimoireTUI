@@ -1430,6 +1430,9 @@ pub fn trash_dir(root: &Path) -> PathBuf {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Shape {
     pub parts: Vec<ShapePart>,
+    /// The book's goal and a day's, written into novel.toml.
+    pub target_words: usize,
+    pub daily_target: usize,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1454,12 +1457,110 @@ pub struct ShapeScene {
     pub body: String,
 }
 
+/// The shapes a new book can start in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Template {
+    Novel,
+    ShortStory,
+    Blank,
+}
+
+impl Template {
+    pub const ALL: [Template; 3] = [Template::Novel, Template::ShortStory, Template::Blank];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Template::Novel => "Novel",
+            Template::ShortStory => "Short story",
+            Template::Blank => "Blank",
+        }
+    }
+
+    /// What it starts with, in a line.
+    pub fn about(self) -> &'static str {
+        match self {
+            Template::Novel => {
+                "three parts of nine chapters, three scenes in each, aiming for 80,000 words"
+            }
+            Template::ShortStory => {
+                "three chapters (a beginning, a middle and an end), three scenes in each, aiming for 5,000 words"
+            }
+            Template::Blank => "one chapter with one empty scene: build the rest your way",
+        }
+    }
+
+    pub fn shape(self) -> Shape {
+        match self {
+            Template::Novel => Shape::novel(),
+            Template::ShortStory => Shape::short_story(),
+            Template::Blank => Shape::blank(),
+        }
+    }
+
+    /// `--short-story`, `short-story`, `blank`, `novel`: how the command line
+    /// names them.
+    pub fn parse(s: &str) -> Option<Template> {
+        match s.trim_start_matches('-').to_lowercase().as_str() {
+            "novel" => Some(Template::Novel),
+            "short-story" | "short" | "story" => Some(Template::ShortStory),
+            "blank" | "empty" => Some(Template::Blank),
+            _ => None,
+        }
+    }
+}
+
+fn empty_scenes(n: usize, target: Option<usize>) -> Vec<ShapeScene> {
+    (1..=n)
+        .map(|s| ShapeScene {
+            title: crate::manuscript::numbered("Scene", s),
+            status: "outline",
+            target,
+            body: String::new(),
+        })
+        .collect()
+}
+
 impl Shape {
+    /// A short story: three chapters (the beginning, the middle and the end)
+    /// of three scenes, with no parts.
+    pub fn short_story() -> Shape {
+        Shape {
+            parts: vec![ShapePart {
+                title: None,
+                chapters: (1..=3)
+                    .map(|c| ShapeChapter {
+                        title: crate::manuscript::numbered("Chapter", c),
+                        scenes: empty_scenes(3, Some(550)),
+                    })
+                    .collect(),
+            }],
+            target_words: 5_000,
+            daily_target: 500,
+        }
+    }
+
+    /// One chapter with one empty scene.
+    pub fn blank() -> Shape {
+        Shape {
+            parts: vec![ShapePart {
+                title: None,
+                chapters: vec![ShapeChapter {
+                    title: crate::manuscript::numbered("Chapter", 1),
+                    scenes: empty_scenes(1, None),
+                }],
+            }],
+            target_words: 80_000,
+            daily_target: 1_000,
+        }
+    }
+
     /// The three-part shape every new book starts with: every chapter named
     /// and three empty scenes in each.
     pub fn novel() -> Shape {
         let mut chapter = 0usize;
         Shape {
+            target_words: 80_000,
+            daily_target: 1_000,
             parts: (1..=PARTS)
                 .map(|part| ShapePart {
                     title: Some(crate::manuscript::numbered("Part", part)),
@@ -1470,14 +1571,7 @@ impl Shape {
                             chapter += 1;
                             ShapeChapter {
                                 title: crate::manuscript::numbered("Chapter", chapter),
-                                scenes: (1..=SCENES_PER_CHAPTER)
-                                    .map(|s| ShapeScene {
-                                        title: crate::manuscript::numbered("Scene", s),
-                                        status: "outline",
-                                        target: Some(1500),
-                                        body: String::new(),
-                                    })
-                                    .collect(),
+                                scenes: empty_scenes(SCENES_PER_CHAPTER, Some(1500)),
                             }
                         })
                         .collect(),
@@ -1510,8 +1604,10 @@ pub fn scaffold_with(root: &Path, title: Option<&str>, shape: &Shape) -> Result<
     write_new(
         &root.join("novel.toml"),
         &format!(
-            "title = \"{}\"\nauthor = \"\"\ndraft = \"1\"\ntarget_words = 80000\ndaily_target = 1000\n\n# What this book calls its largest division: Part, Act, Book…\npart_label = \"Part\"\n",
-            quoted(&title)
+            "title = \"{}\"\nauthor = \"\"\ndraft = \"1\"\ntarget_words = {}\ndaily_target = {}\n\n# What this book calls its largest division: Part, Act, Book…\npart_label = \"Part\"\n",
+            quoted(&title),
+            shape.target_words,
+            shape.daily_target
         ),
     )?;
 

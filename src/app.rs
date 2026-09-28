@@ -397,9 +397,11 @@ pub enum Overlay {
         sel: usize,
     },
     /// Naming a whole new book. A plain name goes beside the book that's
-    /// open; a path (`~/…`, `/…`) goes exactly there.
+    /// open; a path (`~/…`, `/…`) goes exactly there. `shape` is what it
+    /// starts as: a novel, a short story or blank.
     NewBook {
         buf: String,
+        shape: project::Template,
     },
     /// Words each week, the pace lately, and when the book's goal comes.
     Progress,
@@ -1546,7 +1548,12 @@ impl App {
             // The menu's own key handling brings you back to the group you
             // were in; from anywhere else, the top.
             Action::MenuBack => self.open_menu(),
-            Action::NewBook => self.overlay = Overlay::NewBook { buf: String::new() },
+            Action::NewBook => {
+                self.overlay = Overlay::NewBook {
+                    buf: String::new(),
+                    shape: project::Template::Novel,
+                }
+            }
             Action::OpenBook => self.overlay = Overlay::Books { sel: 0 },
             Action::Progress => {
                 self.note_day(true);
