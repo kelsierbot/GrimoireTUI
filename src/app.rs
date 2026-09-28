@@ -228,6 +228,8 @@ pub struct App {
     replace_redoable: bool,
     /// Spellcheck underlines are showing.
     pub spell_on: bool,
+    /// Which English it knows.
+    pub spell_lang: spell::Language,
     /// The tree shows a symbol beside each row.
     pub icons_on: bool,
     /// The dictionary, once it has loaded in the background.
@@ -797,6 +799,7 @@ impl App {
             replace_undoable: false,
             replace_redoable: false,
             spell_on: setup.settings.spellcheck,
+            spell_lang: spell::Language::parse(&setup.settings.spelling),
             icons_on: setup.settings.icons,
             speller: None,
             user_dict: setup.background.then(spell::user_dictionary),
@@ -1565,6 +1568,22 @@ impl App {
         self.flush();
     }
 
+    /// The next English for spellcheck, remembered, and the dictionary
+    /// built again for it.
+    pub fn next_spelling_language(&mut self) {
+        self.spell_lang = self.spell_lang.next();
+        let key = self.spell_lang.key().to_string();
+        if self.background {
+            Self::save_setting(|s| s.spelling = key);
+            self.load_speller();
+        } else if self.speller.is_some() {
+            let mut s = spell::Speller::for_language(self.spell_lang);
+            s.add_words(self.speller_words());
+            self.speller = Some(s);
+        }
+        self.msg = format!("spelling in {}", self.spell_lang.name());
+    }
+
     /// Ctrl-A: the whole scene.
     pub fn select_all(&mut self) {
         if self.focus == Focus::Editor && self.open.is_some() {
@@ -1768,6 +1787,7 @@ impl App {
             }
             Action::ReadAloud => self.start_reading(),
             Action::Details => self.open_details(),
+            Action::SpellingLanguage => self.next_spelling_language(),
             Action::Italic => self.emphasis("*"),
             Action::Bold => self.emphasis("**"),
             Action::Paste => self.paste_clipboard(),
@@ -2558,9 +2578,10 @@ impl App {
     /// the book's own word list already accepted.
     fn load_speller(&mut self) {
         let words = self.speller_words();
+        let lang = self.spell_lang;
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
-            let mut s = spell::Speller::new();
+            let mut s = spell::Speller::for_language(lang);
             s.add_words(words);
             let _ = tx.send(s);
         });
@@ -2582,7 +2603,7 @@ impl App {
     /// start no background work.
     #[cfg(test)]
     pub(crate) fn load_speller_now(&mut self) {
-        let mut s = spell::Speller::new();
+        let mut s = spell::Speller::for_language(self.spell_lang);
         s.add_words(self.speller_words());
         self.speller = Some(s);
     }
@@ -4589,6 +4610,9 @@ impl App {
                 (row("Search the whole book…", "(/)"), Action::FindInBook),
                 ("Goals…".into(), Action::Goals),
                 ("Writing sessions…".into(), Action::Sessions),
+                ("Save this session now".into(), Action::SaveSession),
+                ("Compile to Markdown".into(), Action::Compile),
+                ("Update the project map".into(), Action::ProjectMap),
                 ("Move writing history out…".into(), Action::MoveHistoryOut),
             ],
             Sub::Writing => vec![
@@ -4612,6 +4636,11 @@ impl App {
                 ),
                 (row("Open a scene beside…", "(v)"), Action::BesidePicker),
                 (row("Notes & TKs…", &format!("({m}T)")), Action::NotesList),
+                ("Next TK or note".into(), Action::NextTk),
+                (
+                    row("Look up the name here", &format!("({m}O)")),
+                    Action::OpenCodex,
+                ),
                 (row("Next scene still in draft", ""), Action::NextDraft),
                 (on_off(self.echo_on, "echo words"), Action::EchoWords),
                 ("Check names…".into(), Action::CheckNames),
@@ -4621,6 +4650,18 @@ impl App {
                     ("Start a sprint…".into(), Action::StartSprint)
                 },
                 ("Progress…".into(), Action::Progress),
+                (
+                    row(
+                        if self.pomo.running() {
+                            "Pause the timer"
+                        } else {
+                            "Start the timer"
+                        },
+                        "(F2)",
+                    ),
+                    Action::Timer,
+                ),
+                (row("Reset the timer", "(F3)"), Action::TimerReset),
                 ("Read aloud".into(), Action::ReadAloud),
                 (row("Music player…", "(F7)"), Action::MusicPlayer),
             ],
@@ -4629,6 +4670,10 @@ impl App {
                 ("Music source…".into(), Action::MusicSource),
                 (on_off(self.music.enabled, "music"), Action::MusicToggle),
                 (on_off(self.spell_on, "spellcheck"), Action::Spellcheck),
+                (
+                    format!("Spelling: {}", self.spell_lang.name()),
+                    Action::SpellingLanguage,
+                ),
                 (on_off(self.icons_on, "tree icons"), Action::Icons),
                 (
                     match self.line_width {
@@ -4663,6 +4708,7 @@ impl App {
             Action::FindInScene => writing,
             Action::Italic | Action::Bold => writing,
             Action::Details => writing,
+            Action::OpenCodex | Action::NextTk => writing,
             Action::Restore => self.selection_in_trash(),
             Action::History => writing || !self.visible.is_empty(),
             Action::EchoWords => writing || self.echo_on,

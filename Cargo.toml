@@ -91,4 +91,4 @@ members = ["crates/grimoire-core", "crates/grimoire-app"]
 
 # One version for the terminal app and the crates under it; bump it here.
 [workspace.package]
-version = "0.7.4"
+version = "0.7.5"

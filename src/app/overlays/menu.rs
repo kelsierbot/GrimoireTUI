@@ -142,6 +142,31 @@ pub fn about_row(action: &Action, part: &str) -> (String, &'static str) {
             "How many words the book is aiming for, and each day. Try a month of drafting: 50,000 words.",
             "sprints",
         ),
+        Action::NextTk => (
+            "Jumps to the next TK or note after the cursor, going round to the top at the end.",
+            "notes",
+        ),
+        Action::OpenCodex => (
+            "With the cursor on a name from your notebook, opens that character's or place's note beside the page.",
+            "notebook",
+        ),
+        Action::Timer => (
+            "The Pomodoro: twenty-five minutes of writing, then five of rest. Again pauses it.",
+            "pomodoro",
+        ),
+        Action::TimerReset => ("Sets the Pomodoro back to the start.", "pomodoro"),
+        Action::SaveSession => (
+            "Writes this sitting into your writing sessions now, instead of when you quit.",
+            "sessions",
+        ),
+        Action::Compile => (
+            "The whole manuscript as one Markdown file, in the book's exports folder.",
+            "compile",
+        ),
+        Action::ProjectMap => (
+            "Rewrites project.md, a one-page map of the book: every part, chapter and scene, with word counts.",
+            "compile",
+        ),
         Action::Details => (
             "This scene's status, POV, synopsis and word target, and whether it goes in exports. i in the outline.",
             "outline",
@@ -245,6 +270,10 @@ pub fn about_row(action: &Action, part: &str) -> (String, &'static str) {
         ),
         Action::Spellcheck => (
             "Underlines words that might be misspelt as you write.",
+            "spelling",
+        ),
+        Action::SpellingLanguage => (
+            "Which English spellcheck knows: American, British, Canadian or Australian. Each press tries the next.",
             "spelling",
         ),
         Action::Icons => (

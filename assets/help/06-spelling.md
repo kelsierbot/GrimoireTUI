@@ -22,3 +22,7 @@ Under the suggestions are three ways to stop a word being called a mistake:
 The underline disappears everywhere the word appears, straight away.
 
 Spellcheck can be turned off and on in *Esc › Settings*.
+
+## Which English
+
+Grimoire knows **American, British, Canadian and Australian English**. *Esc › Settings › Spelling* steps through them (or `Ctrl-K` › *Spelling*), and it's remembered. British spelling uses *-ise* (*realise*, *colour*); all four accept *grey* and the other words novelists reach for.

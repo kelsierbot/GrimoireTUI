@@ -91,6 +91,8 @@ pub enum Action {
     Goals,
     /// The scene's or note's details.
     Details,
+    /// Which English spellcheck knows: the next one.
+    SpellingLanguage,
     /// Italics or bold on the selection, or off again.
     Italic,
     Bold,
@@ -122,6 +124,7 @@ impl Action {
         matches!(
             self,
             Action::MusicToggle
+                | Action::SpellingLanguage
                 | Action::Spellcheck
                 | Action::Icons
                 | Action::LineWidth
@@ -276,6 +279,11 @@ pub fn entries(app: &crate::app::App) -> Vec<Entry> {
             },
             "",
             Action::Icons,
+        ),
+        Entry::new(
+            format!("Spelling: {} (change)", app.spell_lang.name()),
+            "",
+            Action::SpellingLanguage,
         ),
         Entry::new(
             "Spelling suggestions for this word",

@@ -273,6 +273,7 @@ impl App {
                 icons: self.icons_on,
                 line_width: self.line_width,
                 typewriter: self.typewriter,
+                spelling: self.spell_lang.key().into(),
                 ..Settings::default()
             },
             background: self.background,

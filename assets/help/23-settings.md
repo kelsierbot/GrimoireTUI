@@ -6,6 +6,7 @@
 - **Music source…**: YouTube Music, Spotify, Jellyfin or Plex.
 - **Turn music on / off**: music is off until you turn it on.
 - **Turn spellcheck on / off**.
+- **Spelling**: American, British, Canadian or Australian English (see *Spelling*).
 - **Turn tree icons on / off**: a small symbol beside each row of the outline.
 - **Line width**: how wide the prose runs — 60, 72, 80 or 100 columns, or the whole pane.
 - **Turn typewriter scrolling on / off**: in focus mode, keep the line you're writing mid-screen (see *Focus mode*).

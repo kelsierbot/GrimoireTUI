@@ -204,9 +204,13 @@ impl App {
                 *day = d.to_string();
                 *sel = 0;
             }
-            Key::Enter | Key::Esc => {
+            Key::Enter => {
                 let (b, d) = (book.parse().unwrap_or(0), day.parse().unwrap_or(0));
                 self.save_goals(b, d);
+            }
+            Key::Esc => {
+                self.overlay = Overlay::None;
+                self.msg = "goals left as they were".into();
             }
             _ => {}
         }
@@ -301,9 +305,9 @@ pub(super) fn draw_goals(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
     lines.push(Line::from(""));
     lines.push(hint_line(
         if *sel < 2 {
-            " type a number   ↑ ↓ move   ↵ save   esc save and close"
+            " type a number   ↑ ↓ move   ↵ save   esc cancel"
         } else {
-            " ↵ use these   ↑ ↓ move   esc save and close"
+            " ↵ use these   ↑ ↓ move   esc cancel"
         },
         t,
     ));

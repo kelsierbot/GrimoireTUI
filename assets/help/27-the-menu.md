@@ -55,6 +55,7 @@ Some of these want a scene open, so they show up once you're in one.
 - **Themes…** (`F9`): your colours. Each one shows as you move through the list, and `Esc` puts the old one back.
 - **Music source…** and **Turn music on**: music stays off until you want it. See *Music*.
 - **Turn spellcheck off / on**: the underline under words that might be misspelt.
+- **Spelling**: which English it knows: American, British, Canadian or Australian.
 - **Turn tree icons on / off**: a little symbol beside each row of the outline.
 - **Line width**: how long a line of prose can run. Each press tries the next: 60, 72, 80 or 100 columns, or the whole pane.
 - **Turn typewriter scrolling off / on**: in focus mode, the line you're writing stays near the middle of the screen.

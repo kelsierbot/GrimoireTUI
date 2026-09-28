@@ -18,6 +18,8 @@ pub struct Settings {
     /// The voice *Read aloud* uses: a Piper voice's file, `say`, `spd-say`,
     /// `espeak-ng` or `windows`. Empty picks the most natural one there is.
     pub voice: String,
+    /// Which English spellcheck knows: `en_US`, `en_GB`, `en_CA`, `en_AU`.
+    pub spelling: String,
 }
 
 /// A comfortable measure for prose: about twelve words a line.
@@ -31,6 +33,7 @@ impl Default for Settings {
             line_width: LINE_WIDTH,
             typewriter: true,
             voice: String::new(),
+            spelling: "en_US".into(),
         }
     }
 }
@@ -65,6 +68,7 @@ impl Settings {
                 }
                 "typewriter" => out.typewriter = v.trim() != "false",
                 "voice" => out.voice = v.trim().trim_matches('"').to_string(),
+                "spelling" => out.spelling = v.trim().trim_matches('"').to_string(),
                 _ => {}
             }
         }
@@ -85,12 +89,15 @@ impl Settings {
              # Widest a line of prose runs, in columns; 0 fills the pane.\n\
              line_width = {}\ntypewriter = {}\n\
              # The voice for Read aloud; empty picks the most natural one.\n\
-             voice = \"{}\"\n",
+             voice = \"{}\"\n\
+             # Which English spellcheck knows: en_US, en_GB, en_CA or en_AU.\n\
+             spelling = {}\n",
             self.spellcheck,
             self.icons,
             self.line_width,
             self.typewriter,
-            self.voice.replace('"', "")
+            self.voice.replace('"', ""),
+            self.spelling
         )
     }
 }
@@ -141,6 +148,7 @@ mod tests {
             line_width: 60,
             typewriter: false,
             voice: "/home/me/voices/en_US-lessac-high.onnx".into(),
+            spelling: "en_GB".into(),
         };
         assert_eq!(Settings::parse(&s.to_text()), s);
     }

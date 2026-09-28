@@ -1,6 +1,7 @@
 //! Spellcheck for prose.
 //!
-//! A bundled en_US Hunspell dictionary (SCOWL, see `assets/dict/DICTIONARY-LICENSE`) is
+//! Bundled Hunspell dictionaries for American, British, Canadian and
+//! Australian English (SCOWL, see `assets/dict/DICTIONARY-LICENSE`) are
 //! checked with `spellbook`, a pure-Rust Hunspell reimplementation, so there is
 //! nothing to install and nothing to link on any platform.
 //!
@@ -19,6 +20,79 @@ use std::sync::{Mutex, PoisonError};
 
 const EN_US_AFF: &str = include_str!("../../../assets/dict/en_US.aff");
 const EN_US_DIC: &str = include_str!("../../../assets/dict/en_US.dic");
+// The others are kept packed and unpacked when chosen; they share the
+// affix file.
+const EN_GB_DIC: &[u8] = include_bytes!("../../../assets/dict/en_GB.dic.gz");
+const EN_CA_DIC: &[u8] = include_bytes!("../../../assets/dict/en_CA.dic.gz");
+const EN_AU_DIC: &[u8] = include_bytes!("../../../assets/dict/en_AU.dic.gz");
+
+/// Which English the spellchecker knows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Language {
+    #[default]
+    American,
+    British,
+    Canadian,
+    Australian,
+}
+
+impl Language {
+    pub const ALL: [Language; 4] = [
+        Language::American,
+        Language::British,
+        Language::Canadian,
+        Language::Australian,
+    ];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Language::American => "American English",
+            Language::British => "British English",
+            Language::Canadian => "Canadian English",
+            Language::Australian => "Australian English",
+        }
+    }
+
+    /// How settings.toml keeps it.
+    pub fn key(self) -> &'static str {
+        match self {
+            Language::American => "en_US",
+            Language::British => "en_GB",
+            Language::Canadian => "en_CA",
+            Language::Australian => "en_AU",
+        }
+    }
+
+    pub fn parse(s: &str) -> Language {
+        Language::ALL
+            .into_iter()
+            .find(|l| {
+                l.key()
+                    .eq_ignore_ascii_case(s.trim().replace('-', "_").as_str())
+            })
+            .unwrap_or_default()
+    }
+
+    pub fn next(self) -> Language {
+        let i = Language::ALL.iter().position(|l| *l == self).unwrap_or(0);
+        Language::ALL[(i + 1) % Language::ALL.len()]
+    }
+
+    fn words(self) -> std::borrow::Cow<'static, str> {
+        let packed = match self {
+            Language::American => return std::borrow::Cow::Borrowed(EN_US_DIC),
+            Language::British => EN_GB_DIC,
+            Language::Canadian => EN_CA_DIC,
+            Language::Australian => EN_AU_DIC,
+        };
+        let mut out = String::new();
+        use std::io::Read;
+        flate2::read::GzDecoder::new(packed)
+            .read_to_string(&mut out)
+            .expect("a bundled dictionary unpacks");
+        std::borrow::Cow::Owned(out)
+    }
+}
 /// Real words the standard-size list lacks: "grey", "axe", "mana", "wyvern".
 const EXTRA_WORDS: &str = include_str!("../../../assets/dict/extra_words.dic");
 
@@ -65,8 +139,13 @@ impl Speller {
     /// milliseconds in a release build (far longer in debug), so build it
     /// off the UI thread.
     pub fn new() -> Speller {
-        let mut dict = spellbook::Dictionary::new(EN_US_AFF, EN_US_DIC)
-            .expect("the bundled en_US dictionary parses");
+        Speller::for_language(Language::American)
+    }
+
+    pub fn for_language(lang: Language) -> Speller {
+        let words = lang.words();
+        let mut dict =
+            spellbook::Dictionary::new(EN_US_AFF, &words).expect("the bundled dictionaries parse");
         for line in EXTRA_WORDS.lines().map(str::trim) {
             if !line.is_empty() && !line.starts_with('#') {
                 dict.add(line)
@@ -702,6 +781,22 @@ fn is_roman_numeral(word: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn each_english_knows_its_own_spellings() {
+        let us = Speller::for_language(Language::American);
+        let gb = Speller::for_language(Language::British);
+        let au = Speller::for_language(Language::Australian);
+        let ca = Speller::for_language(Language::Canadian);
+        assert!(us.is_correct("color") && !us.is_correct("colour"));
+        assert!(gb.is_correct("colour") && gb.is_correct("realise"));
+        assert!(au.is_correct("colour"));
+        assert!(ca.is_correct("colour") && ca.is_correct("realize"));
+        // Grimoire's own extra words come with every one of them.
+        assert!(gb.is_correct("wyvern"));
+        assert_eq!(Language::parse("en-GB"), Language::British);
+        assert_eq!(Language::parse("nonsense"), Language::American);
+    }
+
     use super::*;
     use std::path::PathBuf;
     use std::sync::OnceLock;

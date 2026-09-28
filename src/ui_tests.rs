@@ -2706,7 +2706,15 @@ fn goals_take_a_month_of_drafting_preset_and_save_to_novel_toml() {
         KeyCode::Backspace,
     ]);
     d.typed("2000");
+    d.key(KeyCode::Enter);
+    assert_eq!(d.app.project.meta.target_words, 52_000);
+    // Esc leaves them as they were, empty box or not.
+    d.app.run_action(palette::Action::Goals);
+    for _ in 0..6 {
+        d.key(KeyCode::Backspace);
+    }
     d.key(KeyCode::Esc);
+    assert_eq!(d.app.overlay, Overlay::None);
     assert_eq!(d.app.project.meta.target_words, 52_000);
 }
 
@@ -3046,4 +3054,60 @@ fn details_set_status_pov_target_and_leave_a_scene_out_of_exports() {
             .unwrap()
             .contains("status: draft")
     );
+}
+
+#[test]
+fn spelling_can_be_british_canadian_or_australian() {
+    let mut d = Desk::open(book("lang", true), 120, 40);
+    d.app.load_speller_now();
+    assert!(!d.app.speller.as_ref().unwrap().is_correct("colour"));
+    d.key(KeyCode::Esc);
+    d.choose("Settings");
+    d.choose("Spelling: American English");
+    // A setting stays open to show its new state.
+    assert!(matches!(
+        d.app.overlay,
+        Overlay::Sub {
+            sub: Sub::Settings,
+            ..
+        }
+    ));
+    assert!(
+        d.shows("Spelling: British English"),
+        "{}",
+        d.rows().join("\n")
+    );
+    assert!(d.app.speller.as_ref().unwrap().is_correct("colour"));
+    assert!(d.app.speller.as_ref().unwrap().is_correct("realise"));
+}
+
+#[test]
+fn nothing_in_ctrl_k_is_missing_from_the_menu() {
+    use palette::Action as A;
+    let mut d = Desk::open(book("ctrlk-menu", true), 120, 40);
+    d.key(KeyCode::Tab); // writing, so the writing tools are all offered
+    let mut menu: Vec<A> = d.app.menu().into_iter().map(|(_, a)| a).collect();
+    for sub in [Sub::Book, Sub::Writing, Sub::Settings, Sub::Help] {
+        menu.extend(d.app.submenu(sub).into_iter().map(|(_, a)| a));
+    }
+    let missing: Vec<String> = palette::entries(&d.app)
+        .into_iter()
+        .filter(|e| {
+            !matches!(
+                e.action,
+                // Keys every writer knows, shown in the hints and Every key.
+                A::Undo | A::Redo | A::Save | A::Paste | A::SelectAll | A::Menu
+                    | A::SpellingSuggestions
+                    // The music pane's own keys.
+                    | A::PlayPause | A::NextTrack | A::PrevTrack
+                    // Things by name: scenes, notes, themes, books, topics.
+                    | A::Open(_) | A::Theme(_) | A::OpenBookAt(_) | A::Beside(_) | A::HelpTopic(_)
+                    // Offered where you'd look for them: Open another book.
+                    | A::BringInDraft
+            )
+        })
+        .filter(|e| !menu.contains(&e.action))
+        .map(|e| e.label)
+        .collect();
+    assert!(missing.is_empty(), "only in Ctrl-K: {missing:#?}");
 }

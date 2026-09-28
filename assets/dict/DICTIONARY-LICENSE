@@ -27,6 +27,23 @@ MIT-licensed software, provided the copyright notices and permission text below
 travel with the distribution. Binary releases of grimoire should ship this file
 (or its text) alongside the executable.
 
+British, Canadian and Australian English
+----------------------------------------
+
+Files:    en_GB.dic.gz, en_CA.dic.gz, en_AU.dic.gz (gzip of the upstream .dic,
+          compiled into the binary and unpacked when chosen)
+Upstream: the same SCOWL 2020.12.07 release: en_GB-ise, en_CA and en_AU, as
+          published in the npm packages dictionary-en-gb, dictionary-en-ca and
+          dictionary-en-au 3.0.0 by Titus Wormer (SPDX "(MIT AND BSD)"). Their
+          affix files are identical to one another and to en_US.aff except for
+          trailing whitespace, so en_US.aff serves all four. Same licence terms
+          as below.
+
+SHA-256 of the unpacked word lists
+  869fe17ba4ee4b5401c60a666ee2d6a3dcc237f460b7294435df1cc6a799aa57  en_GB.dic
+  53096689870246a78fa408b1e7a8c49bc140bd466a84a384cfb509445fff7173  en_CA.dic
+  aa07c46571f306b79fc1bc534357ed357af15687381b26f891ba66e8a2caed89  en_AU.dic
+
 The upstream README_en_US.txt follows verbatim.
 
 -------------------------------------------------------------------------------

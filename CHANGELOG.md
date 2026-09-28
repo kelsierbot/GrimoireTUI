@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.7.5 · Colour, not color (if you like)
+
+- **Spelling in American, British, Canadian or Australian English.**
+  *Esc › Settings › Spelling* steps through them, and it's remembered.
+- **Now truly nothing is only in `Ctrl-K`.** *Writing tools* adds *Next TK
+  or note*, *Look up the name here* (`Ctrl-O`) and the Pomodoro timer; *This
+  book* adds *Save this session now*, *Compile to Markdown* and *Update the
+  project map*. A test now keeps it that way.
+- *Goals…*: `Esc` leaves them as they were (it used to save, and wouldn't
+  close with an empty box); `Enter` saves.
+
 ## 0.7.4 · The page behaves like a page
 
 - **Select with the keyboard.** `Shift` with the arrows, `Home`, `End`,
