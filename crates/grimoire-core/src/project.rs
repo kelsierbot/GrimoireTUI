@@ -485,6 +485,11 @@ impl Node {
 
     /// Change one frontmatter value, leaving every other line of the block
     /// exactly as it was, and keep the fields read from it in step.
+    /// Set a list in the frontmatter (`aliases`), Obsidian's way.
+    pub fn set_meta_list(&mut self, key: &str, items: &[String]) {
+        self.front = Some(set_front_list(self.front.as_deref(), key, items));
+    }
+
     pub fn set_meta(&mut self, key: &str, value: &str) {
         self.front = Some(set_front(self.front.as_deref(), key, value));
         let v = (!value.trim().is_empty()).then(|| value.trim().to_string());
@@ -1341,6 +1346,48 @@ pub fn set_front(front: Option<&str>, key: &str, value: &str) -> String {
     if !done {
         out.push_str(&line);
         out.push('\n');
+    }
+    out
+}
+
+/// Set `key` to a list, written the way Obsidian writes one (`- item` under
+/// the key), replacing the key and any list that was under it. An empty list
+/// takes the key out.
+pub fn set_front_list(front: Option<&str>, key: &str, items: &[String]) -> String {
+    let mut out = String::new();
+    let mut skipping = false;
+    let mut placed = false;
+    let block = || -> String {
+        if items.is_empty() {
+            return String::new();
+        }
+        let mut b = format!("{key}:\n");
+        for i in items {
+            b.push_str(&format!("  - {}\n", i.replace('\n', " ")));
+        }
+        b
+    };
+    for l in front.unwrap_or("").lines() {
+        let indented = l.starts_with([' ', '\t']) || l.trim_start().starts_with("- ");
+        if skipping && indented {
+            continue;
+        }
+        skipping = false;
+        let is_key =
+            !l.starts_with([' ', '\t']) && l.split_once(':').is_some_and(|(k, _)| k.trim() == key);
+        if is_key {
+            skipping = true;
+            if !placed {
+                out.push_str(&block());
+                placed = true;
+            }
+            continue;
+        }
+        out.push_str(l);
+        out.push('\n');
+    }
+    if !placed {
+        out.push_str(&block());
     }
     out
 }
@@ -2965,6 +3012,18 @@ pub fn leading_number(path: &Path) -> Option<usize> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_list_replaces_the_old_one_whole() {
+        let front = "title: Kaelen\naliases:\n  - Kae\n  - The Wren\npov:\n";
+        let out = set_front_list(Some(front), "aliases", &["Kae".into(), "K".into()]);
+        assert_eq!(out, "title: Kaelen\naliases:\n  - Kae\n  - K\npov:\n");
+        assert_eq!(crate::codex::aliases(&out), ["Kae", "K"]);
+        let gone = set_front_list(Some(&out), "aliases", &[]);
+        assert_eq!(gone, "title: Kaelen\npov:\n");
+        let inline = set_front_list(Some("aliases: [A, B]\n"), "aliases", &["C".into()]);
+        assert_eq!(inline, "aliases:\n  - C\n");
+    }
+
     #[test]
     fn restore_puts_a_deleted_scene_back_where_it_was() {
         let root = std::env::temp_dir().join(format!("grimoire-restore-{}", std::process::id()));

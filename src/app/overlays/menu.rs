@@ -142,6 +142,10 @@ pub fn about_row(action: &Action, part: &str) -> (String, &'static str) {
             "How many words the book is aiming for, and each day. Try a month of drafting: 50,000 words.",
             "sprints",
         ),
+        Action::Details => (
+            "This scene's status, POV, synopsis and word target, and whether it goes in exports. i in the outline.",
+            "outline",
+        ),
         Action::Restore => (
             "Takes what's highlighted in the Trash back to where it was, in its old folder under its old name.",
             "outline",

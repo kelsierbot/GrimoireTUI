@@ -89,6 +89,8 @@ pub enum Action {
     ReadAloud,
     /// The book's word goal and a day's, with presets.
     Goals,
+    /// The scene's or note's details.
+    Details,
     /// Italics or bold on the selection, or off again.
     Italic,
     Bold,
@@ -217,6 +219,11 @@ pub fn entries(app: &crate::app::App) -> Vec<Entry> {
         Entry::new("Next TK (or note)", "", Action::NextTk),
         Entry::new("Next scene still in draft", "", Action::NextDraft),
         Entry::new("Read aloud from here", "", Action::ReadAloud),
+        Entry::new(
+            "Scene details (status, POV, synopsis, target, in exports)",
+            "i",
+            Action::Details,
+        ),
         Entry::new(
             "Goals: the book's word goal and each day's",
             "",

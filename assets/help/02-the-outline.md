@@ -24,6 +24,20 @@ Each asks for a name, with a suggestion already filled in. Type to replace it, o
 - Deleting something that is **already in the Trash** removes it for good. That one asks too.
 - `u` on something in the Trash **restores** it: back to its old folder under its old name (*Restore from the Trash* in `Esc › This book` and `Ctrl-K` too). If its folder has gone since, it's made again.
 
+## Details
+
+`i` on a scene shows its **details** (*Esc › Writing tools › Scene details…* while you're writing it, or `Ctrl-K` › *Scene details*):
+
+- **Status**: idea, outline, draft, revised or done. `←` `→` change it.
+- **POV**: whose eyes the scene is seen through.
+- **Synopsis**: what happens, in a line. The corkboard shows it on the card.
+- **Word target**: how long you mean it to be. The page's title shows your progress towards it.
+- **In exports**: *no* leaves the scene out of every export and compile, while keeping it in the book.
+
+On a note in the notebook, `i` sets its **other names**, with commas between (*Kae, the Wren*). The notebook lights those up in your prose too.
+
+`↑` `↓` move between them, `Enter` saves, and `Esc` leaves everything as it was. It's all kept in the scene's frontmatter, the same lines you could write by hand.
+
 ## Moving things
 
 - `K` and `J`, or `Alt-↑` and `Alt-↓`, move the selected scene or folder up and down (*Move up* and *Move down* in `Ctrl-K`). At the ends of a chapter a scene crosses into the next one.

@@ -644,6 +644,74 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
 /// then the focused pane. True when it means leave (everything is saved by
 /// then, or the second Ctrl-Q said to go anyway).
 fn on_key(app: &mut App, k: KeyEvent, confirm_quit: &mut bool) -> bool {
+    // AltGr arrives as Ctrl+Alt on Windows; what it makes (@, €, ł…) is
+    // typing, not a shortcut.
+    let k = match k.code {
+        KeyCode::Char(c)
+            if k.modifiers
+                .contains(KeyModifiers::CONTROL | KeyModifiers::ALT)
+                && !c.is_ascii_alphanumeric() =>
+        {
+            KeyEvent::new(k.code, KeyModifiers::NONE)
+        }
+        _ => k,
+    };
+    // The page's own moves with Shift, Ctrl and Alt: selecting from the
+    // keyboard, and going (or deleting) a word at a time.
+    if matches!(app.overlay, Overlay::None) && app.focus == Focus::Editor && app.open.is_some() {
+        let m = k.modifiers;
+        let shift = m.contains(KeyModifiers::SHIFT);
+        let alt = m.contains(KeyModifiers::ALT);
+        let ctrl = m.contains(KeyModifiers::CONTROL) || m.contains(KeyModifiers::SUPER);
+        let by_word = ctrl || alt;
+        let arrow = |code: KeyCode| match code {
+            KeyCode::Left => Some(Key::Left),
+            KeyCode::Right => Some(Key::Right),
+            KeyCode::Up => Some(Key::Up),
+            KeyCode::Down => Some(Key::Down),
+            KeyCode::Home => Some(Key::Home),
+            KeyCode::End => Some(Key::End),
+            KeyCode::PageUp => Some(Key::PageUp),
+            KeyCode::PageDown => Some(Key::PageDown),
+            _ => None,
+        };
+        // Alt-↑ / Alt-↓ alone still move the scene (below).
+        let moves_scene = alt && !shift && !ctrl && matches!(k.code, KeyCode::Up | KeyCode::Down);
+        if !moves_scene
+            && (shift || by_word)
+            && let Some(key) = arrow(k.code)
+        {
+            app.editor_move(key, shift, by_word);
+            return false;
+        }
+        match k.code {
+            KeyCode::Backspace if by_word => {
+                app.delete_word(true);
+                return false;
+            }
+            KeyCode::Delete if by_word => {
+                app.delete_word(false);
+                return false;
+            }
+            // A Mac's Option-← and Option-→ arrive as Alt-b and Alt-f.
+            KeyCode::Char('b') if alt && !ctrl => {
+                app.editor_move(Key::Left, shift, true);
+                return false;
+            }
+            KeyCode::Char('f') if alt && !ctrl => {
+                app.editor_move(Key::Right, shift, true);
+                return false;
+            }
+            KeyCode::Char('d') if alt && !ctrl => {
+                app.delete_word(false);
+                return false;
+            }
+            // Any other Alt-letter is a shortcut the page doesn't have: it
+            // mustn't type the bare letter into the prose.
+            KeyCode::Char(_) if alt && !ctrl => return false,
+            _ => {}
+        }
+    }
     // Either modifier drives the shortcuts: Ctrl everywhere, Cmd where the
     // terminal can actually report it.
     let sup = k.modifiers.contains(KeyModifiers::SUPER);

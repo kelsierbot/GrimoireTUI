@@ -307,6 +307,8 @@ pub struct App {
     /// The corkboard to come back to after naming, renaming or deleting a
     /// card from it.
     pub cork_back: Option<Overlay>,
+    /// The last click on the page: when, where, and how many in a row.
+    last_click: Option<(Instant, u16, u16, u8)>,
     /// What was last copied or cut, for Ctrl-V when the system clipboard
     /// can't be read (and in tests, which never touch it).
     pub clip: String,
@@ -422,6 +424,19 @@ pub enum Overlay {
     },
     /// Words each week, the pace lately, and when the book's goal comes.
     Progress,
+    /// A scene's (or note's) details: status, POV, synopsis, target, in
+    /// exports; a note's other names.
+    Details {
+        path: PathBuf,
+        sel: usize,
+        fields: Vec<crate::app::overlays::DetailField>,
+        status: String,
+        pov: String,
+        synopsis: String,
+        target: String,
+        compile: bool,
+        aliases: String,
+    },
     /// The book's word goal and a day's: two numbers to type, or a preset.
     Goals {
         sel: usize,
@@ -821,6 +836,7 @@ impl App {
             reading: None,
             cork_back: None,
             clip: String::new(),
+            last_click: None,
             state_file: None,
         })
         .map(|mut app: App| {
@@ -1500,6 +1516,55 @@ impl App {
         }
     }
 
+    /// A move on the page with Shift (select as it goes) or by word (Ctrl,
+    /// Alt): a word left or right, a paragraph up or down, the top or the
+    /// end of the scene.
+    pub fn editor_move(&mut self, key: Key, select: bool, by_word: bool) {
+        if select {
+            self.editor.extend_from_here();
+        } else {
+            self.editor.clear_selection();
+        }
+        let rows = self.editor.layout(self.edit_width);
+        match key {
+            Key::Left if by_word => self.editor.word_left(),
+            Key::Right if by_word => self.editor.word_right(),
+            Key::Up if by_word => self.editor.paragraph_up(),
+            Key::Down if by_word => self.editor.paragraph_down(),
+            Key::Home if by_word => self.editor.scene_start(),
+            Key::End if by_word => self.editor.scene_end(),
+            Key::Left => self.editor.left(),
+            Key::Right => self.editor.right(),
+            Key::Up => self.editor.up(&rows),
+            Key::Down => self.editor.down(&rows),
+            Key::Home => self.editor.home(&rows),
+            Key::End => self.editor.end(&rows),
+            Key::PageUp => {
+                for _ in 0..self.edit_height.max(1) {
+                    self.editor.up(&rows);
+                }
+            }
+            Key::PageDown => {
+                for _ in 0..self.edit_height.max(1) {
+                    self.editor.down(&rows);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Ctrl-Backspace / Ctrl-Delete: a word at a time.
+    pub fn delete_word(&mut self, back: bool) {
+        if !self.editor.delete_selection() {
+            if back {
+                self.editor.delete_word_back();
+            } else {
+                self.editor.delete_word_forward();
+            }
+        }
+        self.flush();
+    }
+
     /// Ctrl-A: the whole scene.
     pub fn select_all(&mut self) {
         if self.focus == Focus::Editor && self.open.is_some() {
@@ -1702,6 +1767,7 @@ impl App {
                 self.overlay = Overlay::Progress;
             }
             Action::ReadAloud => self.start_reading(),
+            Action::Details => self.open_details(),
             Action::Italic => self.emphasis("*"),
             Action::Bold => self.emphasis("**"),
             Action::Paste => self.paste_clipboard(),
@@ -4038,6 +4104,8 @@ impl App {
             Key::Char('r') => self.start_rename(),
             Key::Char('d') => self.start_delete(),
             Key::Char('u') => self.restore_selected(),
+            Key::Char('i') => self.open_details(),
+            Key::Delete => self.start_delete(),
             Key::Char('H') => self.open_history(),
             Key::Char('b') => self.open_cork(),
             Key::Char('K') => self.move_selected(true),
@@ -4248,6 +4316,10 @@ impl App {
         if matches!(self.overlay, Overlay::Spelling { .. }) && self.click_spelling(x, y) {
             return;
         }
+        // Any other box on top: a click mustn't reach the panes under it.
+        if !matches!(self.overlay, Overlay::None | Overlay::Spelling { .. }) {
+            return;
+        }
         let clicked = self
             .create_hits
             .iter()
@@ -4317,6 +4389,29 @@ impl App {
             let rows = self.editor.layout(self.edit_width);
             let vis = self.editor.scroll + (cy - r.y) as usize;
             self.editor.click(&rows, vis, (cx - r.x) as usize);
+            // Two clicks in the same place pick the word, three the paragraph.
+            let now = Instant::now();
+            let clicks = match self.last_click {
+                Some((at, px, py, n))
+                    if (px, py) == (x, y)
+                        && now.duration_since(at) < Duration::from_millis(450) =>
+                {
+                    n + 1
+                }
+                _ => 1,
+            };
+            self.last_click = Some((now, x, y, clicks));
+            match clicks {
+                1 => {}
+                2 => {
+                    self.editor.select_word();
+                    return;
+                }
+                _ => {
+                    self.editor.select_paragraph();
+                    return;
+                }
+            }
             // A misspelt word under the click offers its fixes right there.
             self.offer_spelling_at_caret();
         } else if hit(self.rect_scene, x, y) {
@@ -4398,6 +4493,14 @@ impl App {
     pub fn on_scroll(&mut self, x: u16, y: u16, down: bool) {
         const STEP: usize = 3;
         if self.help_wheel(down, STEP) {
+            return;
+        }
+        // A list on top (the menu, the corkboard, Ctrl-K…) moves with the
+        // wheel; nothing under it scrolls.
+        if self.overlay != Overlay::None {
+            if !matches!(self.overlay, Overlay::Spelling { .. } | Overlay::Reading) {
+                self.on_overlay_key(if down { Key::Down } else { Key::Up });
+            }
             return;
         }
         if hit(self.rect_tree, x, y) {
@@ -4500,6 +4603,7 @@ impl App {
                     ),
                     Action::FocusMode,
                 ),
+                ("Scene details…".into(), Action::Details),
                 (row("Italic", &format!("({m}I)")), Action::Italic),
                 (row("Bold", &format!("({m}B)")), Action::Bold),
                 (
@@ -4558,6 +4662,7 @@ impl App {
             Action::ReadAloud => writing,
             Action::FindInScene => writing,
             Action::Italic | Action::Bold => writing,
+            Action::Details => writing,
             Action::Restore => self.selection_in_trash(),
             Action::History => writing || !self.visible.is_empty(),
             Action::EchoWords => writing || self.echo_on,

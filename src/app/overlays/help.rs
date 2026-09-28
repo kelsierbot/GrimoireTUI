@@ -50,6 +50,7 @@ impl App {
             Overlay::Marks { .. } => "notes",
             Overlay::Sprint { .. } | Overlay::Progress | Overlay::Goals { .. } => "sprints",
             Overlay::Reading | Overlay::Voices { .. } => "revision",
+            Overlay::Details { .. } => "outline",
             Overlay::Spelling { .. } => "spelling",
             Overlay::Names { .. } => "notebook",
             Overlay::SessionsOff | Overlay::Sessions { .. } | Overlay::SessionDiff { .. } => {
@@ -88,6 +89,7 @@ impl App {
             | Overlay::Author { .. }
             | Overlay::NewBook { .. }
             | Overlay::Goals { .. }
+            | Overlay::Details { .. }
             | Overlay::BookPath { .. }
             | Overlay::Help { .. } => false,
             Overlay::Spelling { inline, .. } => !*inline,

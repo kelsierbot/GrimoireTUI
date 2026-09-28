@@ -36,6 +36,8 @@ Whichever row is highlighted says what it does, just under the list. `?` opens t
 
 Some of these want a scene open, so they show up once you're in one.
 
+- **Scene details…** (`i` in the outline): status, POV, synopsis, word target, and whether it goes in exports. See *The outline*.
+- **Italic** (`Ctrl-I`) and **Bold** (`Ctrl-B`): on the selection or the word at the cursor, and off again.
 - **Focus mode** (`Ctrl-D`): everything but the page goes away, so it's just you and the words. `Ctrl-D` again brings it all back.
 - **Find & replace…** (`Ctrl-F`): in this scene; press it again for the whole book.
 - **Open a scene beside…** (`v`): another scene next to this one, to read from while you write.

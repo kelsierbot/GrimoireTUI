@@ -17,6 +17,7 @@ mod about;
 mod cards;
 mod command;
 mod conflicts;
+mod details;
 mod find;
 mod help;
 mod looks;
@@ -33,6 +34,7 @@ mod shelf;
 mod spelling;
 mod versions;
 
+pub use details::Field as DetailField;
 #[cfg(test)]
 pub(crate) use help::lay_out as help_lay_out;
 #[cfg(test)]
@@ -77,6 +79,7 @@ impl App {
             Overlay::Books { .. } => self.on_books_key(key),
             Overlay::Reading => self.on_reading_key(key),
             Overlay::Goals { .. } => self.on_goals_key(key),
+            Overlay::Details { .. } => self.on_details_key(key),
             Overlay::Voices { .. } => self.on_voices_key(key),
             Overlay::Progress => match key {
                 Key::Char('g') => self.run_action(Action::Goals),
@@ -213,6 +216,7 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
         Overlay::Progress => progress::draw_progress(f, app, area, t),
         Overlay::Reading => reading::draw_reading(f, app, area, t),
         Overlay::Goals { .. } => progress::draw_goals(f, app, area, t),
+        Overlay::Details { .. } => details::draw_details(f, app, area, t),
         Overlay::Voices { .. } => reading::draw_voices(f, app, area, t),
         Overlay::BookPath { .. } => shelf::draw_book_path(f, app, area, t),
         Overlay::Player { .. } => player::draw_player(f, app, area, t),

@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.7.4 · The page behaves like a page
+
+- **Select with the keyboard.** `Shift` with the arrows, `Home`, `End`,
+  `PgUp` and `PgDn` selects as it goes.
+- **A word at a time.** `Ctrl-←` `Ctrl-→` (or `Alt`, or a Mac's `Option`)
+  move by word, `Ctrl-↑` `Ctrl-↓` by paragraph, and `Ctrl-Home` `Ctrl-End` go
+  to the top and end of the scene. `Ctrl-Backspace` and `Ctrl-Delete` delete
+  a word.
+- **Double-click** picks a word; a third click, the paragraph.
+- **Details.** `i` in the outline (or *Esc › Writing tools › Scene details…*)
+  sets a scene's status, POV, synopsis and word target, and whether it goes
+  in exports. On a notebook note it sets the other names it's known by.
+- On a Mac, `Option-←` no longer types a "b" into the prose, and no `Alt`
+  shortcut types its letter by accident.
+- On Windows, characters made with `AltGr` (`@`, `€`, `ł` on many keyboards)
+  are typed again instead of ignored.
+- A click or the mouse wheel over a box (the menu, the corkboard, `Ctrl-K`)
+  no longer reaches the panes underneath; the wheel moves through the list.
+- `Delete` in the outline sends the highlighted item to the Trash, like `d`.
+
 ## 0.7.3 · Paste, select all, italics, and a way back out of the Trash
 
 - **`Ctrl-V` pastes**, from the computer's clipboard, into the page or into

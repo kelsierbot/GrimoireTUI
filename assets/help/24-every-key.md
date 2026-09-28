@@ -48,6 +48,7 @@
 | `r` | rename |
 | `d` | delete, to the Trash |
 | `u` | restore from the Trash |
+| `i` | the scene's or note's details |
 | `K` | move up; `J` down |
 | `H` | the scene's history |
 | `b` | the corkboard |

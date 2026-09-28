@@ -247,7 +247,7 @@ impl Editor {
     /// The word the cursor is in or touching, as (line, start, end).
     fn word_at_cursor(&self) -> Option<(usize, usize, usize)> {
         let chars: Vec<char> = self.lines.get(self.cy)?.chars().collect();
-        let is_word = |c: char| c.is_alphanumeric() || c == '\'' || c == '’';
+        let is_word = is_word_char;
         let mut start = self.cx.min(chars.len());
         while start > 0 && is_word(chars[start - 1]) {
             start -= 1;
@@ -517,6 +517,118 @@ impl Editor {
         self.goal = None;
     }
 
+    /// Back to the start of this word, or the one before.
+    pub fn word_left(&mut self) {
+        if self.cx == 0 {
+            self.left();
+            return;
+        }
+        let chars = self.line_chars(self.cy);
+        let mut i = self.cx.min(chars.len());
+        while i > 0 && !is_word_char(chars[i - 1]) {
+            i -= 1;
+        }
+        while i > 0 && is_word_char(chars[i - 1]) {
+            i -= 1;
+        }
+        self.cx = i;
+        self.goal = None;
+    }
+
+    /// On to the end of this word, or the next.
+    pub fn word_right(&mut self) {
+        let chars = self.line_chars(self.cy);
+        if self.cx >= chars.len() {
+            self.right();
+            return;
+        }
+        let mut i = self.cx;
+        while i < chars.len() && !is_word_char(chars[i]) {
+            i += 1;
+        }
+        while i < chars.len() && is_word_char(chars[i]) {
+            i += 1;
+        }
+        self.cx = i;
+        self.goal = None;
+    }
+
+    /// Delete back to the start of the word, as one undo step.
+    pub fn delete_word_back(&mut self) {
+        let end = (self.cy, self.cx);
+        self.word_left();
+        if (self.cy, self.cx) != end {
+            let start = (self.cy, self.cx);
+            self.select(start, end);
+            self.delete_selection();
+        }
+    }
+
+    /// Delete on to the end of the word, as one undo step.
+    pub fn delete_word_forward(&mut self) {
+        let start = (self.cy, self.cx);
+        self.word_right();
+        if (self.cy, self.cx) != start {
+            let end = (self.cy, self.cx);
+            self.select(start, end);
+            self.delete_selection();
+        }
+    }
+
+    /// The very top of the scene, or the very end. A selection being made
+    /// with Shift stays.
+    pub fn scene_start(&mut self) {
+        (self.cy, self.cx, self.goal) = (0, 0, None);
+    }
+
+    pub fn scene_end(&mut self) {
+        let last = self.lines.len().saturating_sub(1);
+        (self.cy, self.cx, self.goal) = (last, self.line_len(last), None);
+    }
+
+    /// The start of this paragraph, or the one before.
+    pub fn paragraph_up(&mut self) {
+        if self.cx == 0 && self.cy > 0 {
+            self.cy -= 1;
+        }
+        (self.cx, self.goal) = (0, None);
+    }
+
+    /// The start of the next paragraph.
+    pub fn paragraph_down(&mut self) {
+        if self.cy + 1 < self.lines.len() {
+            self.cy += 1;
+            self.cx = 0;
+        } else {
+            self.cx = self.line_len(self.cy);
+        }
+        self.goal = None;
+    }
+
+    /// Start a selection here if there isn't one, so a move grows it.
+    pub fn extend_from_here(&mut self) {
+        if self.anchor.is_none() {
+            self.anchor = Some((self.cy, self.cx));
+        }
+    }
+
+    /// Select the word at the cursor (a double click); true if there was one.
+    pub fn select_word(&mut self) -> bool {
+        match self.word_at_cursor() {
+            Some((line, a, b)) => {
+                self.select((line, a), (line, b));
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Select the paragraph the cursor is in (a triple click).
+    pub fn select_paragraph(&mut self) {
+        let len = self.line_len(self.cy);
+        self.select((self.cy, 0), (self.cy, len));
+    }
+
     pub fn home(&mut self, rows: &[VisRow]) {
         let (r, _) = self.cursor_vis(rows);
         self.cx = rows[r].start;
@@ -693,8 +805,40 @@ fn char_at_width(line: &str, start: usize, end: usize, goal: usize) -> usize {
     i
 }
 
+/// Letters, digits, and the apostrophe inside "don't".
+fn is_word_char(c: char) -> bool {
+    c.is_alphanumeric() || c == '\'' || c == '’'
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn words_are_stepped_over_and_deleted_whole() {
+        let mut e = Editor::from_text("She didn't look back.");
+        e.place(0, 21);
+        e.word_left();
+        assert_eq!(e.cx, 16, "the start of back");
+        e.word_left();
+        assert_eq!(e.cx, 11, "look");
+        e.word_left();
+        assert_eq!(e.cx, 4, "didn't is one word");
+        e.word_right();
+        assert_eq!(e.cx, 10);
+        e.place(0, 16);
+        e.delete_word_back();
+        assert_eq!(e.lines[0], "She didn't back.");
+        assert!(e.undo());
+        assert_eq!(e.lines[0], "She didn't look back.");
+        e.place(0, 4);
+        e.delete_word_forward();
+        assert_eq!(e.lines[0], "She  look back.");
+        e.scene_end();
+        assert_eq!((e.cy, e.cx), (0, 15));
+        e.place(0, 6);
+        assert!(e.select_word());
+        assert_eq!(e.selected_text().as_deref(), Some("look"));
+    }
+
     #[test]
     fn italics_and_bold_go_on_and_come_off() {
         let mut e = Editor::from_text("It was very late.");

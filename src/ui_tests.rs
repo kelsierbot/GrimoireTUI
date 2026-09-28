@@ -2123,6 +2123,7 @@ const EVERY_KEY: &[(&str, &str, &[&str])] = &[
     ("The outline", "r", &[]),
     ("The outline", "d", &[]),
     ("The outline", "u", &[]),
+    ("The outline", "i", &[]),
     ("The outline", "K", &["n", "Enter"]),
     ("The outline", "J", &[]),
     ("The outline", "H", &[]),
@@ -2913,4 +2914,136 @@ fn u_in_the_trash_puts_a_deleted_scene_back_where_it_was() {
     d.key(KeyCode::Char('u'));
     assert!(scene.exists(), "back where it was: {}", d.status());
     assert!(d.status().contains("restored"), "{}", d.status());
+}
+
+#[test]
+fn the_keyboard_selects_and_moves_a_word_at_a_time() {
+    let mut d = Desk::open(book("words", true), 120, 35);
+    d.key(KeyCode::Tab);
+    d.typed("She didn't look back.");
+    let mods = |d: &mut Desk, code: KeyCode, m: KeyModifiers| d.press(KeyEvent::new(code, m));
+    // Ctrl-← twice from the end: the start of "look".
+    mods(&mut d, KeyCode::Left, KeyModifiers::CONTROL);
+    mods(&mut d, KeyCode::Left, KeyModifiers::CONTROL);
+    assert_eq!(d.app.editor.cx, 11);
+    // Shift-Ctrl-→ selects the word.
+    mods(
+        &mut d,
+        KeyCode::Right,
+        KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+    );
+    assert_eq!(d.app.editor.selected_text().as_deref(), Some("look"));
+    // Shift-← trims it by a letter.
+    mods(&mut d, KeyCode::Left, KeyModifiers::SHIFT);
+    assert_eq!(d.app.editor.selected_text().as_deref(), Some("loo"));
+    // Ctrl-Backspace at the end takes the last word.
+    mods(&mut d, KeyCode::End, KeyModifiers::CONTROL);
+    mods(&mut d, KeyCode::Backspace, KeyModifiers::CONTROL);
+    assert!(
+        d.app.editor.lines[0].starts_with("She didn't look "),
+        "{:?}",
+        d.app.editor.lines[0]
+    );
+    // A Mac's Option-← is Alt-b: a word back, never a typed "b".
+    let before = d.app.editor.lines[0].clone();
+    mods(&mut d, KeyCode::Char('b'), KeyModifiers::ALT);
+    mods(&mut d, KeyCode::Char('x'), KeyModifiers::ALT);
+    assert_eq!(d.app.editor.lines[0], before, "nothing typed");
+    // AltGr (Ctrl+Alt on Windows) types what it makes.
+    mods(
+        &mut d,
+        KeyCode::Char('@'),
+        KeyModifiers::CONTROL | KeyModifiers::ALT,
+    );
+    assert!(
+        d.app.editor.lines[0].contains('@'),
+        "{:?}",
+        d.app.editor.lines[0]
+    );
+}
+
+#[test]
+fn a_double_click_picks_a_word_and_boxes_on_top_keep_their_clicks() {
+    let mut d = Desk::open(book("clicks", true), 120, 35);
+    d.key(KeyCode::Tab);
+    d.typed("The lighthouse keeper slept.");
+    d.draw();
+    let (x, y) = d
+        .rows()
+        .iter()
+        .enumerate()
+        .find_map(|(y, row)| {
+            row.find("lighthouse")
+                .map(|b| (row[..b].chars().count() as u16 + 2, y as u16))
+        })
+        .expect("on screen");
+    d.app.on_click(x, y);
+    d.app.on_click(x, y);
+    d.draw();
+    assert_eq!(d.app.editor.selected_text().as_deref(), Some("lighthouse"));
+    d.app.on_click(x, y);
+    assert!(
+        d.app
+            .editor
+            .selected_text()
+            .is_some_and(|t| t.starts_with("The lighthouse"))
+    );
+
+    // With the menu up, a click on the outline behind it does nothing, and
+    // the wheel moves the menu.
+    d.key(KeyCode::Esc);
+    d.key(KeyCode::Esc);
+    let sel = d.app.sel;
+    let t = d.app.rect_tree;
+    d.app.on_click(t.x + 2, t.y + 3);
+    assert!(d.menu_open());
+    assert_eq!(d.app.sel, sel);
+    d.app.on_scroll(t.x + 2, t.y + 3, true);
+    assert_eq!(d.app.overlay, Overlay::Menu { sel: 1 });
+}
+
+#[test]
+fn details_set_status_pov_target_and_leave_a_scene_out_of_exports() {
+    let root = book("details", true);
+    let scene = first_scene(&root);
+    let mut d = Desk::open(root, 120, 40);
+    d.key(KeyCode::Tab);
+    d.key(KeyCode::Esc);
+    d.choose("Writing tools");
+    d.choose("Scene details…");
+    assert!(d.shows("DETAILS · SCENE ONE"), "{}", d.rows().join("\n"));
+    d.key(KeyCode::Right); // status: outline -> draft
+    d.key(KeyCode::Down);
+    d.typed("Wren");
+    d.keys(&[KeyCode::Down, KeyCode::Down]);
+    for _ in 0..4 {
+        d.key(KeyCode::Backspace);
+    }
+    d.typed("2500");
+    d.key(KeyCode::Down);
+    d.key(KeyCode::Char(' ')); // in exports: no
+    d.key(KeyCode::Enter);
+    assert!(d.status().contains("details saved"), "{}", d.status());
+    d.app.commit_saves();
+    let text = fs::read_to_string(&scene).unwrap();
+    for want in [
+        "status: draft",
+        "pov: Wren",
+        "target: 2500",
+        "compile: false",
+    ] {
+        assert!(text.contains(want), "{want} in {text}");
+    }
+    // Esc leaves it as it was.
+    d.key(KeyCode::Esc);
+    d.key(KeyCode::Esc);
+    d.app.run_action(palette::Action::Details);
+    d.key(KeyCode::Right);
+    d.key(KeyCode::Esc);
+    d.app.commit_saves();
+    assert!(
+        fs::read_to_string(&scene)
+            .unwrap()
+            .contains("status: draft")
+    );
 }
