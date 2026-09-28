@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.7.1 · Find the corkboard
+
+- The outline's key hints now include `b corkboard`, and *Esc › This book*
+  has a *Corkboard…* row. It was only in `Ctrl-K` before.
+
 ## 0.7.0 · Hear it, shape it, set your goals
 
 - **Read aloud.** *Esc › Writing tools › Read aloud* reads the scene out loud

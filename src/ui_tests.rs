@@ -2703,3 +2703,14 @@ fn goals_take_a_month_of_drafting_preset_and_save_to_novel_toml() {
     d.key(KeyCode::Esc);
     assert_eq!(d.app.project.meta.target_words, 52_000);
 }
+
+#[test]
+fn the_corkboard_is_named_in_the_outline_hints_and_the_menu() {
+    let mut d = Desk::open(book("cork-hint", true), 150, 40);
+    assert_eq!(d.app.focus, Focus::Tree);
+    assert!(d.status().contains("b corkboard"), "{}", d.status());
+    d.key(KeyCode::Esc);
+    d.choose("This book");
+    d.choose("Corkboard…");
+    assert!(matches!(d.app.overlay, Overlay::Cork { .. }));
+}

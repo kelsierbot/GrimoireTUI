@@ -4346,6 +4346,7 @@ impl App {
         let writing = self.open.is_some();
         let mut items = match sub {
             Sub::Book => vec![
+                (row("Corkboard…", "(b)"), Action::Corkboard),
                 (row("New scene…", "(n)"), Action::NewScene),
                 (row("New chapter…", "(c)"), Action::NewChapter),
                 (
@@ -4788,8 +4789,10 @@ impl App {
                     .iter()
                     .map(|(k, w)| format!("{k} {w}"))
                     .collect();
+                // The corkboard right after the making keys: it's the other
+                // way to see the book, and nothing else says where it is.
                 format!(
-                    "{esc}{focus}  ? help  Tab pane  ↵ fold  {}  r rename  d delete  {m}Z undo  H history  {m}Q quit ",
+                    "{esc}{focus}  ? help  Tab pane  ↵ fold  {}  b corkboard  r rename  d delete  {m}Z undo  H history  {m}Q quit ",
                     keys.join("  ")
                 )
             }

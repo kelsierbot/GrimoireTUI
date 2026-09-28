@@ -1,6 +1,6 @@
 # The corkboard
 
-`b` in the outline (or *Corkboard* in `Ctrl-K`) lays a part out as index cards, chapter by chapter. Each card shows the scene's POV, status, synopsis, and its words against its target. A card with no synopsis shows the scene's first line.
+`b` in the outline (or *Esc › This book › Corkboard…*, or *Corkboard* in `Ctrl-K`) lays a part out as index cards, chapter by chapter. Each card shows the scene's POV, status, synopsis, and its words against its target. A card with no synopsis shows the scene's first line.
 
 ## Moving around
 

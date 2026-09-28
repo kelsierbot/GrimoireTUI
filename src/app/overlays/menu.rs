@@ -113,6 +113,10 @@ pub fn about_row(action: &Action, part: &str) -> (String, &'static str) {
             "Everything is saved first. Next time, this book opens right where you left it.",
             "getting-started",
         ),
+        Action::Corkboard => (
+            "Every scene as an index card, to see the book at a glance and jot a synopsis, whose eyes, and how far along.",
+            "corkboard",
+        ),
         Action::NewScene => (
             "A new scene at the end of the chapter you're in. You name it first.",
             "outline",

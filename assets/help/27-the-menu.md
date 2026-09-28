@@ -18,6 +18,7 @@ Whichever row is highlighted says what it does, just under the list. `?` opens t
 
 ## This book
 
+- **Corkboard…** (`b` in the outline): every scene as an index card, to see the whole book at a glance. See *The corkboard*.
 - **New scene…** (`n`): at the end of the chapter you're in. You name it first.
 - **New chapter…** (`c`): at the end of the part you're in, already named for you.
 - **New part…** (`p`): at the end of the manuscript. If your book calls its parts acts, this row says so.
