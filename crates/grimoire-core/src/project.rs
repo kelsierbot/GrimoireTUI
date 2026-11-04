@@ -2256,8 +2256,8 @@ fn tree_entries(dir: &Path) -> Vec<PathBuf> {
 }
 
 /// A scene that moves or is renamed takes its conflict copies with it,
-/// renamed to follow ("01-Scene-One (Josh's conflicted copy).md" becomes
-/// "02-Scene-One (Josh's conflicted copy).md"), so a copy is never left
+/// renamed to follow ("01-Scene-One (Ada's conflicted copy).md" becomes
+/// "02-Scene-One (Ada's conflicted copy).md"), so a copy is never left
 /// behind under a number that now belongs to something else.
 fn with_copies(renames: &[(PathBuf, PathBuf)]) -> Vec<(PathBuf, PathBuf)> {
     let mut out = renames.to_vec();

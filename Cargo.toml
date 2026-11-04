@@ -3,7 +3,7 @@ name = "grimoire-tui"
 version.workspace = true
 edition = "2024"
 description = "A terminal writing desk for novels"
-authors = ["Josh King"]
+authors = ["Catfinity Studios"]
 license = "MIT"
 readme = "README.md"
 repository = "https://github.com/kelsierbot/GrimoireTUI"
@@ -39,7 +39,7 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_
 [package.metadata.deb]
 name = "grimoire"
 maintainer = "Catfinity Studios"
-copyright = "Josh King, Catfinity Studios"
+copyright = "Catfinity Studios LLC"
 section = "editors"
 priority = "optional"
 extended-description = """\

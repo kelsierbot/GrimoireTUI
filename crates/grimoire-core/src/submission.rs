@@ -624,7 +624,7 @@ mod tests {
                       [manuscript]\nformat = \"modern\"\nold_key = 1\n\n[other]\nkeep = true\n";
         std::fs::write(d.join("novel.toml"), before).unwrap();
         let contact = Contact {
-            legal_name: "Josh \"J\" King".into(),
+            legal_name: "Ada \"A\" Quill".into(),
             address: vec!["1 Road".into(), "Town".into()],
             email: "j@example.com".into(),
             ..Contact::default()
@@ -633,7 +633,7 @@ mod tests {
             paper: Paper::A4,
             ..Manuscript::default()
         };
-        save(&d, "Joshua King", &contact, &look).unwrap();
+        save(&d, "Adaline Quill", &contact, &look).unwrap();
         let after = std::fs::read_to_string(d.join("novel.toml")).unwrap();
         assert!(after.contains("# What this book calls its largest division"));
         assert!(after.contains("part_label = \"Act\""));
@@ -644,7 +644,7 @@ mod tests {
         );
         assert_eq!(after.matches("[manuscript]").count(), 1);
         let meta: toml::Table = toml::from_str(&after).unwrap();
-        assert_eq!(meta["author"].as_str(), Some("Joshua King"));
+        assert_eq!(meta["author"].as_str(), Some("Adaline Quill"));
         assert_eq!(meta["title"].as_str(), Some("The Archive"));
         let c = Contact::from_value(&meta["contact"]);
         assert_eq!(c, contact);

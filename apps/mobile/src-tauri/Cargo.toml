@@ -3,7 +3,7 @@ name = "grimoire-mobile"
 version = "0.3.4"
 edition = "2024"
 description = "Grimoire on Android: a phone-shaped front end over grimoire-core"
-authors = ["Josh King"]
+authors = ["Catfinity Studios"]
 license = "MIT"
 repository = "https://github.com/kelsierbot/GrimoireTUI"
 

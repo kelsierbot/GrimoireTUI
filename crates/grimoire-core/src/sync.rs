@@ -247,7 +247,7 @@ pub struct CopyOf {
     pub original: String,
     /// What the copy's name adds after the original's stem, kept as it is
     /// when the original is renamed or moved, so the copy follows it:
-    /// " (Josh's conflicted copy 2026-09-25)".
+    /// " (Ada's conflicted copy 2026-09-25)".
     pub suffix: String,
 }
 

@@ -1178,7 +1178,7 @@ fn a_synced_book_with_history_inside_offers_to_move_it_out() {
 
 // ---- conflict copies: shown, named, settled, undone ----------------------
 
-const DROPBOX_COPY: &str = "01-Scene-One (Josh's conflicted copy 2026-09-25).md";
+const DROPBOX_COPY: &str = "01-Scene-One (Ada's conflicted copy 2026-09-25).md";
 
 /// A book whose first scene has a Dropbox conflict copy beside it.
 fn conflicted(tag: &str) -> (PathBuf, PathBuf, PathBuf) {

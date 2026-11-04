@@ -11,4 +11,4 @@ Grimoire is free and open source, under the MIT License. Here's what that means 
 
 ## The full text
 
-The MIT License comes with Grimoire in a file called LICENSE, and it's at github.com/kelsierbot/GrimoireTUI too. Copyright (c) 2026 Josh King.
+The MIT License comes with Grimoire in a file called LICENSE, and it's at github.com/kelsierbot/GrimoireTUI too. Copyright (c) 2026 Catfinity Studios LLC.

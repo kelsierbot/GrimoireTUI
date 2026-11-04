@@ -856,4 +856,4 @@ what that means in plain words:
 
 The same is in the app: `l` in *About Grimoire…*, or `Ctrl-K` › *License*.
 
-Copyright (c) 2026 Josh King.
+Copyright (c) 2026 Catfinity Studios LLC.

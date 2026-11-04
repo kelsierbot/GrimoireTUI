@@ -55,7 +55,7 @@ fn names(d: &Path) -> Vec<String> {
 /// Every app's way of naming the version that lost, with who it says it is.
 const COPIES: &[(&str, Source)] = &[
     (
-        "01-Scene-One (Josh's conflicted copy 2026-09-25).md",
+        "01-Scene-One (Ada's conflicted copy 2026-09-25).md",
         Source::Dropbox,
     ),
     ("01-Scene-One (conflicted copy).md", Source::Dropbox),
@@ -65,14 +65,14 @@ const COPIES: &[(&str, Source)] = &[
         Source::Dropbox,
     ),
     (
-        "01-Scene-One (copie en conflit de Josh 2026-09-25).md",
+        "01-Scene-One (copie en conflit de Ada 2026-09-25).md",
         Source::Dropbox,
     ),
     ("01-Scene-One (conflicted).md", Source::PCloud),
     ("01-Scene-One (conflicted 2).md", Source::PCloud),
     ("01-Scene-One [conflicted].md", Source::PCloud),
     ("01-Scene-One.conflicted.md", Source::PCloud),
-    ("01-Scene-One (josh@example.com).md", Source::Box),
+    ("01-Scene-One (ada@example.com).md", Source::Box),
     ("01-Scene-One (1).md", Source::SyncApp),
     ("01-Scene-One-DESKTOP-4F2K9QX.md", Source::OneDrive),
     ("01-Scene-One 2.md", Source::ICloud),
@@ -185,7 +185,7 @@ fn a_copy_never_reaches_an_export() {
     let d = book("export");
     put(
         &d,
-        "01-Scene-One (Josh's conflicted copy 2026-09-25).md",
+        "01-Scene-One (Ada's conflicted copy 2026-09-25).md",
         "Scene One",
         "PARALLEL VERSION from the laptop.",
     );
@@ -219,7 +219,7 @@ fn a_copy_never_reaches_an_export() {
 #[test]
 fn a_moved_scene_takes_its_copies_with_it_and_brings_them_back() {
     let d = book("move");
-    let copy_name = "01-Scene-One (Josh's conflicted copy 2026-09-25).md";
+    let copy_name = "01-Scene-One (Ada's conflicted copy 2026-09-25).md";
     put(&d, copy_name, "Scene One", "The laptop's version.");
     let one = chapter(&d).join("01-Scene-One.md");
     let moved = project::move_item(&d, &one, false).unwrap();
@@ -227,7 +227,7 @@ fn a_moved_scene_takes_its_copies_with_it_and_brings_them_back() {
         names(&d),
         [
             "01-Scene-Two.md",
-            "02-Scene-One (Josh's conflicted copy 2026-09-25).md",
+            "02-Scene-One (Ada's conflicted copy 2026-09-25).md",
             "02-Scene-One.md",
         ],
         "the copy follows its scene, not the number"
@@ -243,7 +243,7 @@ fn a_moved_scene_takes_its_copies_with_it_and_brings_them_back() {
     assert_eq!(
         names(&d),
         [
-            "01-Scene-One (Josh's conflicted copy 2026-09-25).md",
+            "01-Scene-One (Ada's conflicted copy 2026-09-25).md",
             "01-Scene-One.md",
             "02-Scene-Two.md",
         ]
@@ -315,7 +315,7 @@ fn taking_the_copy_keeps_the_scenes_words_in_history_and_the_copy_in_the_trash()
     let d = book("take");
     let copy = put(
         &d,
-        "01-Scene-One (Josh's conflicted copy 2026-09-25).md",
+        "01-Scene-One (Ada's conflicted copy 2026-09-25).md",
         "Scene One",
         "The laptop's longer version of the crossing.",
     );
@@ -376,7 +376,7 @@ fn keeping_both_makes_the_copy_a_scene_right_after_the_original() {
     let d = book("both");
     let copy = put(
         &d,
-        "01-Scene-One (Josh's conflicted copy 2026-09-25).md",
+        "01-Scene-One (Ada's conflicted copy 2026-09-25).md",
         "Scene One",
         "The laptop's version.",
     );
@@ -398,7 +398,7 @@ fn keeping_both_makes_the_copy_a_scene_right_after_the_original() {
     assert_eq!(
         names(&d),
         [
-            "01-Scene-One (Josh's conflicted copy 2026-09-25).md",
+            "01-Scene-One (Ada's conflicted copy 2026-09-25).md",
             "01-Scene-One.md",
             "02-Scene-Two.md"
         ]

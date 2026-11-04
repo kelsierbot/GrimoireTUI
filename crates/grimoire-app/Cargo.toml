@@ -3,7 +3,7 @@ name = "grimoire-app"
 version.workspace = true
 edition = "2024"
 description = "Front-end-facing services over grimoire-core: shelf, outline, scene, guarded save"
-authors = ["Josh King"]
+authors = ["Catfinity Studios"]
 license = "MIT"
 repository = "https://github.com/kelsierbot/GrimoireTUI"
 

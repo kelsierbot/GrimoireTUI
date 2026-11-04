@@ -1005,7 +1005,7 @@ fn keyword(title: &str) -> String {
         .unwrap_or_else(|| "UNTITLED".into())
 }
 
-/// `King / ARCHIVE / ` — the page number follows. The keyword is the
+/// `Quill / ARCHIVE / ` — the page number follows. The keyword is the
 /// manuscript setting's, or the title's first real word.
 fn header_text(b: &Book) -> String {
     let name = surname(b.author);
@@ -2451,7 +2451,7 @@ mod tests {
         put(
             &d,
             "novel.toml",
-            "title = \"The Archive\"\nauthor = \"Josh King\"\npart_label = \"Act\"\n",
+            "title = \"The Archive\"\nauthor = \"Ada Quill\"\npart_label = \"Act\"\n",
         );
         put(
             &d,
@@ -2659,7 +2659,7 @@ mod tests {
 
     #[test]
     fn the_running_header_is_surname_and_keyword() {
-        assert_eq!(surname("Josh King"), "King");
+        assert_eq!(surname("Ada Quill"), "Quill");
         assert_eq!(surname("Martin Luther King Jr."), "King");
         assert_eq!(surname(""), "");
         assert_eq!(keyword("The Archive"), "ARCHIVE");
@@ -2678,8 +2678,8 @@ mod tests {
 
     #[test]
     fn book_identifiers_are_stable_and_distinct() {
-        let a = book_id("The Archive", "Josh King");
-        assert_eq!(a, book_id("The Archive", "Josh King"));
+        let a = book_id("The Archive", "Ada Quill");
+        assert_eq!(a, book_id("The Archive", "Ada Quill"));
         assert_ne!(a, book_id("The Archive", "Someone Else"));
         assert_ne!(book_id("ab", "c"), book_id("a", "bc"));
         assert!(
@@ -2694,7 +2694,7 @@ mod tests {
         let p = Project::load(&d).unwrap();
         let out = export(&p, &all_options()).unwrap();
         assert_eq!(out.files.len(), 3);
-        let docx_path = d.join("exports/King_The-Archive_Manuscript.docx");
+        let docx_path = d.join("exports/Quill_The-Archive_Manuscript.docx");
         assert!(
             out.files.contains(&docx_path),
             "Lastname_Title: {:?}",
@@ -2721,12 +2721,12 @@ mod tests {
         let paras = docx_paragraphs(doc);
         let has = |style: &str, text: &str| paras.iter().any(|(s, t)| s == style && t == text);
         assert!(
-            paras[0].1.starts_with("Josh King") && paras[0].1.ends_with("about 0 words"),
+            paras[0].1.starts_with("Ada Quill") && paras[0].1.ends_with("about 0 words"),
             "{:?}",
             paras[0]
         );
         assert!(has("Title", "The Archive"), "title case, as typed");
-        assert!(has("Centered", "by Josh King"));
+        assert!(has("Centered", "by Ada Quill"));
         assert!(has("Heading1", "Act One") && has("Heading1", "Act Two"));
         assert!(
             has("Heading2", "Chapter One")
@@ -2789,7 +2789,7 @@ mod tests {
         assert!(doc.contains("<w:headerReference w:type=\"default\" r:id=\"rIdHeader\"/>"));
         assert!(doc.contains("<w:pgNumType w:start=\"1\"/>"));
         let header = entry(&files, "word/header1.xml");
-        assert!(header.contains("King / ARCHIVE / "));
+        assert!(header.contains("Quill / ARCHIVE / "));
         assert!(header.contains(" PAGE "));
         assert!(entry(&files, "word/styles.xml").contains("Times New Roman"));
 
@@ -2838,7 +2838,7 @@ mod tests {
             }
         }
         let opf = entry(&files, "OEBPS/content.opf");
-        let id = book_id("The Archive", "Josh King");
+        let id = book_id("The Archive", "Ada Quill");
         assert!(opf.contains(&format!(
             "<dc:identifier id=\"book-id\">{id}</dc:identifier>"
         )));
@@ -2940,7 +2940,7 @@ mod tests {
 
         let out = export(&p, &all_options()).unwrap();
         assert_eq!(out.tks.len(), 1, "the export says so too");
-        let docx = unzip(&fs::read(d.join("exports/King_The-Archive_Manuscript.docx")).unwrap());
+        let docx = unzip(&fs::read(d.join("exports/Quill_The-Archive_Manuscript.docx")).unwrap());
         let doc = entry(&docx, "word/document.xml");
         let paras = docx_paragraphs(doc);
         let text: String = paras
@@ -3001,7 +3001,7 @@ mod tests {
         );
 
         let docx_file =
-            unzip(&fs::read(d.join("exports/King_The-Archive_Manuscript_Act-Two.docx")).unwrap());
+            unzip(&fs::read(d.join("exports/Quill_The-Archive_Manuscript_Act-Two.docx")).unwrap());
         let paras = docx_paragraphs(entry(&docx_file, "word/document.xml"));
         let headings: Vec<&str> = paras
             .iter()
@@ -3049,7 +3049,7 @@ mod tests {
         put(
             &d,
             "front-matter/01-title.md",
-            "Josh King\n\n# The Archive\n\nA *novel*\n",
+            "Ada Quill\n\n# The Archive\n\nA *novel*\n",
         );
         put(&d, "front-matter/02-dedication.md", "For Wren.\n");
         let p = Project::load(&d).unwrap();
@@ -3125,7 +3125,7 @@ mod tests {
         let d = book_dir("compile");
         let p = Project::load(&d).unwrap();
         let expected = concat!(
-            "Josh King  \n\nabout 0 words\n\n# The Archive\n\nby Josh King\n\n",
+            "Ada Quill  \n\nabout 0 words\n\n# The Archive\n\nby Ada Quill\n\n",
             "\n# ACT ONE\n\n",
             "\n## Chapter One\n\n",
             "The building had *no* windows on the north face.\n\n“Wait — **now**,” she said, & meant <it>.\n",
@@ -3176,8 +3176,8 @@ mod tests {
         let d = book_dir("titlepage");
         set_look(
             &d,
-            "\n[contact]\nlegal_name = \"Joshua King\"\naddress = [\"12 Harbour Road\", \"Kokomo\"]\n\
-             phone = \"555-0100\"\nemail = \"josh@example.com\"\nagent = [\"Sam Lee, Lee Literary\"]\n",
+            "\n[contact]\nlegal_name = \"Adaline Quill\"\naddress = [\"12 Harbour Road\", \"Seaport\"]\n\
+             phone = \"555-0100\"\nemail = \"ada@example.com\"\nagent = [\"Sam Lee, Lee Literary\"]\n",
         );
         let (paras, doc, styles, header) = docx_of(&d, &all_options());
         let lines: Vec<&str> = paras
@@ -3188,11 +3188,11 @@ mod tests {
         assert_eq!(
             lines,
             [
-                "Joshua Kingabout 0 words",
+                "Adaline Quillabout 0 words",
                 "12 Harbour Road",
-                "Kokomo",
+                "Seaport",
                 "555-0100",
-                "josh@example.com",
+                "ada@example.com",
                 "",
                 "Sam Lee, Lee Literary"
             ],
@@ -3200,7 +3200,7 @@ mod tests {
         );
         let title = paras.iter().position(|(s, _)| s == "Title").unwrap();
         assert_eq!(paras[title].1, "The Archive", "title case, as typed");
-        assert_eq!(paras[title + 1], ("Centered".into(), "by Josh King".into()));
+        assert_eq!(paras[title + 1], ("Centered".into(), "by Ada Quill".into()));
         // Halfway down: the space before the title makes up what the block
         // above didn't take (4.5 inches from the top margin in all).
         assert!(
@@ -3212,7 +3212,7 @@ mod tests {
         assert!(styles.contains("w:line=\"480\""));
         assert!(styles.contains("<w:ind w:firstLine=\"720\"/>"));
         assert!(doc.contains("<w:pgSz w:w=\"12240\" w:h=\"15840\"/>"));
-        assert!(header.contains("King / ARCHIVE / "), "the byline's surname");
+        assert!(header.contains("Quill / ARCHIVE / "), "the byline's surname");
         fs::remove_dir_all(&d).unwrap();
     }
 
@@ -3246,7 +3246,7 @@ mod tests {
         let ch1 = paras.iter().position(|(_, t)| t == "CHAPTER ONE").unwrap();
         assert_eq!(paras[ch1 + 1].0, "Unindented", "flush after the heading");
         assert_eq!(paras.last().unwrap().1, "THE END");
-        assert!(header.contains("King / Archive Book / "));
+        assert!(header.contains("Quill / Archive Book / "));
         fs::remove_dir_all(&d).unwrap();
     }
 
@@ -3376,8 +3376,8 @@ mod tests {
         .unwrap();
         assert!(
             out.files.iter().any(
-                |f| f.ends_with("King_The-Archive_Manuscript_Chapters-1-1.docx")
-                    || f.ends_with("King_The-Archive_Manuscript_Chapter-1.docx")
+                |f| f.ends_with("Quill_The-Archive_Manuscript_Chapters-1-1.docx")
+                    || f.ends_with("Quill_The-Archive_Manuscript_Chapter-1.docx")
             ),
             "{:?}",
             out.files
@@ -3433,7 +3433,7 @@ mod tests {
         put(
             &d,
             "back-matter/02-Ebook/01-About.md",
-            "---\ncompile: true\n---\n\n# About the Author\n\nJosh lives by the sea.\n",
+            "---\ncompile: true\n---\n\n# About the Author\n\nAda lives by the sea.\n",
         );
         put(
             &d,
@@ -3443,7 +3443,7 @@ mod tests {
         put(
             &d,
             "back-matter/03-Also-By.md",
-            "---\ncompile: true\n---\n\n# Also by Josh King\n\nThe Tide.\n",
+            "---\ncompile: true\n---\n\n# Also by Ada Quill\n\nThe Tide.\n",
         );
         put(
             &d,
@@ -3519,7 +3519,7 @@ mod tests {
             .iter()
             .map(|id| text_of(&files, &format!("OEBPS/{id}.xhtml")))
             .collect();
-        assert!(back_text.contains("About the Author") && back_text.contains("Also by Josh King"));
+        assert!(back_text.contains("About the Author") && back_text.contains("Also by Ada Quill"));
         assert!(!back_text.contains("Colophon") && !back_text.contains("Never ships"));
         assert!(back_text.contains("epub:type=\"backmatter\""));
         assert!(page.contains(">About the Author</a>"));
@@ -3613,10 +3613,10 @@ mod tests {
         assert!(styles.contains("w:styleId=\"Body\"") && styles.contains("<w:jc w:val=\"both\"/>"));
         assert!(styles.contains("<w:lang w:val=\"en-GB\""));
         assert!(text_of(&files, "word/header-title.xml").contains("The Archive"));
-        assert!(text_of(&files, "word/header-author.xml").contains("Josh King"));
+        assert!(text_of(&files, "word/header-author.xml").contains("Ada Quill"));
         // Scene breaks are the ornament; the paperback's back matter only.
         assert!(doc.contains("⁂"));
-        assert!(doc.contains("Colophon") && doc.contains("Also by Josh King"));
+        assert!(doc.contains("Colophon") && doc.contains("Also by Ada Quill"));
         assert!(!doc.contains("About the Author"));
 
         // The PDF's document: right-hand-only openers, heads left and right.

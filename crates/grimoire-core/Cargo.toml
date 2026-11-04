@@ -3,7 +3,7 @@ name = "grimoire-core"
 version.workspace = true
 edition = "2024"
 description = "The book on disk behind Grimoire: project, editor, history, export, search"
-authors = ["Josh King"]
+authors = ["Catfinity Studios"]
 license = "MIT"
 repository = "https://github.com/kelsierbot/GrimoireTUI"
 
