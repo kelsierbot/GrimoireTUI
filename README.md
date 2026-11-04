@@ -63,6 +63,14 @@ brew install grimoire
 
 `brew upgrade` then brings each new release.
 
+**With winget** (Windows):
+
+```powershell
+winget install CatfinityStudios.Grimoire
+```
+
+`winget upgrade CatfinityStudios.Grimoire` brings each new release. New versions can take a day or so to reach winget after they come out here.
+
 **Debian and Ubuntu** — a package, handy for a school lab or anywhere IT
 installs things for everyone:
 
