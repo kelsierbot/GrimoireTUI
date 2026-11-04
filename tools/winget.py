@@ -84,7 +84,7 @@ PackageName: Grimoire
 PackageUrl: https://grimoiretui.com
 License: MIT
 LicenseUrl: https://github.com/{REPO}/blob/main/LICENSE
-Copyright: Copyright (c) Josh King, Catfinity Studios
+Copyright: Copyright (c) Catfinity Studios
 ShortDescription: A cozy writing desk for novels that lives in your terminal.
 Description: |-
   Grimoire is a writing desk for novels that lives in your terminal. Your book is
