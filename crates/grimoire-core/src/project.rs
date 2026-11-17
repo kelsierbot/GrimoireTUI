@@ -2102,6 +2102,7 @@ pub fn rename(path: &Path, name: &str) -> Result<PathBuf> {
     let ext = if folder { "" } else { ".md" };
     let file = crate::names::fit(parent, &prefix, &crate::names::stem(name), ext);
     let target = parent.join(&file);
+    let mut renamed: Vec<(PathBuf, PathBuf)> = Vec::new();
     if target != path {
         // Capitals or accents apart from a neighbour is still a collision on
         // a Mac, on Windows and in Box; only this item's own name may change
@@ -2118,6 +2119,7 @@ pub fn rename(path: &Path, name: &str) -> Result<PathBuf> {
             sync::copies_of(path)
         };
         fs::rename(path, &target).with_context(|| format!("renaming {}", path.display()))?;
+        renamed.push((path.to_path_buf(), target.clone()));
         // Its conflict copies follow it under the new name.
         let new_stem = target
             .file_stem()
@@ -2125,8 +2127,8 @@ pub fn rename(path: &Path, name: &str) -> Result<PathBuf> {
             .unwrap_or_default();
         for (copy, c) in copies {
             let to = parent.join(format!("{new_stem}{}.md", c.suffix));
-            if !to.exists() {
-                let _ = fs::rename(&copy, &to);
+            if !to.exists() && fs::rename(&copy, &to).is_ok() {
+                renamed.push((copy, to));
             }
         }
     }
@@ -2137,7 +2139,22 @@ pub fn rename(path: &Path, name: &str) -> Result<PathBuf> {
     {
         write_atomic(&target, &updated)?;
     }
+    // `[[links]]` to it follow, as they do for a move; renaming it back
+    // brings them back.
+    if !renamed.is_empty()
+        && let Some(root) = book_root(parent)
+    {
+        rewrite_links(&root, &renamed);
+    }
     Ok(target)
+}
+
+/// The book `dir` is in: the nearest folder above it (or it) with a
+/// novel.toml or a manuscript folder.
+fn book_root(dir: &Path) -> Option<PathBuf> {
+    dir.ancestors()
+        .find(|a| a.join("novel.toml").is_file() || a.join("manuscript").is_dir())
+        .map(Path::to_path_buf)
 }
 
 /// Why a name can't be used: `file` would be the same file as `other` to a
@@ -4220,6 +4237,44 @@ mod tests {
     }
 
     // ---- review fixes -----------------------------------------------------
+
+    #[test]
+    fn renaming_keeps_links_and_renaming_back_restores_them() {
+        let d = temp_dir("rv-rename-links");
+        fs::write(d.join("novel.toml"), "title = \"Links\"\n").unwrap();
+        let ch = d.join("manuscript/01-Chapter-One");
+        let notes = d.join("notes/01-Characters");
+        fs::create_dir_all(&ch).unwrap();
+        fs::create_dir_all(&notes).unwrap();
+        let scene = ch.join("01-Opening.md");
+        let text = "---\ntitle: Opening\n---\n\nAda sees [[notes/01-Characters/01-Wren]] \
+                    and [[01-Wren|the boy]]. Back in [[manuscript/01-Chapter-One/01-Opening#Top]].\n";
+        fs::write(&scene, text).unwrap();
+        let wren = notes.join("01-Wren.md");
+        fs::write(&wren, "---\ntitle: Wren\n---\n\nSee [[01-Opening]].\n").unwrap();
+
+        let kestrel = rename(&wren, "Kestrel").unwrap();
+        assert_eq!(kestrel, notes.join("01-Kestrel.md"));
+        let now = fs::read_to_string(&scene).unwrap();
+        assert!(now.contains("[[notes/01-Characters/01-Kestrel]]"), "{now}");
+        assert!(now.contains("[[01-Kestrel|the boy]]"), "{now}");
+
+        // A folder: links through it follow.
+        let ch2 = rename(&ch, "The Start").unwrap();
+        let scene2 = ch2.join("01-Opening.md");
+        let now = fs::read_to_string(&scene2).unwrap();
+        assert!(
+            now.contains("[[manuscript/01-The-Start/01-Opening#Top]]"),
+            "{now}"
+        );
+
+        // Undo, in reverse: every link is as it was.
+        let ch_back = rename(&ch2, "Chapter One").unwrap();
+        assert_eq!(ch_back, ch);
+        rename(&kestrel, "Wren").unwrap();
+        assert_eq!(fs::read_to_string(&scene).unwrap(), text);
+        fs::remove_dir_all(&d).unwrap();
+    }
 
     #[test]
     fn two_with_one_number_really_swap_places() {
