@@ -57,6 +57,17 @@ fn opens_after(c: Option<char>) -> bool {
     }
 }
 
+/// Does a quote between `before` and `after` open? After a dash it can go
+/// either way: `"I never--" she said` closes, `he began--"No."` opens. The
+/// next real character decides: a letter or digit opens, anything else
+/// (a space, the end of the line, a comma) closes.
+fn quote_opens(before: Option<char>, after: Option<char>) -> bool {
+    if matches!(before, Some('—' | '–' | '-')) {
+        return after.is_some_and(|c| c.is_alphanumeric() || matches!(c, '(' | '[' | '{' | '…'));
+    }
+    opens_after(before)
+}
+
 /// `line` with book typography. Borrowed when there's nothing to change.
 pub fn line(text: &str, hyphen: SpacedHyphen) -> Cow<'_, str> {
     if !text.chars().any(|c| matches!(c, '"' | '\'' | '-' | '.')) {
@@ -74,7 +85,12 @@ pub fn line(text: &str, hyphen: SpacedHyphen) -> Cow<'_, str> {
         match c {
             '"' => {
                 let before = prev_real(&out);
-                out.push(if opens_after(before) { '“' } else { '”' });
+                let after = next_real(i + 1);
+                out.push(if quote_opens(before, after) {
+                    '“'
+                } else {
+                    '”'
+                });
                 i += 1;
             }
             '\'' => {
@@ -85,14 +101,15 @@ pub fn line(text: &str, hyphen: SpacedHyphen) -> Cow<'_, str> {
                     .skip_while(|c| is_mark(**c))
                     .take_while(|c| c.is_alphanumeric())
                     .collect();
-                let elided = opens_after(before)
+                let opens = quote_opens(before, after);
+                let elided = opens
                     && (ELIDED.contains(&word_after.to_lowercase().as_str())
                         // '90s, '08
                         || (word_after.len() >= 2
                             && word_after.chars().take(2).all(|d| d.is_ascii_digit())));
                 let apostrophe = before.is_some_and(char::is_alphanumeric)
                     && after.is_some_and(char::is_alphanumeric);
-                out.push(if elided || apostrophe || !opens_after(before) {
+                out.push(if elided || apostrophe || !opens {
                     '’'
                 } else {
                     '‘'
@@ -253,6 +270,19 @@ mod tests {
         assert_eq!(t("well-known"), "well-known", "a hyphen in a word stays");
         assert_eq!(t("and then..."), "and then…");
         assert_eq!(t("- a list?"), "- a list?", "a hyphen opening a line stays");
+    }
+
+    #[test]
+    fn a_quote_after_a_dash_faces_the_way_the_next_letter_says() {
+        assert_eq!(t("\"I never--\" she said."), "“I never—” she said.");
+        assert_eq!(t("\"I never—\" she said."), "“I never—” she said.");
+        assert_eq!(t("\"I never-\" she said."), "“I never-” she said.");
+        assert_eq!(t("\"Wait--\""), "“Wait—”");
+        assert_eq!(t("\"Stop--\", he said"), "“Stop—”, he said");
+        assert_eq!(t("'I never--' she said."), "‘I never—’ she said.");
+        assert_eq!(t("He began--\"No.\""), "He began—“No.”");
+        assert_eq!(t("He began--'No.'"), "He began—‘No.’");
+        assert_eq!(t("then--'em too"), "then—’em too");
     }
 
     #[test]
