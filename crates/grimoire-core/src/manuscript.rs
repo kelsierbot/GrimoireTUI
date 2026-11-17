@@ -363,7 +363,7 @@ pub fn compile(p: &Project) -> Result<Compiled> {
     let book = crate::export::book(p, None, crate::export::Scope::Whole)?;
     let path = p
         .root
-        .join(format!("{}-manuscript.md", crate::export::slug(book.title)));
+        .join(format!("{}-manuscript.md", crate::export::slug(book.name)));
     crate::atomic::write_text(&path, &crate::export::markdown(&book))?;
 
     Ok(Compiled {

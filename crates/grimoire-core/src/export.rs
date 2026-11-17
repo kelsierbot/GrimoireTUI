@@ -180,7 +180,7 @@ pub fn export(p: &Project, opts: &ExportOptions) -> Result<Exported> {
     }
     let dir = p.root.join("exports");
     std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
-    let stem = slug(book.title);
+    let stem = slug(book.name);
     let manuscript = manuscript_stem(&book, opts.parts.is_some(), opts.scope);
 
     let mut files = Vec::new();
@@ -270,7 +270,7 @@ pub fn export(p: &Project, opts: &ExportOptions) -> Result<Exported> {
 /// with what a sample holds after it. Safe on every system (names rules).
 fn manuscript_stem(b: &Book, some_parts: bool, scope: Scope) -> String {
     let name = crate::names::stem(surname(b.author));
-    let title = crate::names::stem(b.title);
+    let title = crate::names::stem(b.name);
     let mut stem = if surname(b.author).is_empty() {
         format!("{title}_Manuscript")
     } else {
@@ -298,7 +298,10 @@ fn manuscript_stem(b: &Book, some_parts: bool, scope: Scope) -> String {
 
 /// The manuscript as it will be read: what's in, in order, numbered.
 pub(crate) struct Book<'a> {
-    pub title: &'a str,
+    /// With book typography, as are the part and chapter titles.
+    pub title: Cow<'a, str>,
+    /// The title as typed, for the names of the files.
+    pub name: &'a str,
     /// The byline.
     pub author: &'a str,
     /// The title page's contact block.
@@ -330,14 +333,14 @@ pub(crate) struct Book<'a> {
 
 pub(crate) enum Piece<'a> {
     Part {
-        title: &'a str,
+        title: Cow<'a, str>,
         depth: usize,
     },
     /// `number` is the chapter's place in the whole book, not in this export;
     /// `None` for a chapter that takes no number (a Prologue, an Epilogue).
     Chapter {
         number: Option<usize>,
-        title: &'a str,
+        title: Cow<'a, str>,
         depth: usize,
         scenes: Vec<Cow<'a, str>>,
     },
@@ -558,8 +561,10 @@ pub(crate) fn book<'a>(p: &'a Project, parts: Option<&[usize]>, scope: Scope) ->
 
     let m = &p.meta;
     let title = m.title.trim();
+    let name = if title.is_empty() { "Untitled" } else { title };
     let mut b = Book {
-        title: if title.is_empty() { "Untitled" } else { title },
+        title: typeset::line(name, m.manuscript.spaced_hyphen),
+        name,
         author: m.author.trim(),
         contact: &m.contact,
         look: &m.manuscript,
@@ -813,6 +818,7 @@ fn sample(items: Vec<Item<'_>>, scope: Scope) -> Vec<Item<'_>> {
 /// The kept items as the book's pieces, counted; a part left with nothing in
 /// it goes too.
 fn finish<'a>(p: &'a Project, b: &mut Book<'a>, items: Vec<Item<'a>>) {
+    let hyphen = p.meta.manuscript.spaced_hyphen;
     let has_content_after = |i: usize| {
         items[i + 1..]
             .iter()
@@ -828,7 +834,10 @@ fn finish<'a>(p: &'a Project, b: &mut Book<'a>, items: Vec<Item<'a>>) {
             continue;
         }
         match it {
-            Item::Part { title, depth } => b.pieces.push(Piece::Part { title, depth }),
+            Item::Part { title, depth } => b.pieces.push(Piece::Part {
+                title: typeset::line(title, hyphen),
+                depth,
+            }),
             Item::Chapter(c) => {
                 b.chapters += 1;
                 b.scenes += c.scenes.len();
@@ -838,7 +847,7 @@ fn finish<'a>(p: &'a Project, b: &mut Book<'a>, items: Vec<Item<'a>>) {
                 }
                 b.pieces.push(Piece::Chapter {
                     number: c.number,
-                    title: c.title,
+                    title: typeset::line(c.title, hyphen),
                     depth: c.depth,
                     scenes: c.scenes.into_iter().map(|(t, _, _)| t).collect(),
                 });
@@ -1011,7 +1020,7 @@ fn header_text(b: &Book) -> String {
     let name = surname(b.author);
     let set = b.look.header_keyword.trim();
     let key = if set.is_empty() {
-        keyword(b.title)
+        keyword(&b.title)
     } else {
         set.to_string()
     };
@@ -1718,7 +1727,7 @@ fn docx(b: &Book) -> Result<Vec<u8>> {
          <dcterms:created xsi:type=\"dcterms:W3CDTF\">{now}</dcterms:created>\
          <dcterms:modified xsi:type=\"dcterms:W3CDTF\">{now}</dcterms:modified>\
          </cp:coreProperties>\n",
-        xml_escape(b.title),
+        xml_escape(&b.title),
         xml_escape(b.author)
     );
 
@@ -2117,12 +2126,12 @@ fn epub_with(b: &Book, x: &Extras) -> Result<Vec<u8>> {
     if let Some((href, _, _)) = &cover {
         let body = format!(
             "<section class=\"cover\" epub:type=\"cover\">\n<img src=\"{href}\" alt=\"{}\"/>\n</section>",
-            xml_escape(b.title)
+            xml_escape(&b.title)
         );
         docs.push((
             "cover.xhtml".into(),
             "cover".into(),
-            page(b.title, &body),
+            page(&b.title, &body),
             "",
         ));
     }
@@ -2130,7 +2139,7 @@ fn epub_with(b: &Book, x: &Extras) -> Result<Vec<u8>> {
 
     if b.front.is_empty() {
         let mut body = String::from("<div class=\"titlepage\" epub:type=\"titlepage\">\n");
-        let _ = writeln!(body, "<h1 class=\"title\">{}</h1>", xml_escape(b.title));
+        let _ = writeln!(body, "<h1 class=\"title\">{}</h1>", xml_escape(&b.title));
         if !b.author.is_empty() {
             let _ = writeln!(body, "<p class=\"byline\">{}</p>", xml_escape(b.author));
         }
@@ -2138,7 +2147,7 @@ fn epub_with(b: &Book, x: &Extras) -> Result<Vec<u8>> {
         docs.push((
             "title.xhtml".into(),
             "title".into(),
-            page(b.title, &body),
+            page(&b.title, &body),
             "",
         ));
     } else {
@@ -2147,7 +2156,7 @@ fn epub_with(b: &Book, x: &Extras) -> Result<Vec<u8>> {
             docs.push((
                 format!("front-{}.xhtml", i + 1),
                 format!("front-{}", i + 1),
-                page(b.title, &body),
+                page(&b.title, &body),
                 "",
             ));
         }
@@ -2263,7 +2272,7 @@ fn epub_with(b: &Book, x: &Extras) -> Result<Vec<u8>> {
                 text_no += 1;
                 let id = unique_id(&docs, format!("text-{text_no:02}"));
                 let body = format!("<div class=\"text\">\n{}</div>", html_blocks(s));
-                docs.push((format!("{id}.xhtml"), id, page(b.title, &body), ""));
+                docs.push((format!("{id}.xhtml"), id, page(&b.title, &body), ""));
             }
         }
     }
@@ -2302,8 +2311,8 @@ fn epub_with(b: &Book, x: &Extras) -> Result<Vec<u8>> {
     );
     let back_at = back_at + 1;
 
-    let id = book_id(b.title, b.author);
-    let title = xml_escape(b.title);
+    let id = book_id(b.name, b.author);
+    let title = xml_escape(&b.title);
     let modified = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ");
     let m = x.meta;
 
@@ -4046,6 +4055,36 @@ mod tests {
                 page.0
             );
         }
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn titles_get_the_same_typography_as_the_prose() {
+        let d = std::env::temp_dir().join(format!(
+            "grimoire-export-title-typography-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&d);
+        put(
+            &d,
+            "novel.toml",
+            "title = \"Don't Look -- Yet\"\nauthor = \"Ada Quill\"\n",
+        );
+        put(
+            &d,
+            "manuscript/01-Ada's-Road/01-Chapter-One--The-'Lantern'/01-Scene.md",
+            "\"Go,\" she said.\n",
+        );
+        let p = Project::load(&d).unwrap();
+        let b = book(&p, None, Scope::Whole).unwrap();
+        let md = markdown(&b);
+        for t in ["# Don’t Look—Yet", "ADA’S ROAD", "## Chapter One\n\n*The ‘Lantern’*", "“Go,”"] {
+            assert!(md.contains(t), "{t} in the Markdown: {md}");
+        }
+        let (paras, ..) = docx_of(&d, &all_options());
+        let all: String = paras.iter().map(|(_, t)| t.as_str()).collect();
+        assert!(all.contains("‘Lantern’"), "{paras:?}");
+        assert!(!all.contains('\''), "no straight quote left: {paras:?}");
         fs::remove_dir_all(&d).unwrap();
     }
 }

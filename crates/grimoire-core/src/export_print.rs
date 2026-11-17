@@ -445,7 +445,7 @@ fn build(b: &Book, pr: &Print) -> Vec<Section> {
     if b.front.is_empty() {
         let mut title = Vec::new();
         sink(layout, &mut title);
-        title.push(Para::text(Style::BookTitle, b.title));
+        title.push(Para::text(Style::BookTitle, &b.title));
         if !b.author.is_empty() {
             title.push(Para::text(Style::BookAuthor, b.author));
         }
@@ -990,8 +990,8 @@ fn docx(b: &Book, pr: &Print, sections: &[Section], pages: usize) -> Result<Vec<
     let blank_footer = format!(
         "{XML_HEAD}<w:ftr xmlns:w=\"{W_NS}\" xmlns:r=\"{R_NS}\"><w:p><w:pPr><w:pStyle w:val=\"Folio\"/></w:pPr></w:p></w:ftr>\n"
     );
-    let author_head = if b.author.is_empty() {
-        b.title
+    let author_head: &str = if b.author.is_empty() {
+        &b.title
     } else {
         b.author
     };
@@ -1004,7 +1004,7 @@ fn docx(b: &Book, pr: &Print, sections: &[Section], pages: usize) -> Result<Vec<
          <dcterms:created xsi:type=\"dcterms:W3CDTF\">{now}</dcterms:created>\
          <dcterms:modified xsi:type=\"dcterms:W3CDTF\">{now}</dcterms:modified>\
          </cp:coreProperties>\n",
-        xml_escape(b.title),
+        xml_escape(&b.title),
         xml_escape(b.author)
     );
     let files: Vec<(String, String)> = vec![
@@ -1024,7 +1024,7 @@ fn docx(b: &Book, pr: &Print, sections: &[Section], pages: usize) -> Result<Vec<
             docx_styles(layout, pr.meta.language()),
         ),
         ("word/settings.xml".into(), SETTINGS.into()),
-        ("word/header-title.xml".into(), header(b.title)),
+        ("word/header-title.xml".into(), header(&b.title)),
         ("word/header-author.xml".into(), header(author_head)),
         ("word/header-blank.xml".into(), header("")),
         ("word/footer-folio.xml".into(), folio),
@@ -1142,7 +1142,7 @@ fn fodt(b: &Book, pr: &Print, sections: &[Section], pages: usize) -> String {
          <style:default-style style:family=\"paragraph\"><style:paragraph-properties fo:hyphenation-ladder-count=\"2\"/>\
          <style:text-properties style:font-name=\"{face}\" fo:font-size=\"{}\" fo:language=\"{lang}\" fo:country=\"{country}\" \
          fo:hyphenate=\"true\" fo:hyphenation-remain-char-count=\"3\" fo:hyphenation-push-char-count=\"3\"/></style:default-style>\n",
-        xml_escape(b.title),
+        xml_escape(&b.title),
         xml_escape(b.author),
         pt(layout.size)
     );
@@ -1285,8 +1285,8 @@ fn fodt(b: &Book, pr: &Print, sections: &[Section], pages: usize) -> String {
 
     // Master pages. An opener is right-hand only; the page after it is the
     // body page, with the author on the left and the title on the right.
-    let author_head = if b.author.is_empty() {
-        b.title
+    let author_head: &str = if b.author.is_empty() {
+        &b.title
     } else {
         b.author
     };
@@ -1305,7 +1305,7 @@ fn fodt(b: &Book, pr: &Print, sections: &[Section], pages: usize) -> String {
          <style:header-left><text:p text:style-name=\"RunningHead\">{}</text:p></style:header-left>\
          <style:footer>{folio}</style:footer><style:footer-left>{folio}</style:footer-left></style:master-page>\n\
          </office:master-styles>",
-        xml_escape(b.title),
+        xml_escape(&b.title),
         xml_escape(author_head)
     );
 
