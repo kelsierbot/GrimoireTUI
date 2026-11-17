@@ -236,14 +236,14 @@ const DEFAULT_THEME = 'Rainbow';
                 <tr><td>Esc</td><td>the menu: a short list, everything else one step down, and every row says what it does</td></tr>
                 <tr><td>F1 · ?</td><td>the help: every feature explained, opened where you are</td></tr>
                 <tr><td>Ctrl-K</td><td>find anything: actions, scenes, notes, themes</td></tr>
-                <tr><td>Esc › New book</td><td>start a whole new book, name it, and you're in</td></tr>
+                <tr><td>Esc › New book</td><td>start a whole new book (a novel, a short story or blank), or bring in a draft from Word, Markdown or text, split at its chapters</td></tr>
                 <tr><td>Tab</td><td>switch pane</td></tr>
                 <tr><td>n · c · p</td><td>new scene · chapter · part, named and placed for you</td></tr>
-                <tr><td>r · d</td><td>rename · delete (to the trash, and undoable)</td></tr>
+                <tr><td>r · d</td><td>rename · delete (to the trash: u brings it back, and d on the trash empties it)</td></tr>
                 <tr><td>Ctrl-D</td><td>focus mode: just the prose, centred</td></tr>
                 <tr><td>Ctrl-T</td><td>every %% note %% and TK in the book</td></tr>
                 <tr><td>v</td><td>another scene beside this one, read-only</td></tr>
-                <tr><td>F8</td><td>spelling, or click the underlined word</td></tr>
+                <tr><td>F8</td><td>spelling in American, British, Canadian or Australian English, or click the underlined word</td></tr>
                 <tr><td>Ctrl-Z · Ctrl-Y</td><td>undo · redo, in the prose and in the tree</td></tr>
                 <tr><td>F9</td><td>themes: nineteen, each with its own world, or make your own</td></tr>
                 <tr><td>F2</td><td>the Pomodoro timer</td></tr>
@@ -262,12 +262,13 @@ const DEFAULT_THEME = 'Rainbow';
               <strong>Read aloud</strong> reads your scene back to you, a sentence at a time, each
               one highlighted as it's read. Hearing prose catches what the eye skips. It uses a
               natural Piper voice if you have one, or your computer's own, and nothing leaves your
-              computer.
+              computer. The minus and plus keys slow it down or speed it up.
             </p>
             <p>
               Click the word count at the bottom left for <strong>Progress</strong>: your words each
               week, your pace lately, and roughly when you'll reach your goal. It's there to cheer
-              you on. No streaks, no days in a row, and a quiet week is just a short bar.
+              you on. Set a goal and it shows your pace and a finish date. Start a sprint for a
+              word goal against the clock. No streaks, no days in a row, and a quiet week is just a short bar.
             </p>
             <figure class="shot">
               <img src="/shots/help.webp" width="1620" height="1114" loading="lazy"
@@ -278,7 +279,8 @@ const DEFAULT_THEME = 'Rainbow';
               Notes between <code>%%</code> marks and <code>TK</code> placeholders never reach the
               book or the word count. Vertical movement is <strong>visual, not logical</strong>:
               Down moves one screen row inside a wrapped paragraph, which is the only behaviour
-              that feels right for prose.
+              that feels right for prose. Find and replace works across the whole book, one match at a
+              time or all at once, and it asks before it changes them all.
             </p>
           </section>
 

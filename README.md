@@ -122,6 +122,7 @@ grimoire                          open your manuscript
 grimoire ~/novels/the-archive     open a specific one
 grimoire new ~/novels/next-one    start one (add --short-story or --blank)
 grimoire import draft.docx        bring in a draft you already have
+grimoire help                     the commands and flags, in short
 grimoire music-setup              install + connect YouTube Music
 ```
 
@@ -247,16 +248,26 @@ row* goes through every row, and *Every key* lists every key. *About Grimoire…
 | `p` | new part: named for you ("Part Two", or "Act Two" if `part_label` says so), at the end of the manuscript |
 | `N` | new folder beside the selected one: outside the manuscript; in it, a chapter or part |
 | `r` | rename what's selected: the file is renamed to match and keeps its place |
-| `d` | delete what's selected: asks first, then moves it to `.grimoire/trash` |
+| `d` · `Delete` | delete what's selected: asks first, then moves it to `.grimoire/trash`. On the Trash itself, `d` empties it for good, after one question |
+| `u` *(in the Trash)* | restore what's selected to its old folder under its old name (the folder is made again if it's gone); on one scene inside a deleted chapter, just that scene comes back |
+| `i` *(in the tree)* | details: a scene's status, POV, synopsis and word target, and whether it goes in exports; on a note, the other names it's known by (*Esc › Writing tools › Scene details…* too) |
 | `Ctrl-Z` `Ctrl-Y` *(in the tree)* | undo · redo a delete, rename, move or new item: a delete comes back from the trash to where it was |
 | `Alt-↑` `Alt-↓` · `K` `J` | move what's selected up or down: a scene or folder crosses chapters and parts at the ends, a section changes places with its neighbour; dragging a row in the tree does the same |
 | `H` | the scene's history: every kept version, what changed, restore any |
 | `b` | the corkboard |
 | `/` | find in the whole book |
-| `Ctrl-F` | find in the scene (`Ctrl-F` again: the whole book) · `Tab` to replace · `Ctrl-R` replace all |
+| `Ctrl-F` | find in the scene (`Ctrl-F` again: the whole book) · `Tab` to replace · `Enter` there changes this match and moves on · `Ctrl-R` replaces all (in the whole book it asks first) |
+| `Ctrl-F` `Ctrl-F` *(after going to a match)* | back to the same book-wide list, on the same row (`/` in the outline does it too) |
 | `Ctrl-W` · `Ctrl-E` *(in find)* | whole words ↔ inside words · exact case ↔ any case (`Alt-W` / `Alt-C` too) |
 | `Ctrl-Z` `Ctrl-Y` | undo · redo (`Ctrl-Shift-Z` too, where the terminal can send it) |
 | `Ctrl-X` `Ctrl-C` | cut · copy the selection |
+| `Ctrl-V` `Ctrl-A` | paste, into the page or any box you're typing in (one step to undo) · select the whole scene |
+| `Ctrl-I` `Ctrl-B` | italics · bold on the selected words, or the word at the cursor; again takes it off (*Esc › Writing tools* has both, for terminals that send `Ctrl-I` as `Tab`) |
+| `Ctrl-←` `Ctrl-→` | move by word (`Alt` works too, and `Option` on a Mac) · `Ctrl-↑` `Ctrl-↓` by paragraph |
+| `Ctrl-Home` `Ctrl-End` | the top · the end of the scene |
+| `Shift` with a move key | select as you go: the arrows, `Home`, `End`, `PgUp`, `PgDn` |
+| `Ctrl-Backspace` `Ctrl-Delete` | delete the word before · after the cursor |
+| `←` `→` `Home` `End` `Delete` *(in a box)* | a caret in every one-line box: names, the synopsis, POV, author details, find and replace, book paths. A typo in the middle is mended in the middle |
 | `Ctrl-O` | open the note for the name under the cursor beside the scene, again to put it away |
 | `v` *(in the tree)* | show the selected scene beside, read-only: `Esc` closes it, `Enter` writes in it |
 | `Ctrl-D` | focus mode: just the prose; again to leave |
@@ -291,7 +302,8 @@ row* goes through every row, and *Every key* lists every key. *About Grimoire…
   what the eye skips. `Space` pauses, `←` `→` skip, `Esc` stops. It uses a
   natural [Piper](https://github.com/OHF-Voice/piper1-gpl) voice if you have
   one, or your computer's own (the Mac and Windows voices, Speech Dispatcher or
-  eSpeak on Linux). Nothing leaves your computer.
+  eSpeak on Linux). `-` and `+` make it slower or faster while it reads, and
+  it remembers. Nothing leaves your computer.
 - **Goals.** *Esc › This book › Goals…* sets the book's word goal and a day's,
   with presets: a month of drafting (50,000 words), a short story, a novel.
 - **Progress.** Click the word count at the bottom left (or *Esc › Writing
@@ -300,6 +312,17 @@ row* goes through every row, and *Every key* lists every key. *About Grimoire…
   in a row, and a quiet week is just a short bar.
 - **Revision passes.** *Next scene still in draft* walks the book by status;
   *Echo words* lights a word used again within forty words.
+- **Details.** `i` on a scene in the outline sets its status, POV, synopsis
+  and word target, and whether it goes in exports. On a note it sets the other
+  names it's known by. It's all kept in the scene's frontmatter, the same lines
+  you could write by hand.
+- **Moving, selecting, italics.** `Ctrl-←` `Ctrl-→` go a word at a time,
+  `Ctrl-↑` `Ctrl-↓` a paragraph, `Ctrl-Home` `Ctrl-End` to the top or end of
+  the scene, and `Shift` with any move key selects as it goes. Double-click
+  picks a word and a third click the paragraph. `Ctrl-I` and `Ctrl-B` put on
+  italics and bold.
+- **A caret in every box.** Names, the synopsis, POV, author details, find
+  and replace and book paths all take `←` `→` `Home` `End` and `Delete`.
 - **A scene beside** (`v` in the tree): another scene, read-only, next to the
   one you're writing, for continuity.
 
@@ -325,6 +348,9 @@ row* goes through every row, and *Every key* lists every key. *About Grimoire…
 - **Undo.** A word at a time, per scene, kept when you switch scenes. Typing
   over a selection replaces it; a paste is one step; a replace across the
   whole book is one step too.
+- **The Trash.** Deleting asks first and moves things to the Trash section.
+  `u` puts one back where it was, and `d` on the Trash itself empties it, after
+  one question.
 - **Moves can't strand anything.** A move that can't finish (a locked folder,
   a sync app holding a file) puts everything back, and anything a crash left
   mid-move reappears when the book opens.
@@ -338,12 +364,18 @@ row* goes through every row, and *Every key* lists every key. *About Grimoire…
 - **Find and replace** in a scene or across the book, grouped by part and
   chapter, with a preview before anything is replaced across scenes (each
   scene's previous version goes to its history first). Whole words in their
-  exact case unless you say otherwise (`Ctrl-W`, `Ctrl-E`).
+  exact case unless you say otherwise (`Ctrl-W`, `Ctrl-E`). In the whole-book
+  search, `Enter` in the replace box changes only the highlighted match and
+  moves on, and `Ctrl-R` replaces all of them, after asking. Going to a match
+  keeps the search: `Ctrl-F` twice (or `/` in the outline) comes back to the
+  same list and row.
 - **Name drift** (palette: *Check names*): spellings one or two letters away
   from a name in your notebook (*Kaelan* where the Characters note says
   *Kaelen*), with where they are, fixed in one go.
-- **Spellcheck** underlines misspellings from a bundled en_US dictionary and
-  never flags your notebook's names. Click an underlined word, or right-click
+- **Spellcheck** underlines misspellings from a bundled dictionary in
+  American, British, Canadian or Australian English (*Esc › Settings ›
+  Spelling* steps through them, and it's remembered) and never flags your
+  notebook's names. Click an underlined word, or right-click
   it, for suggestions right there, or to ignore it: until you close Grimoire,
   always in this book, or always in every book
   (`~/.config/grimoire/dictionary.txt`). Words you add go in `dictionary.txt` at
@@ -373,7 +405,8 @@ mentions it. Nothing extra is stored; it's all read from the files.
   sample an agent asked for (the first N chapters, chapters X–Y, or the first
   N words), into `exports/`. Also `grimoire export [--docx] [--pdf]
   [--paperback [--trim 6x9]] [--epub] [--md] [--parts 1,3]
-  [--chapters 1-3 | --words 10000]`.
+  [--chapters 1-3 | --words 10000]`. When an export finishes, `o` opens its
+  folder.
 
 <p align="center"><img src="assets/screenshots/export.png" alt="The export dialog: Word manuscript, PDF, paperback, EPUB and Markdown, with parts, a sample scope, the manuscript's look and the author's details" width="100%"></p>
 
@@ -617,12 +650,14 @@ they follow any future refinements; Custom stores every swatch.
 It's a TUI, but the mouse works. Click a chapter to fold it, a scene to open
 it, anywhere in the prose to put the caret there. Click the Pomodoro to start
 the timer, or the music pane to play and pause. The wheel scrolls whichever
-pane is under the pointer without stealing focus.
+pane is under the pointer without stealing focus. Double-click picks a word,
+a third click the paragraph. The `Esc` menu takes clicks too, and a right-click
+on a row in the outline opens *This book* for that row.
 
 **Drag to select.** Click and drag in the prose to select across lines;
 `Ctrl-C` copies it (via `pbcopy`, `wl-copy`, `xclip` or `xsel`, whichever the
-machine has). Any keystroke collapses the selection. It deliberately does not
-delete it, because there is no undo yet and a stray key must never eat text.
+machine has). Typing over a selection replaces it, `Backspace` or `Delete` removes it, and
+`Esc` lets go of it. `Ctrl-Z` takes any of that back.
 
 Mouse capture does suppress the terminal's *own* drag-to-select. Grimoire's is
 the replacement inside the prose pane; hold `Shift` while dragging if you want
