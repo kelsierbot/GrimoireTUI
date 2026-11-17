@@ -741,7 +741,7 @@ impl Project {
             }
             entries.push((name, path, false));
         }
-        entries.sort_by(|a, b| a.0.cmp(&b.0));
+        entries.sort_by(|a, b| order_names(&a.0.to_string_lossy(), &b.0.to_string_lossy()));
         // Conflict copies are told from the files beside them: "Part (1)" is
         // a copy only where "Part" is there too.
         let stems: std::collections::HashSet<String> = entries
@@ -2323,8 +2323,28 @@ fn tree_entries(dir: &Path) -> Vec<PathBuf> {
                 sync::copy_of(&s.to_string_lossy(), &|x| stems.contains(x), hint).is_none()
             })
     });
-    v.sort_by_key(|p| p.file_name().map(|n| n.to_os_string()));
+    v.sort_by(|a, b| {
+        let name = |p: &PathBuf| p.file_name().unwrap_or_default().to_string_lossy().to_string();
+        order_names(&name(a), &name(b))
+    });
     v
+}
+
+/// The order of things in a folder, everywhere the book decides it: by the
+/// leading number as a number (so `100-` comes after `99-`, not after `10-`),
+/// then by name. Anything without a number comes after the numbered ones.
+pub fn order_names(a: &str, b: &str) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    let number = |s: &str| -> Option<u128> {
+        let end = s.find(|c: char| !c.is_ascii_digit()).unwrap_or(s.len());
+        s[..end].parse().ok()
+    };
+    match (number(a), number(b)) {
+        (Some(x), Some(y)) => x.cmp(&y).then_with(|| a.cmp(b)),
+        (Some(_), None) => Ordering::Less,
+        (None, Some(_)) => Ordering::Greater,
+        (None, None) => a.cmp(b),
+    }
 }
 
 /// A scene that moves or is renamed takes its conflict copies with it,
@@ -4198,6 +4218,35 @@ mod tests {
     }
 
     // ---- review fixes -----------------------------------------------------
+
+    #[test]
+    fn the_hundredth_chapter_comes_after_the_ninety_ninth() {
+        let d = temp_dir("rv-hundred");
+        let ms = d.join("manuscript");
+        for name in ["100-Ch", "09-Ch", "10-Ch", "11-Ch", "99-Ch", "101-Ch", "Loose"] {
+            fs::create_dir_all(ms.join(name)).unwrap();
+        }
+        let want = ["09-Ch", "10-Ch", "11-Ch", "99-Ch", "100-Ch", "101-Ch", "Loose"];
+        let names = |v: Vec<PathBuf>| -> Vec<String> {
+            v.iter()
+                .map(|p| p.file_name().unwrap().to_string_lossy().to_string())
+                .collect()
+        };
+        assert_eq!(names(tree_entries(&ms)), want);
+        let p = Project::load(&d).unwrap();
+        let tree: Vec<PathBuf> = p
+            .manuscript()
+            .iter()
+            .map(|&i| p.nodes[i].path.clone())
+            .collect();
+        assert_eq!(names(tree), want);
+        // Moving the 99th down swaps it with the 100th, not with the 10th.
+        let moved = move_item(&d, &ms.join("99-Ch"), false).unwrap();
+        assert_eq!(moved.target, ms.join("100-Ch"));
+        assert!(ms.join("099-Ch").is_dir(), "padded to match the 100th");
+        assert_eq!(names(tree_entries(&ms))[3..5], ["099-Ch", "100-Ch"]);
+        fs::remove_dir_all(&d).unwrap();
+    }
 
     #[test]
     fn quoted_values_round_trip_through_two_saves() {
