@@ -2063,6 +2063,19 @@ fn epub(b: &Book) -> Result<Vec<u8>> {
     )
 }
 
+/// `id`, or `id-2`, `id-3`… if a page already has that name: two files of
+/// one name would stop the EPUB being written at all.
+fn unique_id<T, U>(docs: &[(String, String, T, U)], id: String) -> String {
+    let taken = |id: &str| docs.iter().any(|(_, have, _, _)| have == id);
+    if !taken(&id) {
+        return id;
+    }
+    (2..)
+        .map(|n| format!("{id}-{n}"))
+        .find(|c| !taken(c))
+        .unwrap_or(id)
+}
+
 fn epub_with(b: &Book, x: &Extras) -> Result<Vec<u8>> {
     let lang = xml_escape(x.meta.language());
     let page = |title: &str, body: &str| xhtml_lang(title, body, &lang);
@@ -2127,7 +2140,7 @@ fn epub_with(b: &Book, x: &Extras) -> Result<Vec<u8>> {
         match piece {
             Piece::Part { title, depth } => {
                 part_no += 1;
-                let id = format!("part-{part_no:02}");
+                let id = unique_id(&docs, format!("part-{part_no:02}"));
                 let body = format!(
                     "<div class=\"part\" epub:type=\"part\">\n<h1>{}</h1>\n</div>",
                     html_inline(title)
@@ -2192,10 +2205,22 @@ fn epub_with(b: &Book, x: &Extras) -> Result<Vec<u8>> {
                 };
                 // Numbered chapters keep the book's number in their file name,
                 // even in an export of one part.
+                // An unnumbered chapter is named for its own first word
+                // ("interlude-02") and its place among all the chapters, so
+                // it can't take a numbered chapter's name.
                 let id = match number {
                     Some(n) => format!("chapter-{n:02}"),
-                    None => format!("{kind}-{chapter_no:02}"),
+                    None => {
+                        let word = slug(first.trim_end_matches(':'));
+                        let word = if word.starts_with(|c: char| c.is_ascii_alphabetic()) {
+                            word
+                        } else {
+                            "section".into()
+                        };
+                        format!("{word}-{chapter_no:02}")
+                    }
                 };
+                let id = unique_id(&docs, id);
                 let file = format!("{id}.xhtml");
                 toc_insert(
                     &mut toc,
@@ -2210,7 +2235,7 @@ fn epub_with(b: &Book, x: &Extras) -> Result<Vec<u8>> {
             }
             Piece::Scene(s) => {
                 text_no += 1;
-                let id = format!("text-{text_no:02}");
+                let id = unique_id(&docs, format!("text-{text_no:02}"));
                 let body = format!("<div class=\"text\">\n{}</div>", html_blocks(s));
                 docs.push((format!("{id}.xhtml"), id, page(b.title, &body), ""));
             }
@@ -3742,6 +3767,61 @@ mod tests {
         let (fodt, pdf) = out.paperback_document.expect("left for the caller to make");
         assert!(fodt.contains("\u{201c}archive\u{201d}"));
         assert!(pdf.to_string_lossy().ends_with("_Paperback.pdf"));
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    /// A small flat book, no parts: each (folder, scene text) is one chapter.
+    fn flat_book(tag: &str, chapters: &[(&str, &str)]) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("grimoire-export-{tag}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&d);
+        put(
+            &d,
+            "novel.toml",
+            "title = \"The Lantern\"\nauthor = \"Ada Quill\"\n",
+        );
+        for (i, (folder, text)) in chapters.iter().enumerate() {
+            put(
+                &d,
+                &format!("manuscript/{:02}-{folder}/01-Scene.md", i + 1),
+                text,
+            );
+        }
+        d
+    }
+
+    #[test]
+    fn every_epub_chapter_gets_its_own_file_even_unnumbered_ones() {
+        let d = flat_book(
+            "epub-ids",
+            &[
+                ("Chapter-One", "First words.\n"),
+                ("Interlude", "A pause.\n"),
+                ("Chapter-Two", "Second words.\n"),
+                ("Coda", "The end of it.\n"),
+                ("Chapter-Three", "Third words.\n"),
+            ],
+        );
+        let p = Project::load(&d).unwrap();
+        let bytes = epub(&book(&p, None, Scope::Whole).unwrap()).expect("the EPUB builds");
+        let files = unzip_bytes(&bytes);
+        let mut names: Vec<&str> = files.iter().map(|(n, _)| n.as_str()).collect();
+        let all = names.len();
+        names.sort_unstable();
+        names.dedup();
+        assert_eq!(names.len(), all, "no two files share a name");
+        let text: String = files
+            .iter()
+            .map(|(_, b)| String::from_utf8_lossy(b).to_string())
+            .collect();
+        for words in [
+            "First words.",
+            "A pause.",
+            "Second words.",
+            "The end of it.",
+            "Third words.",
+        ] {
+            assert!(text.contains(words), "{words} is in the book");
+        }
         fs::remove_dir_all(&d).unwrap();
     }
 }
