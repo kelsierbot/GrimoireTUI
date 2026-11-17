@@ -275,13 +275,15 @@ impl Editor {
         let chars: Vec<char> = self.lines[line].chars().collect();
         let m: Vec<char> = mark.chars().collect();
         let n = m.len();
-        // A single * mustn't be mistaken for half of a **.
-        let star = |i: Option<usize>| i.and_then(|i| chars.get(i)).is_some_and(|c| *c == '*');
+        // A single * mustn't be mistaken for half of a **: italics are on
+        // when the stars either side number one, or three (bold italic).
+        let lead = chars[..a].iter().rev().take_while(|c| **c == '*').count();
+        let trail = chars[b..].iter().take_while(|c| **c == '*').count();
         let around = a >= n
             && b + n <= chars.len()
             && chars[a - n..a] == m[..]
             && chars[b..b + n] == m[..]
-            && !(n == 1 && (star(a.checked_sub(2)) || star(Some(b + 1))));
+            && !(n == 1 && !matches!(lead.min(trail), 1 | 3));
         let inside = b - a >= 2 * n
             && chars[a..a + n] == m[..]
             && chars[b - n..b] == m[..]
@@ -876,6 +878,12 @@ mod tests {
         e.select((0, 14), (0, 18));
         assert!(e.toggle_wrap("*"));
         assert_eq!(e.lines[0], "It was very ***late***.");
+        assert!(e.toggle_wrap("*"), "and off again, leaving the bold");
+        assert_eq!(e.lines[0], "It was very **late**.");
+        let mut e = Editor::from_text("so ***bright*** now");
+        e.place(0, 8);
+        assert!(e.toggle_wrap("*"));
+        assert_eq!(e.lines[0], "so **bright** now");
         // Selected with its marks, too.
         let mut e = Editor::from_text("a *word* here");
         e.select((0, 2), (0, 8));
