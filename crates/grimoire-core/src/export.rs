@@ -2272,7 +2272,17 @@ fn epub_with(b: &Book, x: &Extras) -> Result<Vec<u8>> {
                 text_no += 1;
                 let id = unique_id(&docs, format!("text-{text_no:02}"));
                 let body = format!("<div class=\"text\">\n{}</div>", html_blocks(s));
-                docs.push((format!("{id}.xhtml"), id, page(&b.title, &body), ""));
+                let file = format!("{id}.xhtml");
+                // A book of loose scenes alone has no headings to list, so
+                // its contents point to where the story starts.
+                if text_no == 1 && !b.pieces.iter().any(|p| !matches!(p, Piece::Scene(_))) {
+                    toc.push(Toc {
+                        label: plain(&b.title),
+                        href: file.clone(),
+                        kids: Vec::new(),
+                    });
+                }
+                docs.push((file, id, page(&b.title, &body), ""));
             }
         }
     }
@@ -3938,6 +3948,21 @@ mod tests {
             put(&d, &format!("manuscript/{:02}-Scene.md", i + 1), text);
         }
         d
+    }
+
+    #[test]
+    fn an_ebook_of_loose_scenes_still_has_something_in_its_contents() {
+        let d = loose_book("loose-contents", &["The first scene.\n", "The second.\n"]);
+        let p = Project::load(&d).unwrap();
+        let files = unzip_bytes(&epub(&book(&p, None, Scope::Whole).unwrap()).unwrap());
+        let contents = text_of(&files, "OEBPS/contents.xhtml");
+        assert!(
+            contents.contains("<a href=\"text-01.xhtml\">The Lantern</a>"),
+            "the story is listed: {contents}"
+        );
+        let nav = text_of(&files, "OEBPS/nav.xhtml");
+        assert!(nav.contains("href=\"text-01.xhtml\""), "{nav}");
+        fs::remove_dir_all(&d).unwrap();
     }
 
     #[test]
