@@ -2459,11 +2459,13 @@ pub fn move_item(root: &Path, path: &Path, up: bool) -> Result<Moved> {
         let (b_num, b_w, b_rest) = split_number(&n)
             .context("its neighbour has no number, so there's nothing to swap with")?;
         let (a_num, b_num) = if a_num == b_num {
-            // Same number (it happens): order by name, so just nudge.
+            // Same number (it happens): order by name, so just nudge. The
+            // mover takes `b_num`; going up it keeps the number and the one
+            // above steps down a place, going down it steps down itself.
             if up {
-                (a_num, a_num + 1)
-            } else {
                 (a_num + 1, a_num)
+            } else {
+                (a_num, a_num + 1)
             }
         } else {
             (a_num, b_num)
@@ -4218,6 +4220,36 @@ mod tests {
     }
 
     // ---- review fixes -----------------------------------------------------
+
+    #[test]
+    fn two_with_one_number_really_swap_places() {
+        let d = temp_dir("rv-nudge");
+        let ch = d.join("manuscript/01-Chapter-One");
+        fs::create_dir_all(&ch).unwrap();
+        fs::write(ch.join("02-Bar.md"), "bar").unwrap();
+        fs::write(ch.join("02-Foo.md"), "foo").unwrap();
+        let order = || -> Vec<String> {
+            tree_entries(&ch)
+                .iter()
+                .map(|p| fs::read_to_string(p).unwrap())
+                .collect()
+        };
+        assert_eq!(order(), ["bar", "foo"]);
+        move_item(&d, &ch.join("02-Foo.md"), true).unwrap();
+        assert_eq!(order(), ["foo", "bar"], "up puts it first");
+        let foo = tree_entries(&ch)[0].clone();
+        move_item(&d, &foo, false).unwrap();
+        assert_eq!(order(), ["bar", "foo"], "and down puts it back");
+        // The same number again, moving the first one down.
+        for p in tree_entries(&ch) {
+            fs::remove_file(p).unwrap();
+        }
+        fs::write(ch.join("02-Bar.md"), "bar").unwrap();
+        fs::write(ch.join("02-Foo.md"), "foo").unwrap();
+        move_item(&d, &ch.join("02-Bar.md"), false).unwrap();
+        assert_eq!(order(), ["foo", "bar"], "down puts it second");
+        fs::remove_dir_all(&d).unwrap();
+    }
 
     #[test]
     fn the_hundredth_chapter_comes_after_the_ninety_ninth() {
