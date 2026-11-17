@@ -661,7 +661,9 @@ fn stage_all(root: &Path, index: Option<&Path>) -> Result<()> {
 /// Commit what's staged. A name and email are supplied only for whichever of
 /// the two git has no setting for, so a writer's own identity always wins.
 fn commit(root: &Path, message: &str) -> Result<()> {
-    let mut args: Vec<String> = Vec::new();
+    // A signing setup meant for code (with the key locked, or the signer
+    // gone) must never stop a writing session being kept.
+    let mut args: Vec<String> = vec!["-c".into(), "commit.gpgsign=false".into()];
     if config(root, "user.name")?.is_none() {
         args.extend(["-c".into(), format!("user.name={FALLBACK_NAME}")]);
     }
@@ -1683,6 +1685,23 @@ mod tests {
         );
         assert_eq!(sessions(&b, 10).unwrap().len(), 2);
         cleanup(&[&a, &b, &repo_a, &repo_b]);
+    }
+
+    #[test]
+    fn a_signing_setup_never_stops_a_session_being_kept() {
+        let Some(d) = book("rv-gpgsign") else { return };
+        enable(&d).unwrap();
+        let repo = outside_dir(&d);
+        // A writer who signs their code commits, with the signer missing.
+        run(&d, &["config", "commit.gpgsign", "true"]);
+        run(&d, &["config", "gpg.program", "grimoire-test-no-such-signer"]);
+        write(&d, A1, &scene(25));
+        assert!(commit_session(&d, tuesday_evening()).unwrap().is_some());
+        assert_eq!(sessions(&d, 10).unwrap().len(), 2);
+        match repo {
+            Some(r) => cleanup(&[&d, &r]),
+            None => cleanup(&[&d]),
+        }
     }
 
     /// A fixed local time; the label reads the wall clock, so no time zone
