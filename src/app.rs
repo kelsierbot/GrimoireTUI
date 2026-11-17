@@ -39,6 +39,9 @@ pub struct Reading {
     pub sentences: Vec<crate::voice::Sentence>,
     pub at: usize,
     pub voice: String,
+    /// The voice itself and its pace, to start it again at another speed.
+    pub engine: crate::voice::Engine,
+    pub speed: f32,
 }
 
 /// Save a couple of seconds after typing stops…

@@ -35,12 +35,15 @@ impl App {
             Engine::Silent
         };
         let name = engine.name();
+        let speed = Settings::load().voice_speed;
         let texts = sentences.iter().map(|s| s.text.clone()).collect();
         self.reading = Some(Reading {
-            reader: voice::Reader::start(engine, texts, from),
+            reader: voice::Reader::start(engine.clone(), texts, from, speed),
             sentences,
             at: from,
             voice: name.clone(),
+            engine,
+            speed,
         });
         self.focus = Focus::Editor;
         self.show_sentence(from);
@@ -116,6 +119,31 @@ impl App {
             Key::Right | Key::Down => {
                 let i = r.at + 1;
                 r.reader.jump(i);
+            }
+            // Slower or faster, a tenth at a time. The voice starts the
+            // sentence it's on again at the new pace, and the pace is kept
+            // for next time.
+            Key::Char('-' | '_' | '+' | '=') => {
+                let (lo, hi) = grimoire_core::settings::VOICE_SPEEDS;
+                let step = if matches!(key, Key::Char('-' | '_')) {
+                    -0.1
+                } else {
+                    0.1
+                };
+                let speed = ((r.speed + step) * 10.0).round() / 10.0;
+                let speed = speed.clamp(lo, hi);
+                if speed != r.speed {
+                    r.speed = speed;
+                    let texts = r.sentences.iter().map(|s| s.text.clone()).collect();
+                    let at = r.at.min(r.sentences.len().saturating_sub(1));
+                    r.reader = voice::Reader::start(r.engine.clone(), texts, at, speed);
+                    if self.background {
+                        let mut s = Settings::load();
+                        s.voice_speed = speed;
+                        let _ = s.save();
+                    }
+                }
+                self.msg = format!("reading aloud · {} · speed {speed:.1}×", r.voice);
             }
             _ => self.stop_reading("stopped reading"),
         }
@@ -195,19 +223,20 @@ pub(super) fn draw_reading(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
         ),
         Span::styled(
             format!(
-                " · sentence {} of {} · {}   ",
+                " · sentence {} of {} · {} · {:.1}×   ",
                 r.at + 1,
                 r.sentences.len(),
-                r.voice
+                r.voice,
+                r.speed
             ),
             Style::default().fg(t.dim),
         ),
     ];
     spans.extend(hint_spans(
         if r.reader.paused {
-            "space go on   ← → sentence   esc stop"
+            "space go on   ← → sentence   - + speed   esc stop"
         } else {
-            "space pause   ← → sentence   esc stop"
+            "space pause   ← → sentence   - + speed   esc stop"
         },
         t,
     ));

@@ -290,17 +290,18 @@ pub struct Reader {
 }
 
 impl Reader {
-    pub fn start(engine: Engine, texts: Vec<String>, from: usize) -> Reader {
+    /// `speed` is how fast to read: 1.0 is the voice's own pace.
+    pub fn start(engine: Engine, texts: Vec<String>, from: usize, speed: f32) -> Reader {
         let (tx, cmds) = mpsc::channel();
         let (events, rx) = mpsc::channel();
         let worker = std::thread::spawn(move || {
             let result = match engine {
                 Engine::Silent => silent(&texts, from, &cmds, &events),
                 Engine::Piper { program, model } => {
-                    piper(&program, &model, &texts, from, &cmds, &events)
+                    piper(&program, &model, &texts, from, speed, &cmds, &events)
                 }
-                Engine::Windows => windows(&texts, from, &cmds, &events),
-                other => one_at_a_time(&other, &texts, from, &cmds, &events),
+                Engine::Windows => windows(&texts, from, speed, &cmds, &events),
+                other => one_at_a_time(&other, &texts, from, speed, &cmds, &events),
             };
             if let Err(e) = result {
                 let _ = events.send(Event::Failed(e));
@@ -380,20 +381,32 @@ fn one_at_a_time(
     engine: &Engine,
     texts: &[String],
     from: usize,
+    speed: f32,
     cmds: &Receiver<Cmd>,
     events: &Sender<Event>,
 ) -> Result<(), String> {
     let spawn = |text: &str| -> Result<Child, String> {
         let mut c = match engine {
-            Engine::Say => Command::new("say"),
+            // Each voice counts its pace its own way: words a minute for
+            // `say` and espeak-ng, -100 to 100 for Speech Dispatcher.
+            Engine::Say => {
+                let mut c = Command::new("say");
+                c.args(["-r", &format!("{:.0}", 175.0 * speed)]);
+                c
+            }
             Engine::SpeechDispatcher => {
                 let mut c = Command::new("spd-say");
                 c.args(["-w", "-e"]);
+                c.args([
+                    "-r",
+                    &format!("{:.0}", ((speed - 1.0) * 100.0).clamp(-100.0, 100.0)),
+                ]);
                 c
             }
             _ => {
                 let mut c = Command::new("espeak-ng");
                 c.arg("--stdin");
+                c.args(["-s", &format!("{:.0}", 175.0 * speed)]);
                 c
             }
         };
@@ -464,11 +477,17 @@ fn one_at_a_time(
 fn windows(
     texts: &[String],
     from: usize,
+    speed: f32,
     cmds: &Receiver<Cmd>,
     events: &Sender<Event>,
 ) -> Result<(), String> {
-    const SCRIPT: &str = "Add-Type -AssemblyName System.Speech; \
-        $s = New-Object System.Speech.Synthesis.SpeechSynthesizer; \
+    // The Windows voice counts its pace from -10 to 10, 0 being its own.
+    let rate = ((speed - 1.0) * 10.0).round().clamp(-10.0, 10.0) as i32;
+    let script = format!(
+        "Add-Type -AssemblyName System.Speech; \
+        $s = New-Object System.Speech.Synthesis.SpeechSynthesizer; $s.Rate = {rate}; {LOOP}"
+    );
+    const LOOP: &str = "\
         while ($null -ne ($l = [Console]::In.ReadLine())) { $s.Speak($l); [Console]::Out.WriteLine('done'); [Console]::Out.Flush() }";
     struct Voice {
         child: Child,
@@ -477,7 +496,7 @@ fn windows(
     }
     let open = || -> Result<Voice, String> {
         let mut child = Command::new("powershell")
-            .args(["-NoProfile", "-NonInteractive", "-Command", SCRIPT])
+            .args(["-NoProfile", "-NonInteractive", "-Command", &script])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
@@ -587,6 +606,7 @@ fn piper(
     model: &Path,
     texts: &[String],
     from: usize,
+    speed: f32,
     cmds: &Receiver<Cmd>,
     events: &Sender<Event>,
 ) -> Result<(), String> {
@@ -609,6 +629,9 @@ fn piper(
         .arg(model)
         .arg("-d")
         .arg(&dir)
+        // Piper stretches each sound: under 1 is quicker, over 1 slower.
+        .arg("--length-scale")
+        .arg(format!("{:.2}", 1.0 / speed.clamp(0.5, 2.0)))
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -716,6 +739,7 @@ fn piper(
     _model: &Path,
     _texts: &[String],
     _from: usize,
+    _speed: f32,
     _cmds: &Receiver<Cmd>,
     _events: &Sender<Event>,
 ) -> Result<(), String> {
@@ -804,6 +828,7 @@ fn piper_reads_every_sentence_in_order() {
         },
         texts,
         0,
+        1.0,
     );
     let mut seen = Vec::new();
     let give_up = std::time::Instant::now() + Duration::from_secs(60);

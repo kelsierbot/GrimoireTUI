@@ -3406,3 +3406,36 @@ fn a_book_search_replaces_one_match_and_keeps_its_place() {
             .contains("Mara saw Mara.")
     );
 }
+
+/// Read aloud goes slower and faster with `-` and `+`, within what a voice
+/// can do, and says its pace.
+#[test]
+fn read_aloud_goes_slower_and_faster() {
+    let root = book("voice-speed", true);
+    let scene = first_scene(&root);
+    let text = fs::read_to_string(&scene).unwrap();
+    fs::write(
+        &scene,
+        format!("{text}The rain had stopped. Oren was late.\n"),
+    )
+    .unwrap();
+    let mut d = Desk::open(root, 130, 40);
+    d.app.focus = Focus::Editor;
+    d.app.start_reading();
+    assert!(matches!(d.app.overlay, Overlay::Reading));
+    let speed = |d: &Desk| d.app.reading.as_ref().expect("still reading").speed;
+    let was = speed(&d);
+    d.key(KeyCode::Char('+'));
+    d.key(KeyCode::Char('+'));
+    assert!((speed(&d) - (was + 0.2)).abs() < 0.01, "{}", speed(&d));
+    assert!(
+        d.shows(&format!("{:.1}×", was + 0.2)),
+        "{}",
+        d.rows().join("\n")
+    );
+    for _ in 0..40 {
+        d.key(KeyCode::Char('-'));
+    }
+    assert_eq!(speed(&d), 0.5, "never slower than half pace");
+    assert!(matches!(d.app.overlay, Overlay::Reading), "and it reads on");
+}
