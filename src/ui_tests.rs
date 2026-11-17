@@ -3727,7 +3727,8 @@ fn a_book_moves_to_the_books_folder_and_new_ones_start_there() {
     d.choose("Start a new book…");
     d.typed("The Long Night");
     assert!(
-        d.shows("Grimoire Books/The Long Night"),
+        // (The slash between them leans the other way on Windows.)
+        d.shows("Grimoire Books") && d.shows("The Long Night"),
         "{}",
         d.rows().join("\n")
     );
