@@ -304,6 +304,8 @@ pub struct App {
     pub help_fit: std::cell::Cell<HelpFit>,
     /// Where the About box's link to the studio sits, for a click.
     pub about_link: std::cell::Cell<Rect>,
+    /// Where each of the menu's rows was last drawn, for clicks.
+    pub menu_hits: std::cell::RefCell<Vec<(Rect, usize)>>,
     /// Where About's line for Catfinity, the studio's game, was drawn.
     pub about_game_link: std::cell::Cell<Rect>,
     /// The last address handed to a browser (tests read it; nothing opens).
@@ -843,6 +845,7 @@ impl App {
             reload_failed: None,
             help_fit: std::cell::Cell::default(),
             about_link: std::cell::Cell::default(),
+            menu_hits: std::cell::RefCell::default(),
             about_game_link: std::cell::Cell::default(),
             last_opened: None,
             background: setup.background,
@@ -4415,6 +4418,23 @@ impl App {
             }
             return;
         }
+        // The menu: a click on a row chooses it. A click anywhere else is
+        // kept from the panes underneath, and the menu stays.
+        if matches!(self.overlay, Overlay::Menu { .. } | Overlay::Sub { .. }) {
+            let row = self
+                .menu_hits
+                .borrow()
+                .iter()
+                .find(|(r, _)| hit(*r, x, y))
+                .map(|&(_, i)| i);
+            if let Some(i) = row {
+                if let Overlay::Menu { sel } | Overlay::Sub { sel, .. } = &mut self.overlay {
+                    *sel = i;
+                }
+                self.on_overlay_key(Key::Enter);
+            }
+            return;
+        }
         // The words and the bar at the left of the status bar: the Progress
         // page.
         if self.overlay == Overlay::None && !self.focus_mode && y + 1 == self.screen.1 && x < 32 {
@@ -4544,6 +4564,20 @@ impl App {
     pub fn on_right_click(&mut self, x: u16, y: u16) {
         if matches!(self.overlay, Overlay::Spelling { .. }) {
             self.overlay = Overlay::None;
+        }
+        // In the outline: highlight what's under the pointer and open what
+        // can be done with it (rename, delete, details, a new scene…).
+        if self.overlay == Overlay::None && hit(self.rect_tree, x, y) {
+            let row = self.tree_scroll + (y - self.rect_tree.y) as usize;
+            if row < self.visible.len() {
+                self.sel = row;
+                self.focus = Focus::Tree;
+                self.overlay = Overlay::Sub {
+                    sub: Sub::Book,
+                    sel: 0,
+                };
+            }
+            return;
         }
         if hit(self.rect_prose, x, y) && self.open.is_some() {
             self.on_click(x, y);

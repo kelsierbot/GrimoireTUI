@@ -3323,3 +3323,30 @@ fn the_trash_empties_after_asking_and_nothing_starts_in_it() {
     d.key(KeyCode::Char('d'));
     assert!(matches!(d.app.overlay, Overlay::None));
 }
+
+/// The menu answers the mouse: a click on a row chooses it; and a
+/// right-click in the outline opens what can be done with the row under the
+/// pointer.
+#[test]
+fn the_menu_answers_the_mouse() {
+    let mut d = Desk::open(book("menu-mouse", true), 120, 40);
+    d.key(KeyCode::Esc);
+    assert!(d.menu_open());
+    let rows = d.rows();
+    let y = rows.iter().position(|r| r.contains("Settings")).unwrap() as u16;
+    let x = rows[y as usize].find("Settings").unwrap() as u16;
+    d.app.on_click(x, y);
+    d.draw();
+    assert!(d.shows("GRIMOIRE › SETTINGS"), "{}", d.rows().join("\n"));
+    d.key(KeyCode::Esc);
+    d.key(KeyCode::Esc);
+    assert!(matches!(d.app.overlay, Overlay::None));
+
+    // Right-click the second row of the outline.
+    d.draw();
+    let (x, y) = (d.app.rect_tree.x + 2, d.app.rect_tree.y + 1);
+    d.app.on_right_click(x, y);
+    d.draw();
+    assert_eq!(d.app.sel, d.app.tree_scroll + 1);
+    assert!(d.shows("GRIMOIRE › THIS BOOK"), "{}", d.rows().join("\n"));
+}

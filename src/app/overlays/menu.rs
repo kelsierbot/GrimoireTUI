@@ -384,6 +384,18 @@ pub(super) fn draw_menu(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
         .saturating_sub(2 + if about_room > 0 { about_room + 1 } else { 0 })
         .max(1);
     let start = (*sel + 1).saturating_sub(room);
+    *app.menu_hits.borrow_mut() = (start..rows.len().min(start + room))
+        .enumerate()
+        .map(|(k, i)| {
+            let row = Rect {
+                x: inner.x,
+                y: inner.y + k as u16,
+                width: inner.width,
+                height: 1,
+            };
+            (row, i)
+        })
+        .collect();
     let mut lines: Vec<Line> = rows
         .iter()
         .enumerate()
