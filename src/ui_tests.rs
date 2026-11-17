@@ -3487,3 +3487,38 @@ fn a_scene_comes_back_out_of_a_deleted_chapter() {
         back.display()
     );
 }
+
+/// A word taught by mistake can be taken back: Settings lists every word
+/// "Always ignore" added, and `d` removes one.
+#[test]
+fn a_taught_word_can_be_taken_back() {
+    let root = book("taught", true);
+    fs::write(
+        root.join("dictionary.txt"),
+        "# this book's words\nVaelthar\nOren\n",
+    )
+    .unwrap();
+    let mut d = Desk::open(root.clone(), 120, 40);
+    d.app.load_speller_now();
+    assert!(d.app.speller.as_ref().unwrap().is_correct("Vaelthar"));
+    d.key(KeyCode::Esc);
+    d.choose("Settings");
+    d.choose("Words spellcheck was taught…");
+    assert!(
+        d.shows("Vaelthar") && d.shows("this book"),
+        "{}",
+        d.rows().join("\n")
+    );
+    d.key(KeyCode::Char('d'));
+    assert_eq!(
+        fs::read_to_string(root.join("dictionary.txt")).unwrap(),
+        "# this book's words\nOren\n",
+        "only that word goes; the comment stays"
+    );
+    assert!(!d.app.speller.as_ref().unwrap().is_correct("Vaelthar"));
+    assert!(d.app.speller.as_ref().unwrap().is_correct("Oren"));
+    let Overlay::Taught { words, .. } = &d.app.overlay else {
+        panic!("the list stays up");
+    };
+    assert_eq!(words, &vec![("Oren".to_string(), true)]);
+}

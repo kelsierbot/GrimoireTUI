@@ -410,6 +410,38 @@ fn parse_word_list(text: &str) -> Vec<String> {
         .collect()
 }
 
+/// Where this book keeps its own words.
+pub fn book_dictionary(root: &Path) -> PathBuf {
+    root.join(BOOK_DICTIONARY)
+}
+
+/// Take a word back out of a word list (the book's or the writer's own), in
+/// any capitalisation. Comments and every other line stay as they are. True
+/// when it was there to take.
+pub fn remove_word(path: &Path, word: &str) -> Result<bool> {
+    let Ok(text) = fs::read_to_string(path) else {
+        return Ok(false);
+    };
+    let is_it = |line: &str| {
+        let listed = line.split('#').next().unwrap_or_default();
+        let listed = listed.trim_matches(|c: char| c.is_whitespace() || c == '\u{feff}');
+        !listed.is_empty() && listed.to_lowercase() == word.to_lowercase()
+    };
+    if !text.lines().any(is_it) {
+        return Ok(false);
+    }
+    let mut kept: String = text
+        .lines()
+        .filter(|l| !is_it(l))
+        .collect::<Vec<_>>()
+        .join("\n");
+    if text.ends_with('\n') && !kept.is_empty() {
+        kept.push('\n');
+    }
+    crate::atomic::write_text(path, &kept)?;
+    Ok(true)
+}
+
 /// Append a word to `<root>/dictionary.txt` unless it's already there (in any
 /// capitalisation), creating the file with a comment header first. A
 /// possessive is stored as its stem, which covers both forms.

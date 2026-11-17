@@ -646,6 +646,12 @@ pub enum Overlay {
         back: Option<Box<Overlay>>,
     },
     /// Suggestions for one misspelt word, plus adding it to the book.
+    /// Every word "Always ignore" taught the spellcheck, to take one back:
+    /// the word, and whether it's this book's (or the writer's, everywhere).
+    Taught {
+        sel: usize,
+        words: Vec<(String, bool)>,
+    },
     Spelling {
         line: usize,
         start: usize,
@@ -1827,6 +1833,7 @@ impl App {
                 }
             }
             Action::Voices => self.open_voices(),
+            Action::TaughtWords => self.open_taught(),
             Action::BringInDraft => {
                 self.overlay = Overlay::BookPath {
                     buf: String::new(),
@@ -2671,7 +2678,7 @@ impl App {
 
     /// Build the dictionary off the UI thread, with the notebook's names and
     /// the book's own word list already accepted.
-    fn load_speller(&mut self) {
+    pub(crate) fn load_speller(&mut self) {
         let words = self.speller_words();
         let lang = self.spell_lang;
         let (tx, rx) = std::sync::mpsc::channel();
@@ -4874,6 +4881,7 @@ impl App {
                     format!("Spelling: {}", self.spell_lang.name()),
                     Action::SpellingLanguage,
                 ),
+                ("Words spellcheck was taught…".into(), Action::TaughtWords),
                 (on_off(self.icons_on, "tree icons"), Action::Icons),
                 (
                     match self.line_width {

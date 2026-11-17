@@ -328,3 +328,116 @@ pub(super) fn draw_names(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
     ));
     f.render_widget(Paragraph::new(lines), inner);
 }
+
+impl App {
+    /// The words "Always ignore" has taught the spellcheck: this book's
+    /// first, then the writer's own.
+    pub fn open_taught(&mut self) {
+        let mut words: Vec<(String, bool)> = spell::book_words(&self.project.root)
+            .into_iter()
+            .map(|w| (w, true))
+            .collect();
+        if self.background {
+            words.extend(
+                spell::words_in(&spell::user_dictionary())
+                    .into_iter()
+                    .map(|w| (w, false)),
+            );
+        }
+        self.overlay = Overlay::Taught { sel: 0, words };
+    }
+
+    pub(super) fn on_taught_key(&mut self, key: Key) {
+        let Overlay::Taught { sel, words } = &mut self.overlay else {
+            return;
+        };
+        if list_nav(key, sel, words.len(), LIST) {
+            return;
+        }
+        match key {
+            Key::Char('d') | Key::Delete | Key::Backspace => {
+                let Some((word, book)) = words.get(*sel).cloned() else {
+                    return;
+                };
+                let list = if book {
+                    spell::book_dictionary(&self.project.root)
+                } else {
+                    spell::user_dictionary()
+                };
+                match spell::remove_word(&list, &word) {
+                    Ok(_) => {
+                        words.remove(*sel);
+                        *sel = (*sel).min(words.len().saturating_sub(1));
+                        self.msg = format!("{word} is checked again");
+                        // The dictionary is read again without it.
+                        if self.speller.is_some() {
+                            if self.background {
+                                self.load_speller();
+                            } else {
+                                let mut s = spell::Speller::for_language(self.spell_lang);
+                                s.add_words(self.speller_words());
+                                self.speller = Some(s);
+                            }
+                        }
+                    }
+                    Err(e) => self.msg = format!("couldn't take {word} back: {e:#}"),
+                }
+            }
+            Key::Esc | Key::Enter | Key::Char('q') => self.overlay = Overlay::None,
+            _ => {}
+        }
+    }
+}
+
+pub(super) fn draw_taught(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
+    let Overlay::Taught { sel, words } = &app.overlay else {
+        return;
+    };
+    let room = (area.height as usize).saturating_sub(10).clamp(3, 16);
+    let shown = words.len().clamp(1, room);
+    let box_area = centred(area, 56, shown as u16 + 6);
+    f.render_widget(Clear, box_area);
+    let block = pane_block("WORDS SPELLCHECK WAS TAUGHT", true, t);
+    let inner = block.inner(box_area);
+    f.render_widget(block, box_area);
+    let dim = Style::default().fg(t.dim);
+    let mut lines: Vec<Line> = vec![
+        Line::from(Span::styled(" Never underlined, because you said so", dim)),
+        Line::from(""),
+    ];
+    if words.is_empty() {
+        lines.push(Line::from(Span::styled(
+            " None yet. Always ignore, on a word's spellings, adds one.",
+            Style::default().fg(t.text),
+        )));
+    }
+    let start = (*sel + 1).saturating_sub(shown);
+    for (i, (word, book)) in words.iter().enumerate().skip(start).take(shown) {
+        let on = i == *sel;
+        let wher = if *book { "this book" } else { "every book" };
+        let pad = (inner.width as usize).saturating_sub(4 + word.chars().count() + wher.len());
+        let row = Line::from(vec![
+            Span::styled(
+                if on { " ▸ " } else { "   " },
+                Style::default().fg(t.accent),
+            ),
+            Span::styled(
+                word.clone(),
+                Style::default().fg(if on { t.accent } else { t.text }),
+            ),
+            Span::raw(" ".repeat(pad)),
+            Span::styled(wher, dim),
+            Span::raw(" "),
+        ]);
+        lines.push(if on {
+            row.style(Style::default().bg(t.sel))
+        } else {
+            row
+        });
+    }
+    while lines.len() < (inner.height as usize).saturating_sub(1) {
+        lines.push(Line::from(""));
+    }
+    lines.push(hint_line(" j/k move   d take it back   esc close", t));
+    f.render_widget(Paragraph::new(lines), inner);
+}

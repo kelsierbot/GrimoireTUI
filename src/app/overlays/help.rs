@@ -51,7 +51,7 @@ impl App {
             Overlay::Sprint { .. } | Overlay::Progress | Overlay::Goals { .. } => "sprints",
             Overlay::Reading | Overlay::Voices { .. } => "revision",
             Overlay::Details { .. } => "outline",
-            Overlay::Spelling { .. } => "spelling",
+            Overlay::Spelling { .. } | Overlay::Taught { .. } => "spelling",
             Overlay::Names { .. } => "notebook",
             Overlay::SessionsOff | Overlay::Sessions { .. } | Overlay::SessionDiff { .. } => {
                 "sessions"

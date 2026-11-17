@@ -278,6 +278,10 @@ pub fn about_row(action: &Action, part: &str) -> (String, &'static str) {
             "Underlines words that might be misspelt as you write.",
             "spelling",
         ),
+        Action::TaughtWords => (
+            "Every word you told spellcheck to always ignore, in this book and in every book. Take one back and it's underlined again.",
+            "spelling",
+        ),
         Action::SpellingLanguage => (
             "Which English spellcheck knows: American, British, Canadian or Australian. Each press tries the next.",
             "spelling",

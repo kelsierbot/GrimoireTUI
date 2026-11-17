@@ -117,6 +117,7 @@ impl App {
             Overlay::Goals { .. } => self.on_goals_key(key),
             Overlay::Details { .. } => self.on_details_key(key),
             Overlay::Voices { .. } => self.on_voices_key(key),
+            Overlay::Taught { .. } => self.on_taught_key(key),
             Overlay::Progress => match key {
                 Key::Char('g') => self.run_action(Action::Goals),
                 Key::Esc | Key::Enter | Key::Char('q' | ' ') => self.overlay = Overlay::None,
@@ -254,6 +255,7 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
         Overlay::Goals { .. } => progress::draw_goals(f, app, area, t),
         Overlay::Details { .. } => details::draw_details(f, app, area, t),
         Overlay::Voices { .. } => reading::draw_voices(f, app, area, t),
+        Overlay::Taught { .. } => spelling::draw_taught(f, app, area, t),
         Overlay::BookPath { .. } => shelf::draw_book_path(f, app, area, t),
         Overlay::Player { .. } => player::draw_player(f, app, area, t),
         Overlay::Create { .. } => naming::draw_create(f, app, area, t),
