@@ -1,5 +1,77 @@
 # Changelog
 
+## 0.8.0 · A careful pass
+
+Every part of Grimoire was read through again, start to finish. Nothing you
+know has moved. A lot of small things are now right, and a few are new.
+
+**New**
+
+- **A caret in every one-line box.** Names, the synopsis, POV, author
+  details, find and replace, and book paths: `←` `→` `Home` `End` and
+  `Delete` work in them, so a typo in the middle is mended in the middle.
+- **Empty the Trash.** `d` on the Trash itself, after one question.
+- **One scene back out of a deleted chapter.** `u` on it in the Trash.
+- **Change one match at a time across the book.** In the whole-book search,
+  `Enter` in the replace box changes the highlighted match and moves on.
+  `Ctrl-R` is still all of them, after asking. Going to a match keeps the
+  search: `Ctrl-F` twice (or `/` in the outline) comes back to the same row.
+- **Read aloud, slower or faster.** `-` and `+` while it reads. It's
+  remembered.
+- **The menu takes clicks**, and a right-click in the outline opens *This
+  book* for the row under the pointer.
+- `o` on a finished export opens its folder.
+- `grimoire help` works, and `--help` lists `--pdf`, `--chapters` and
+  `--words`.
+
+**Your words, safer**
+
+- A paste can no longer run as keystrokes over a list. (Pasted over the
+  corkboard, the wrong word could send a scene to the Trash.)
+- Leaving the corkboard gives the page back to you, not to the outline.
+- `Ctrl-Z` and `Ctrl-X` leave the page alone while a box is up in front of it.
+- Renaming a note or a chapter keeps every `[[link]]` to it.
+- A scene saved with Windows line endings keeps its front matter.
+- *Update the project map* never writes over a `project.md` it can't read.
+- Recovered words whose scene has since gone are still offered, and kept in
+  the Trash.
+- Quotes in a synopsis come back exactly as typed, however often it's saved.
+- Chapter 100 comes after chapter 99.
+- A Git signing setup no longer stops a writing session being kept.
+- Opening another book brings its own dictionary with it.
+- A fix from *Check names* is one step to undo.
+
+**Exports and bringing in a draft**
+
+- A part with a loose scene beside its chapters keeps all of its chapters.
+  They used to drop out of every export.
+- An Interlude, a Coda or a Prelude no longer breaks the EPUB.
+- A quote after a dash closes when it should: `"I never--" she said`.
+- Loose scenes side by side get a scene break in Word and Markdown.
+- Compiled Markdown keeps its paragraphs apart.
+- The paperback PDF has the same margins on every page.
+- Book, part and chapter titles get curly quotes like the prose.
+- Taking a TK out leaves the quotes and brackets round it.
+- A title page never says "about 0 words".
+- A draft in an older Windows encoding, or in UTF-16, comes in as written.
+  Chapters are found in a file with a paragraph on each line, hard-wrapped
+  paragraphs are joined back up, and only real front matter is taken as
+  front matter.
+
+**Easier on the eyes and ears**
+
+- Words on a highlighted row read in all nineteen themes. The quiet grey all
+  but vanished on the selection in Tokyo Night, Nord, Rosé Pine and five more.
+- The mouse wheel looks down the outline without it snapping back.
+- The help's lists of keys are complete: moving by word, selecting with
+  `Shift`, double-click.
+- Read aloud tidies up after itself, says so when there are no speakers, and
+  the arrows move the highlight while it's paused.
+- Music: a long track has time to arrive, and `music.toml` is private to you.
+- Spelling accepts "goin'" and "th-they".
+- `Ctrl-I` on a bold italic word takes off only the italics, and a paste
+  turns a tab into a space.
+
 ## 0.7.5 · Colour, not color (if you like)
 
 - **Spelling in American, British, Canadian or Australian English.**
