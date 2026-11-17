@@ -3980,4 +3980,72 @@ mod tests {
         );
         fs::remove_dir_all(&d).unwrap();
     }
+
+    /// Where the text starts and stops on each master page of the paperback,
+    /// from the page layouts LibreOffice reads: the page margin, plus the
+    /// header or footer and its gap when the page has one.
+    #[test]
+    fn every_paperback_page_has_the_same_text_margins() {
+        let d = reader_book("paperback-margins");
+        let p = Project::load(&d).unwrap();
+        let (_, fodt) = paperback_files(&p, None);
+        let doc = xml_doc(&fodt).expect("the FODT is well-formed");
+        const STYLE: &str = "urn:oasis:names:tc:opendocument:xmlns:style:1.0";
+        const FO: &str = "urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0";
+        let inches = |v: &str| -> f64 { v.trim_end_matches("in").parse().unwrap() };
+        let band = |layout: roxmltree::Node, tag: &str, gap: &str| -> f64 {
+            layout
+                .children()
+                .find(|n| n.has_tag_name((STYLE, tag)))
+                .and_then(|n| n.first_element_child())
+                .map_or(0.0, |props| {
+                    inches(props.attribute((FO, "min-height")).unwrap())
+                        + inches(props.attribute((FO, gap)).unwrap())
+                })
+        };
+        let mut seen = Vec::new();
+        for master in doc
+            .descendants()
+            .filter(|n| n.has_tag_name((STYLE, "master-page")))
+        {
+            let name = master.attribute((STYLE, "name")).unwrap();
+            let layout_name = master.attribute((STYLE, "page-layout-name")).unwrap();
+            let layout = doc
+                .descendants()
+                .find(|n| {
+                    n.has_tag_name((STYLE, "page-layout"))
+                        && n.attribute((STYLE, "name")) == Some(layout_name)
+                })
+                .unwrap();
+            let props = layout
+                .children()
+                .find(|n| n.has_tag_name((STYLE, "page-layout-properties")))
+                .unwrap();
+            let has = |tag: &str| master.children().any(|n| n.has_tag_name((STYLE, tag)));
+            let top = inches(props.attribute((FO, "margin-top")).unwrap())
+                + if has("header") {
+                    band(layout, "header-style", "margin-bottom")
+                } else {
+                    0.0
+                };
+            let bottom = inches(props.attribute((FO, "margin-bottom")).unwrap())
+                + if has("footer") {
+                    band(layout, "footer-style", "margin-top")
+                } else {
+                    0.0
+                };
+            seen.push((name.to_string(), (top * 100.0).round(), (bottom * 100.0).round()));
+        }
+        assert_eq!(seen.len(), 5, "{seen:?}");
+        let body = seen.iter().find(|(n, ..)| n == "Body").unwrap().clone();
+        for page in &seen {
+            assert_eq!(
+                (page.1, page.2),
+                (body.1, body.2),
+                "{} has the body's margins: {seen:?}",
+                page.0
+            );
+        }
+        fs::remove_dir_all(&d).unwrap();
+    }
 }

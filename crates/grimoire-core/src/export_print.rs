@@ -1203,24 +1203,37 @@ fn fodt(b: &Book, pr: &Print, sections: &[Section], pages: usize) -> String {
     // Automatic styles: the page layouts, a paragraph style per (master,
     // style) that opens a section, drop caps, and the text spans.
     s.push_str("<office:automatic-styles>\n");
-    // The header and footer sit in the top and bottom margins.
-    let page_props = format!(
-        "fo:page-width=\"{}\" fo:page-height=\"{}\" fo:margin-top=\"{}\" fo:margin-bottom=\"{}\" \
-         fo:margin-left=\"{}\" fo:margin-right=\"{}\" style:print-orientation=\"portrait\"",
-        inch(w),
-        inch(h),
-        inch(top - 0.35),
-        inch(bottom - 0.35),
-        inch(inside),
-        inch(outside)
-    );
-    let hf = "<style:header-style><style:header-footer-properties fo:min-height=\"0.2in\" fo:margin-bottom=\"0.15in\"/></style:header-style>\
-              <style:footer-style><style:header-footer-properties fo:min-height=\"0.2in\" fo:margin-top=\"0.15in\"/></style:footer-style>";
-    for (name, usage) in [("pl-right", "right"), ("pl-mirrored", "mirrored")] {
+    // A header or footer sits in the top or bottom margin, taking 0.35in of
+    // it (0.2in tall, 0.15in gap); a page without one keeps the whole
+    // margin, so the text block is the same on every page.
+    let page_props = |head: bool, foot: bool| {
+        format!(
+            "fo:page-width=\"{}\" fo:page-height=\"{}\" fo:margin-top=\"{}\" fo:margin-bottom=\"{}\" \
+             fo:margin-left=\"{}\" fo:margin-right=\"{}\" style:print-orientation=\"portrait\"",
+            inch(w),
+            inch(h),
+            inch(if head { top - 0.35 } else { top }),
+            inch(if foot { bottom - 0.35 } else { bottom }),
+            inch(inside),
+            inch(outside)
+        )
+    };
+    let header = "<style:header-style><style:header-footer-properties fo:min-height=\"0.2in\" fo:margin-bottom=\"0.15in\"/></style:header-style>";
+    let footer = "<style:footer-style><style:header-footer-properties fo:min-height=\"0.2in\" fo:margin-top=\"0.15in\"/></style:footer-style>";
+    for (name, usage, head, foot) in [
+        ("pl-right", "right", false, false),
+        ("pl-mirrored", "mirrored", false, false),
+        ("pl-right-foot", "right", false, true),
+        ("pl-mirrored-foot", "mirrored", false, true),
+        ("pl-mirrored-body", "mirrored", true, true),
+    ] {
         let _ = writeln!(
             s,
             "<style:page-layout style:name=\"{name}\" style:page-usage=\"{usage}\">\
-             <style:page-layout-properties {page_props}/>{hf}</style:page-layout>"
+             <style:page-layout-properties {}/>{}{}</style:page-layout>",
+            page_props(head, foot),
+            if head { header } else { "" },
+            if foot { footer } else { "" }
         );
     }
     let mut openers: Vec<String> = Vec::new();
@@ -1283,11 +1296,11 @@ fn fodt(b: &Book, pr: &Print, sections: &[Section], pages: usize) -> String {
         "<office:master-styles>\n\
          <style:master-page style:name=\"Plain-Right\" style:page-layout-name=\"pl-right\" style:next-style-name=\"Plain\"/>\n\
          <style:master-page style:name=\"Plain\" style:page-layout-name=\"pl-mirrored\"/>\n\
-         <style:master-page style:name=\"Opener\" style:page-layout-name=\"pl-right\" style:next-style-name=\"Body\">\
+         <style:master-page style:name=\"Opener\" style:page-layout-name=\"pl-right-foot\" style:next-style-name=\"Body\">\
          <style:footer>{folio}</style:footer></style:master-page>\n\
-         <style:master-page style:name=\"Opener-Any\" style:page-layout-name=\"pl-mirrored\" style:next-style-name=\"Body\">\
+         <style:master-page style:name=\"Opener-Any\" style:page-layout-name=\"pl-mirrored-foot\" style:next-style-name=\"Body\">\
          <style:footer>{folio}</style:footer><style:footer-left>{folio}</style:footer-left></style:master-page>\n\
-         <style:master-page style:name=\"Body\" style:page-layout-name=\"pl-mirrored\">\
+         <style:master-page style:name=\"Body\" style:page-layout-name=\"pl-mirrored-body\">\
          <style:header><text:p text:style-name=\"RunningHead\">{}</text:p></style:header>\
          <style:header-left><text:p text:style-name=\"RunningHead\">{}</text:p></style:header-left>\
          <style:footer>{folio}</style:footer><style:footer-left>{folio}</style:footer-left></style:master-page>\n\
