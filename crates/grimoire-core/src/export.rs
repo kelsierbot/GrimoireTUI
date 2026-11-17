@@ -4068,7 +4068,11 @@ mod tests {
                 } else {
                     0.0
                 };
-            seen.push((name.to_string(), (top * 100.0).round(), (bottom * 100.0).round()));
+            seen.push((
+                name.to_string(),
+                (top * 100.0).round(),
+                (bottom * 100.0).round(),
+            ));
         }
         assert_eq!(seen.len(), 5, "{seen:?}");
         let body = seen.iter().find(|(n, ..)| n == "Body").unwrap().clone();
@@ -4103,7 +4107,12 @@ mod tests {
         let p = Project::load(&d).unwrap();
         let b = book(&p, None, Scope::Whole).unwrap();
         let md = markdown(&b);
-        for t in ["# Don’t Look—Yet", "ADA’S ROAD", "## Chapter One\n\n*The ‘Lantern’*", "“Go,”"] {
+        for t in [
+            "# Don’t Look—Yet",
+            "ADA’S ROAD",
+            "## Chapter One\n\n*The ‘Lantern’*",
+            "“Go,”",
+        ] {
             assert!(md.contains(t), "{t} in the Markdown: {md}");
         }
         let (paras, ..) = docx_of(&d, &all_options());

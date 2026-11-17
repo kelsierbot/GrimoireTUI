@@ -1165,7 +1165,11 @@ mod tests {
         let mut e = Editor::from_text("a\tb");
         assert_eq!(e.lines[0], "a\tb", "loading never changes the words");
         let rows = e.layout(2);
-        assert_eq!(rows.len(), 1, "the tab draws as nothing, so a and b fit: {rows:?}");
+        assert_eq!(
+            rows.len(),
+            1,
+            "the tab draws as nothing, so a and b fit: {rows:?}"
+        );
         e.place(0, 3);
         assert_eq!(e.cursor_vis(&rows), (0, 2));
     }
