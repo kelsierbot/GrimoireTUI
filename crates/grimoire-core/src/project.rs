@@ -1718,12 +1718,15 @@ pub fn scaffold_with(root: &Path, title: Option<&str>, shape: &Shape) -> Result<
         .or_else(|| root.file_name().map(|s| display_title(Path::new(s), None)))
         .unwrap_or_else(|| "Untitled".into());
     let quoted = |t: &str| t.replace('"', "'");
+    // A TOML string, escaped as TOML wants (a `\` in a title would otherwise
+    // leave a novel.toml that can't be read).
+    let toml_title = toml::Value::String(title.clone()).to_string();
 
     write_new(
         &root.join("novel.toml"),
         &format!(
-            "title = \"{}\"\nauthor = \"\"\ndraft = \"1\"\ntarget_words = {}\ndaily_target = {}\n\n# What this book calls its largest division: Part, Act, Book…\npart_label = \"Part\"\n",
-            quoted(&title),
+            "title = {}\nauthor = \"\"\ndraft = \"1\"\ntarget_words = {}\ndaily_target = {}\n\n# What this book calls its largest division: Part, Act, Book…\npart_label = \"Part\"\n",
+            toml_title,
             shape.target_words,
             shape.daily_target
         ),
@@ -4286,6 +4289,20 @@ mod tests {
     }
 
     // ---- review fixes -----------------------------------------------------
+
+    #[test]
+    fn a_title_with_a_backslash_makes_a_book_that_opens() {
+        let d = temp_dir("rv-toml-title");
+        let book = d.join("book");
+        fs::create_dir_all(&book).unwrap();
+        let title = r#"Ada's "Back\Slash" Book"#;
+        scaffold_with(&book, Some(title), &Shape::novel()).unwrap();
+        let toml_text = fs::read_to_string(book.join("novel.toml")).unwrap();
+        let table: toml::Table = toml::from_str(&toml_text).expect("novel.toml parses");
+        assert_eq!(table["title"].as_str(), Some(title), "kept exactly");
+        assert!(toml_text.contains("part_label = \"Part\""));
+        fs::remove_dir_all(&d).unwrap();
+    }
 
     #[test]
     fn a_scene_from_a_deleted_chapter_goes_back_to_that_chapter() {
