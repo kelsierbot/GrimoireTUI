@@ -328,6 +328,9 @@ pub struct App {
     pub book_find: Option<(String, Option<String>, usize)>,
     /// A Template Sheet's form, waiting for the note being named to fill.
     pub from_sheet: Option<String>,
+    /// The folder new books go in, copies are saved under, and a book can
+    /// be moved to: `~/Documents/Grimoire Books`.
+    pub books_home: PathBuf,
     /// The last click on the page: when, where, and how many in a row.
     last_click: Option<(Instant, u16, u16, u8)>,
     /// What was last copied or cut, for Ctrl-V when the system clipboard
@@ -648,6 +651,13 @@ pub enum Overlay {
         back: Option<Box<Overlay>>,
     },
     /// Suggestions for one misspelt word, plus adding it to the book.
+    /// Where this book is kept, and what can be done about it: how many
+    /// files it is and how much room they take, counted once on opening.
+    Kept {
+        sel: usize,
+        files: usize,
+        bytes: u64,
+    },
     /// Every word "Always ignore" taught the spellcheck, to take one back:
     /// the word, and whether it's this book's (or the writer's, everywhere).
     Taught {
@@ -737,6 +747,16 @@ impl App {
     /// with `background` off no threads started — how the tests build one.
     pub fn with(mut project: Project, setup: Setup) -> Result<Self> {
         let parents = project.parents();
+        // Tests keep to their own corner: beside the book they made.
+        let books_home = if setup.background {
+            grimoire_core::shelf::home()
+        } else {
+            project
+                .root
+                .parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| project.root.clone())
+        };
         // A book no one has opened yet: no day's baseline, nowhere to resume,
         // no words. It opens on the Novel Format guide instead of an empty
         // scene. Checked before load_baseline writes the first baseline.
@@ -869,6 +889,7 @@ impl App {
             sessions_back: None,
             book_find: None,
             from_sheet: None,
+            books_home,
             clip: String::new(),
             last_click: None,
             state_file: None,
@@ -1837,6 +1858,8 @@ impl App {
             }
             Action::Voices => self.open_voices(),
             Action::TaughtWords => self.open_taught(),
+            Action::WhereKept => self.open_kept(),
+            Action::SaveCopy => self.save_copy(),
             Action::BringInDraft => {
                 self.overlay = Overlay::BookPath {
                     buf: String::new(),
@@ -4860,6 +4883,8 @@ impl App {
         let writing = self.open.is_some();
         let mut items = match sub {
             Sub::Book => vec![
+                ("Where this book is kept…".into(), Action::WhereKept),
+                ("Save a copy (one file)".into(), Action::SaveCopy),
                 (row("Corkboard…", "(b)"), Action::Corkboard),
                 (row("New scene…", "(n)"), Action::NewScene),
                 (row("New chapter…", "(c)"), Action::NewChapter),

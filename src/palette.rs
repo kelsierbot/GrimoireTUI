@@ -103,6 +103,10 @@ pub enum Action {
     /// Which voice reads aloud.
     Voices,
     TaughtWords,
+    /// Where the book's folder is, and what can be done with it.
+    WhereKept,
+    /// The whole book as one file.
+    SaveCopy,
     OpenBookAt(std::path::PathBuf),
 }
 
@@ -285,6 +289,16 @@ pub fn entries(app: &crate::app::App) -> Vec<Entry> {
             format!("Spelling: {} (change)", app.spell_lang.name()),
             "",
             Action::SpellingLanguage,
+        ),
+        Entry::new(
+            "Where this book is kept (its folder, copies, moving it)",
+            "",
+            Action::WhereKept,
+        ),
+        Entry::new(
+            "Save a copy of this book (one file to keep or send)",
+            "",
+            Action::SaveCopy,
         ),
         Entry::new(
             "Words spellcheck was taught (take one back)",

@@ -1,6 +1,6 @@
 # On disk
 
-A book is an ordinary folder you can open, copy and back up without Grimoire.
+A book is an ordinary folder you can open, copy and back up without Grimoire. *Esc › This book › Where this book is kept…* shows which folder, and saves the whole book as one file when you want one (see *Your books*).
 
 ## The folder
 

@@ -18,14 +18,18 @@ enum Where {
     Taken(PathBuf),
     /// A Word, Markdown or text file to bring in as a new book.
     Draft(PathBuf),
+    /// A copy of a book (one .zip), to open as a book of its own.
+    Copy(PathBuf),
 }
 
-fn look(beside: &Path, typed: &str) -> Where {
-    let Some(p) = books::typed_path(beside, typed) else {
+fn look(home: &Path, typed: &str) -> Where {
+    let Some(p) = books::typed_path(home, typed) else {
         return Where::Nothing;
     };
     if books::is_book(&p) {
         Where::Book(p)
+    } else if grimoire_core::shelf::is_copy(&p) {
+        Where::Copy(p)
     } else if import::is_draft(&p) {
         Where::Draft(p)
     } else if p.is_file() || fs::read_dir(&p).is_ok_and(|mut d| d.next().is_some()) {
@@ -118,12 +122,13 @@ impl App {
         };
         let draft = *draft;
         match key {
-            Key::Enter => match look(&self.project.root, buf) {
+            Key::Enter => match look(&self.books_home, buf) {
                 Where::Book(root) => {
                     self.overlay = Overlay::None;
                     let _ = self.open_book(&root);
                 }
                 Where::Draft(file) => self.bring_in(&file),
+                Where::Copy(file) => self.open_copy(&file),
                 Where::Nothing => {}
                 Where::Free(p) | Where::Taken(p) => {
                     self.msg = if draft {
@@ -144,8 +149,12 @@ impl App {
     /// Start a whole new book from what was typed, and switch to it. It opens
     /// on the page that shows how a book is laid out.
     fn create_book(&mut self, typed: &str, shape: project::Template) {
-        let root = match look(&self.project.root, typed) {
+        let root = match look(&self.books_home, typed) {
             Where::Nothing => return,
+            Where::Copy(file) => {
+                self.open_copy(&file);
+                return;
+            }
             Where::Taken(p) => {
                 self.msg = format!(
                     "{} already has other things in it · try another name",
@@ -186,8 +195,28 @@ impl App {
         }
     }
 
-    /// Bring in the draft at `file` as a new book beside the one that's open,
-    /// and switch to it.
+    /// Open a copy of a book (one .zip): it's unpacked into the books folder
+    /// as a book of its own, and that book is opened. The copy stays as it
+    /// was, and nothing already in the books folder is touched.
+    pub fn open_copy(&mut self, file: &Path) {
+        let root = match grimoire_core::shelf::open_copy(file, &self.books_home) {
+            Ok(r) => r,
+            Err(e) => {
+                self.msg = format!("{e:#}");
+                return;
+            }
+        };
+        self.overlay = Overlay::None;
+        if self.open_book(&root) {
+            self.msg = format!(
+                "opened the copy as a book of its own · it lives in {}",
+                books::pretty(&root)
+            );
+        }
+    }
+
+    /// Bring in the draft at `file` as a new book in the books folder, and
+    /// switch to it.
     fn bring_in(&mut self, file: &Path) {
         let draft = match import::read(file) {
             Ok(d) => d,
@@ -196,8 +225,7 @@ impl App {
                 return;
             }
         };
-        let here = self.project.root.clone();
-        let root = books::beside(here.parent().unwrap_or(&here), &draft.title);
+        let root = books::beside(&self.books_home, &draft.title);
         if let Err(e) = import::make_book(&root, &draft) {
             self.msg = format!("couldn't bring it in: {e:#}");
             return;
@@ -247,6 +275,13 @@ impl App {
         if !self.try_quit() {
             return Err(format!("{} · so this book stays open for now", self.msg));
         }
+        self.load_book(&root).map(|()| true)
+    }
+
+    /// Open the book at `root` in place of this one, which has already been
+    /// saved and put away ([`App::try_quit`]).
+    pub(crate) fn load_book(&mut self, root: &Path) -> Result<(), String> {
+        let root = root.to_path_buf();
         let stranded = project::restore_stranded(&root);
         let updated = project::upgrade(&root).unwrap_or_else(|e| {
             vec![format!(
@@ -304,7 +339,7 @@ impl App {
         } else {
             self.msg = format!("opened {} · {}", self.project.meta.title, self.msg);
         }
-        Ok(true)
+        Ok(())
     }
 }
 
@@ -366,11 +401,11 @@ pub(super) fn draw_new_book(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
         return;
     };
     let dim = Style::default().fg(t.dim);
-    let found = look(&app.project.root, buf);
+    let found = look(&app.books_home, buf);
     // The shapes, one chosen, and what the chosen one starts with; a draft
     // brings its own shape, so they step aside for one.
     let mut extra = Vec::new();
-    if !matches!(found, Where::Draft(_) | Where::Book(_)) {
+    if !matches!(found, Where::Draft(_) | Where::Book(_) | Where::Copy(_)) {
         extra.push(Line::from(""));
         let mut row = vec![Span::styled(" ", dim)];
         for t_ in project::Template::ALL {
@@ -434,6 +469,7 @@ pub(super) fn draw_new_book(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             " try another name   esc cancel",
         ),
         Where::Draft(p) => draft_line(&p, t),
+        Where::Copy(p) => copy_line(&p, t),
     };
     typed_box(
         f,
@@ -454,7 +490,7 @@ pub(super) fn draw_book_path(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
         return;
     };
     let dim = Style::default().fg(t.dim);
-    let under = match look(&app.project.root, buf) {
+    let under = match look(&app.books_home, buf) {
         Where::Nothing if *draft => (
             Line::from(Span::styled(
                 " it comes in split into chapters and scenes",
@@ -464,6 +500,7 @@ pub(super) fn draw_book_path(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
         ),
         Where::Nothing => (Line::from(""), " type a folder   esc cancel"),
         Where::Draft(p) => draft_line(&p, t),
+        Where::Copy(p) => copy_line(&p, t),
         Where::Book(p) => (
             Line::from(vec![
                 Span::styled(" ✓ ", Style::default().fg(t.accent)),
@@ -495,7 +532,7 @@ pub(super) fn draw_book_path(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
         } else {
             (
                 "OPEN A BOOK",
-                "The book's folder, like ~/Documents/My Novel",
+                "The book's folder, or a copy of a book (a .zip file)",
             )
         },
         (buf, app.caret),
@@ -505,6 +542,22 @@ pub(super) fn draw_book_path(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
 }
 
 /// A draft that's there to bring in, by its file name.
+/// What a copy typed into a box says before ↵ is pressed.
+fn copy_line<'a>(p: &Path, t: &Theme) -> (Line<'a>, &'static str) {
+    (
+        Line::from(vec![
+            Span::styled(" a copy of a book: ", Style::default().fg(t.dim)),
+            Span::styled(
+                p.file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_default(),
+                Style::default().fg(t.accent),
+            ),
+        ]),
+        " ↵ open it as a book of its own   esc cancel",
+    )
+}
+
 fn draft_line<'a>(p: &Path, t: &Theme) -> (Line<'a>, &'static str) {
     let name = p
         .file_name()

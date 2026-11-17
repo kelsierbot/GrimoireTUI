@@ -278,6 +278,14 @@ pub fn about_row(action: &Action, part: &str) -> (String, &'static str) {
             "Underlines words that might be misspelt as you write.",
             "spelling",
         ),
+        Action::WhereKept => (
+            "Shows the folder this book is, whether it's synced or copied anywhere, and opens it. A book kept somewhere odd can be moved in with the others.",
+            "books",
+        ),
+        Action::SaveCopy => (
+            "The whole book as one .zip, named for the book and today. Keep it somewhere safe or send it: Grimoire on any computer opens it again.",
+            "books",
+        ),
         Action::TaughtWords => (
             "Every word you told spellcheck to always ignore, in this book and in every book. Take one back and it's underlined again.",
             "spelling",

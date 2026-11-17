@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.9.0 · Where's my book?
+
+A book is a folder of plain text files. That's what keeps it safe to sync
+and readable anywhere, but a folder is easier to lose track of than a file.
+Now Grimoire keeps track for you, and hands you one file when you want one.
+
+- **One books folder.** A book you start by name goes in
+  `Documents/Grimoire Books`, whatever was open at the time. (It used to
+  land beside the book you had open, wherever that was.) A draft you bring
+  in goes there too. A path still puts a book anywhere you like.
+- **Where this book is kept.** *Esc › This book › Where this book is kept…*
+  shows the folder, how many files it is, whether it's synced or only on
+  this computer, and when you last saved a copy. `o` opens the folder, and
+  `m` moves a book that's somewhere odd in with the others. From a terminal:
+  `grimoire where`.
+- **Save a copy: the whole book as one file.** *Esc › This book › Save a
+  copy* (or `grimoire copy`) makes one `.zip` named for the book and the
+  day, in `Documents/Grimoire Books/Copies`. Keep it somewhere safe or send
+  it. It never replaces an earlier one.
+- **Open a copy.** On any computer: *Open another book… › A book in another
+  folder…* and give it the `.zip`, or `grimoire "My Novel 2026-11-16.zip"`.
+  It opens as a book of its own in your books folder. The copy stays as it
+  was, and nothing already there is touched.
+
+Books you already have stay where they are, and open as they always did.
+
 ## 0.8.3 · The cursor stays put
 
 - **No more cursor flashing along the top.** In Rainbow most of all, where

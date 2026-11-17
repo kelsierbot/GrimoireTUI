@@ -118,6 +118,10 @@ fn main() -> Result<()> {
         println!("                              --short-story or --blank");
         println!("  grimoire import <draft>     bring in a draft (Word, Markdown or");
         println!("                              text) as a new book beside it");
+        println!("  grimoire where              say where your book is kept");
+        println!("  grimoire copy [dir]         the whole book as one .zip, to keep or");
+        println!("                              send; add --to <folder> to choose where");
+        println!("  grimoire <copy.zip>         open a copy as a book of its own");
         println!("  grimoire index              refresh project.md, the project map");
         println!("  grimoire compile            assemble the manuscript");
         println!("  grimoire export [dir]       DOCX + EPUB into exports/; pick formats");
@@ -133,6 +137,70 @@ fn main() -> Result<()> {
         println!("With no arguments grimoire opens the current directory if it is a");
         println!("manuscript, otherwise the last one you had open, otherwise it creates");
         println!("{}.", pretty(&default_root()));
+        return Ok(());
+    }
+
+    // Where the book is, without opening it: the answer to "where did I
+    // put that?" from any terminal.
+    if first.as_deref() == Some("where") {
+        let Some(root) = book_in_hand(args.next().map(PathBuf::from)) else {
+            println!("No book has been opened on this computer yet.");
+            println!(
+                "New books are kept in {}.",
+                pretty(&grimoire_core::shelf::home())
+            );
+            return Ok(());
+        };
+        let facts = grimoire_core::shelf::facts(&root);
+        let title = books::title(&root);
+        println!("{title}");
+        println!("  {}", root.display());
+        println!(
+            "  a folder of plain text files: {} files, {} KB",
+            facts.files,
+            facts.bytes.div_ceil(1024)
+        );
+        let copies = grimoire_core::shelf::copies_dir(&grimoire_core::shelf::home());
+        match grimoire_core::shelf::newest_copy(&copies, &title, &root) {
+            Some((file, _)) => println!("  newest copy: {}", file.display()),
+            None => println!("  no copy saved yet · grimoire copy makes one"),
+        }
+        return Ok(());
+    }
+
+    // The whole book as one file, to keep somewhere safe or to send.
+    if first.as_deref() == Some("copy") {
+        let (mut dir, mut to) = (None, None);
+        while let Some(a) = args.next() {
+            match a.as_str() {
+                "--to" => {
+                    to = Some(PathBuf::from(args.next().with_context(|| {
+                        "--to needs a folder, like --to ~/Desktop\n\n  grimoire copy [book folder] [--to folder]"
+                    })?))
+                }
+                s if s.starts_with('-') => anyhow::bail!(
+                    "unknown option '{s}'\n\n  grimoire copy [book folder] [--to folder]"
+                ),
+                _ => dir = Some(PathBuf::from(a)),
+            }
+        }
+        let root = book_in_hand(dir).context(
+            "which book? No book has been opened here yet\n\n  grimoire copy <book folder>",
+        )?;
+        let into =
+            to.unwrap_or_else(|| grimoire_core::shelf::copies_dir(&grimoire_core::shelf::home()));
+        let file = grimoire_core::shelf::save_copy(
+            &root,
+            &books::title(&root),
+            &into,
+            chrono::Local::now().date_naive(),
+        )?;
+        println!("Saved a copy of {}:", books::title(&root));
+        println!("  {}", file.display());
+        println!(
+            "Open it on any computer with:  grimoire \"{}\"",
+            pretty(&file)
+        );
         return Ok(());
     }
 
@@ -186,7 +254,22 @@ fn main() -> Result<()> {
     if let Some(option) = first.as_deref().filter(|a| a.starts_with('-')) {
         anyhow::bail!("there's no option '{option}' · grimoire --help lists what there is");
     }
-    let (root, opening_msg) = resolve_project(first.map(PathBuf::from))?;
+    // A copy of a book (one .zip) opens as a book of its own, in the books
+    // folder; the copy is left as it was.
+    let mut from_copy = None;
+    let first = match first.map(PathBuf::from) {
+        Some(p) if grimoire_core::shelf::is_copy(&p) => {
+            let root = grimoire_core::shelf::open_copy(&p, &grimoire_core::shelf::home())?;
+            from_copy = Some(format!(
+                "opened the copy as a book of its own · it lives in {}",
+                pretty(&root)
+            ));
+            Some(root)
+        }
+        other => other,
+    };
+    let (root, opening_msg) = resolve_project(first)?;
+    let opening_msg = from_copy.or(opening_msg);
     remember(&root);
 
     let stranded = project::restore_stranded(&root);
@@ -450,6 +533,21 @@ fn remember(root: &Path) {
 /// Decide what `grimoire` with no arguments should open. In order: the current
 /// directory, the last manuscript you had open, or a fresh one.
 /// Find the book to open, and bring it into the current shape first (once).
+/// The book a command means when it's given a folder, or none: that
+/// folder, else the folder you're standing in, else the one last open.
+/// Never makes a book; `None` if there isn't one.
+fn book_in_hand(arg: Option<PathBuf>) -> Option<PathBuf> {
+    let real = |p: PathBuf| std::fs::canonicalize(&p).unwrap_or(p);
+    if let Some(p) = arg {
+        return is_project(&p).then(|| real(p));
+    }
+    let cwd = std::env::current_dir().ok()?;
+    if is_project(&cwd) {
+        return Some(real(cwd));
+    }
+    books::last(&books::state_path()).filter(|p| is_project(p))
+}
+
 fn resolve_project(arg: Option<PathBuf>) -> Result<(PathBuf, Option<String>)> {
     let (root, msg) = find_project(arg)?;
     // Something the upgrade can't reach (a folder not downloaded yet) mustn't

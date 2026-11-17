@@ -122,6 +122,9 @@ grimoire                          open your manuscript
 grimoire ~/novels/the-archive     open a specific one
 grimoire new ~/novels/next-one    start one (add --short-story or --blank)
 grimoire import draft.docx        bring in a draft you already have
+grimoire where                    say where your book is kept
+grimoire copy                     the whole book as one .zip, to keep or send
+grimoire "My Novel 2026-11-16.zip"   open a copy as a book of its own
 grimoire help                     the commands and flags, in short
 grimoire music-setup              install + connect YouTube Music
 ```
@@ -144,6 +147,19 @@ otherwise the last one you had open, otherwise it creates one in
 `~/Documents/Grimoire`.
 
 ## On disk
+
+**Where's my book?** A book is a folder of plain text files, not one file,
+and Grimoire keeps track of it for you. Every book you start by name goes in
+`Documents/Grimoire Books`. *Esc › This book › Where this book is kept…* shows
+the folder, opens it, says whether it's synced or only on this computer, and
+moves a stray book in with the others.
+
+**Want one file?** *Save a copy* (same menu, or `grimoire copy`) makes the
+whole book one `.zip`, named for the book and the day, in
+`Documents/Grimoire Books/Copies`. Keep it somewhere safe or send it. Grimoire
+on any computer opens it again as a book of its own (*Open another book…*, or
+`grimoire that-file.zip`), and it's an ordinary zip, so the book is readable
+without Grimoire too.
 
 Folders are containers, at any depth. Files are scenes. Order comes from the
 name: a leading `01-` sorts the file and is stripped for display.

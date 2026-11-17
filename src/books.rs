@@ -128,8 +128,9 @@ pub fn tally(d: &grimoire_core::import::Draft) -> String {
 }
 
 /// What was typed for a book's folder, as a path: `~/…` and `/…` are taken
-/// as they are, and a plain name goes beside the book that's open.
-pub fn typed_path(beside: &Path, typed: &str) -> Option<PathBuf> {
+/// as they are, and a plain name goes in the books folder, `home`, where
+/// every book started by name is kept.
+pub fn typed_path(books_home: &Path, typed: &str) -> Option<PathBuf> {
     // A file dragged into the terminal arrives quoted, or with its spaces
     // escaped.
     let typed = typed.trim().trim_matches(['\'', '"']);
@@ -152,7 +153,7 @@ pub fn typed_path(beside: &Path, typed: &str) -> Option<PathBuf> {
     if p.is_absolute() {
         return Some(p);
     }
-    Some(beside.parent().unwrap_or(beside).join(typed))
+    Some(books_home.join(typed))
 }
 
 #[cfg(test)]
@@ -181,11 +182,15 @@ mod tests {
     }
 
     #[test]
-    fn a_plain_name_goes_beside_the_open_book() {
-        let open = Path::new("/writing/first-novel");
+    fn a_plain_name_goes_in_the_books_folder() {
+        // Wherever the open book happens to be, a book started by name is
+        // kept with the others.
+        let open = Path::new("/home/me/Documents/Grimoire Books");
         assert_eq!(
             typed_path(open, "The Long Night"),
-            Some(PathBuf::from("/writing/The Long Night"))
+            Some(PathBuf::from(
+                "/home/me/Documents/Grimoire Books/The Long Night"
+            ))
         );
         assert_eq!(
             typed_path(open, "/elsewhere/Book"),

@@ -3617,3 +3617,124 @@ fn a_chapter_is_added_from_the_corkboard_and_an_empty_one_still_shows() {
         "no card to stand on"
     );
 }
+
+/// The book's place is one menu row away, and from there the whole book
+/// becomes one file, which opens again as a book of its own.
+#[test]
+fn where_the_book_is_kept_saves_a_copy_that_opens_as_a_book() {
+    let dir = std::env::temp_dir().join(format!("grimoire-ui-kept-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    let root = dir.join("code").join("My Novel");
+    fs::create_dir_all(&root).unwrap();
+    project::scaffold(&root).unwrap();
+    fs::create_dir_all(root.join(".grimoire")).unwrap();
+    fs::write(root.join(".grimoire/progress.toml"), "").unwrap();
+    let scene = first_scene(&root);
+    let text = fs::read_to_string(&scene).unwrap();
+    fs::write(&scene, format!("{text}The rain came sideways.\n")).unwrap();
+
+    let mut d = Desk::open(root.clone(), 130, 44);
+    let home = dir.join("Grimoire Books");
+    d.app.books_home = home.clone();
+    d.key(KeyCode::Esc);
+    d.choose("This book");
+    d.choose("Where this book is kept…");
+    assert!(
+        d.shows("WHERE THIS BOOK IS KEPT"),
+        "{}",
+        d.rows().join("\n")
+    );
+    assert!(d.shows("My Novel") && d.shows("A folder of plain text files"));
+    assert!(d.shows("No copy has been saved yet"));
+    assert!(
+        d.shows("Move it to your books folder"),
+        "it's kept somewhere else"
+    );
+
+    // One key: the whole book as one file.
+    d.key(KeyCode::Char('s'));
+    let copies: Vec<PathBuf> = fs::read_dir(home.join("Copies"))
+        .unwrap()
+        .flatten()
+        .map(|e| e.path())
+        .collect();
+    assert_eq!(copies.len(), 1, "{copies:?}");
+    assert!(d.app.msg.starts_with("saved a copy"), "{}", d.app.msg);
+    assert!(d.shows("Last copy saved"), "{}", d.rows().join("\n"));
+
+    // The copy, typed into "A book in another folder…", opens as a book of
+    // its own in the books folder, with the words in it.
+    d.key(KeyCode::Esc);
+    d.app.overlay = Overlay::BookPath {
+        buf: copies[0].display().to_string(),
+        draft: false,
+    };
+    d.draw();
+    assert!(d.shows("a copy of a book"), "{}", d.rows().join("\n"));
+    d.key(KeyCode::Enter);
+    let opened = d.app.project.root.clone();
+    assert_eq!(opened, fs::canonicalize(home.join("My Novel")).unwrap());
+    assert!(
+        fs::read_to_string(first_scene(&opened))
+            .unwrap()
+            .contains("The rain came sideways.")
+    );
+    assert!(
+        root.join("manuscript").is_dir(),
+        "the original is where it was"
+    );
+    let _ = fs::remove_dir_all(&dir);
+}
+
+/// A book kept somewhere odd moves in with the others, and the writing
+/// carries on in it there. A book started by name goes there to begin with.
+#[test]
+fn a_book_moves_to_the_books_folder_and_new_ones_start_there() {
+    let dir = std::env::temp_dir().join(format!("grimoire-ui-move-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    let root = dir.join("code").join("Stray Book");
+    fs::create_dir_all(&root).unwrap();
+    project::scaffold(&root).unwrap();
+    fs::create_dir_all(root.join(".grimoire")).unwrap();
+    fs::write(root.join(".grimoire/progress.toml"), "").unwrap();
+    let mut d = Desk::open(root.clone(), 130, 44);
+    let home = dir.join("Grimoire Books");
+    d.app.books_home = home.clone();
+    d.app.focus = Focus::Editor;
+    d.typed("Words written before the move.");
+
+    d.app.open_kept();
+    d.key(KeyCode::Char('m'));
+    let now = fs::canonicalize(home.join("Stray Book")).unwrap();
+    assert_eq!(d.app.project.root, now, "{}", d.app.msg);
+    assert!(!root.exists(), "it's in one place, not two");
+    assert!(d.app.msg.starts_with("moved"), "{}", d.app.msg);
+    assert!(
+        fs::read_to_string(first_scene(&now))
+            .unwrap()
+            .contains("Words written before the move."),
+        "what was typed was saved before it moved"
+    );
+    // Now it's home, there's nowhere to move it to.
+    d.app.books_home = fs::canonicalize(&home).unwrap();
+    d.app.open_kept();
+    d.draw();
+    assert!(!d.shows("Move it to your books folder"));
+    d.key(KeyCode::Esc);
+
+    // A new book, by name alone.
+    d.key(KeyCode::Esc);
+    d.choose("Start a new book…");
+    d.typed("The Long Night");
+    assert!(
+        d.shows("Grimoire Books/The Long Night"),
+        "{}",
+        d.rows().join("\n")
+    );
+    d.key(KeyCode::Enter);
+    assert_eq!(
+        d.app.project.root,
+        fs::canonicalize(home.join("The Long Night")).unwrap()
+    );
+    let _ = fs::remove_dir_all(&dir);
+}

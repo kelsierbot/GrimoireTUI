@@ -2,6 +2,37 @@
 
 Every book lives in a folder of its own, and you can have as many as you like. Starting one, or hopping between them, is a couple of keys.
 
+## Where your book is kept
+
+A book isn't one file. It's a **folder of plain text files**: every scene and every note is its own small file, which is why any editor can read your book, why it syncs safely, and why each scene keeps its own history. The price is that a folder is easier to lose track of than a file. So Grimoire keeps track for you.
+
+**Your books folder** is `Documents/Grimoire Books`. Every book you start by name goes in there, in a folder with the book's name.
+
+*Esc › This book › Where this book is kept…* (or *Where this book is kept* in `Ctrl-K`) shows:
+
+- the folder this book is, how many files it is, and how much room it takes;
+- whether it's in a synced folder, or only on this computer;
+- when you last saved a copy of it.
+
+From there:
+
+- `o` **opens the folder** in your file manager.
+- `s` **saves a copy**: see below.
+- `c` shows the folder your copies are in.
+- `m` **moves the book into your books folder**, if it's somewhere else. Nothing in the book changes, and you carry on writing in it.
+
+From a terminal, `grimoire where` says the same without opening anything.
+
+## A copy: the whole book as one file
+
+When you want *a file* (to back the book up, put it on a stick, or send it to someone), *Esc › This book › Save a copy* makes one. *Save a copy of this book* in `Ctrl-K` does too, and so does `grimoire copy` from a terminal.
+
+A copy is a single `.zip` named for the book and the day, like `The Long Night 2026-11-16.zip`. It goes in `Documents/Grimoire Books/Copies`, and holds everything: the manuscript, your notes, the settings and each scene's history. Saving another on the same day never replaces the first.
+
+**To open a copy**, on this computer or any other: *Esc › Open another book… › A book in another folder…* and type or drop in the `.zip`, or run `grimoire "The Long Night 2026-11-16.zip"`. It's unpacked into your books folder as a book of its own and opened. The copy itself stays as it was, and nothing already in your books folder is touched: a second book of the same name gets a number.
+
+A copy is an ordinary zip, too. Unpack it by hand and the book's folder is inside, readable without Grimoire.
+
 ## Starting a new book
 
 *Esc › Start a new book…* (or type *new book* in `Ctrl-K`).
@@ -14,7 +45,7 @@ Type a name and press `Enter`. That's all. `Tab` first picks what it starts as:
 
 Whichever you pick, you can add, rename and delete anything later. The book you had open is saved and put away first, and the new one opens on a page that shows how a book is laid out. It comes with parts, chapters and scenes already in place, ready to fill in, rename or delete.
 
-A plain name goes in a folder beside the book you had open. With *~/Documents/Grimoire* open, *The Long Night* becomes *~/Documents/The Long Night*. The box shows exactly where before you press `Enter`, and a path (like `~/Writing/The Long Night`) puts it anywhere you like.
+A plain name goes in your books folder: *The Long Night* becomes *~/Documents/Grimoire Books/The Long Night*. The box shows exactly where before you press `Enter`, and a path (like `~/Writing/The Long Night`) puts it anywhere you like.
 
 If there's already a book by that name, `Enter` opens it instead of making a second one. A folder that already has other things in it is left alone, so try another name.
 
@@ -37,13 +68,13 @@ Here's how it's split up:
 - Anything before the first chapter, like a title page, is kept in **Notes**, so it doesn't turn into a chapter.
 - An *END* on its own at the very end is left off, since Grimoire's export adds its own.
 
-The draft itself is never changed. The new book goes beside the one you had open, named after the draft, and opens straight away. It tells you how many chapters, scenes and words came across, and every word lands somewhere.
+The draft itself is never changed. The new book goes in your books folder, named after the draft, and opens straight away. It tells you how many chapters, scenes and words came across, and every word lands somewhere.
 
 ## Switching books
 
 *Esc › Open another book…* lists the books you've had open on this computer, newest first. Pick one and press `Enter`: the book you're in is saved and closed, and the other opens right where you left off.
 
-- *A book in another folder…* opens one that isn't on the list yet. Type its folder.
+- *A book in another folder…* opens one that isn't on the list yet. Type its folder, or a copy of a book (a `.zip`).
 - In `Ctrl-K`, type part of a book's name. Every book on the list is there as *Open the book …*.
 
 Your music keeps playing, the Pomodoro keeps counting, and the theme stays just as it is.

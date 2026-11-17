@@ -40,7 +40,10 @@ impl App {
                 .menu_highlight()
                 .map(|a| super::menu::about_row(&a, &self.project.meta.part_noun()).1)
                 .unwrap_or("getting-started"),
-            Overlay::NewBook { .. } | Overlay::Books { .. } | Overlay::BookPath { .. } => "books",
+            Overlay::NewBook { .. }
+            | Overlay::Books { .. }
+            | Overlay::BookPath { .. }
+            | Overlay::Kept { .. } => "books",
             Overlay::Themes { .. } | Overlay::Custom { .. } => "themes",
             Overlay::Sources { .. } | Overlay::Player { .. } => "music",
             Overlay::Export { .. } | Overlay::Look { .. } | Overlay::Author { .. } => "compile",
