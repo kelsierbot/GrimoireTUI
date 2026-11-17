@@ -86,7 +86,7 @@ pub fn read(path: &Path) -> Result<Draft> {
         "docx" => (docx_blocks(path)?, None),
         "md" | "markdown" | "txt" | "text" => {
             let raw = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
-            let text = String::from_utf8_lossy(&raw).replace("\r\n", "\n");
+            let text = decode(&raw).replace("\r\n", "\n");
             let (front, body) = split_frontmatter(&text);
             (text_blocks(body, ext.starts_with('m')), front)
         }
@@ -145,7 +145,57 @@ pub fn make_book(root: &Path, draft: &Draft) -> Result<()> {
     Ok(())
 }
 
+/// Windows-1252's characters for the bytes 0x80 to 0x9F. The five bytes it
+/// leaves unassigned stand for themselves, as a browser reads them.
+const CP1252_HIGH: [char; 32] = [
+    '€', '\u{81}', '‚', 'ƒ', '„', '…', '†', '‡', 'ˆ', '‰', 'Š', '‹', 'Œ', '\u{8D}', 'Ž', '\u{8F}',
+    '\u{90}', '‘', '’', '“', '”', '•', '–', '—', '˜', '™', 'š', '›', 'œ', '\u{9D}', 'ž', 'Ÿ',
+];
+
+/// A text file's bytes as text. A byte order mark says how it's written
+/// (UTF-8 or UTF-16) and is dropped. Without one, UTF-8 if the bytes are
+/// UTF-8, else Windows-1252: what an older Windows editor saves, curly
+/// quotes and all.
+fn decode(raw: &[u8]) -> String {
+    let utf16 = |bytes: &[u8], le: bool| {
+        let units: Vec<u16> = bytes
+            .chunks(2)
+            .map(|c| {
+                let pair = [c[0], c.get(1).copied().unwrap_or(0)];
+                if le {
+                    u16::from_le_bytes(pair)
+                } else {
+                    u16::from_be_bytes(pair)
+                }
+            })
+            .collect();
+        String::from_utf16_lossy(&units)
+    };
+    if let Some(rest) = raw.strip_prefix(&[0xEF, 0xBB, 0xBF]) {
+        return String::from_utf8_lossy(rest).into_owned();
+    }
+    if let Some(rest) = raw.strip_prefix(&[0xFF, 0xFE]) {
+        return utf16(rest, true);
+    }
+    if let Some(rest) = raw.strip_prefix(&[0xFE, 0xFF]) {
+        return utf16(rest, false);
+    }
+    match std::str::from_utf8(raw) {
+        Ok(text) => text.to_string(),
+        Err(_) => raw
+            .iter()
+            .map(|&b| match b {
+                0x80..=0x9F => CP1252_HIGH[(b - 0x80) as usize],
+                _ => char::from(b),
+            })
+            .collect(),
+    }
+}
+
 /// Markdown frontmatter's `title:`, and the text after the frontmatter.
+/// Only a block of `key: value` lines (and the indented or `- ` lines of a
+/// list under a key) is front matter; prose between two `---` lines is the
+/// story, and stays.
 fn split_frontmatter(text: &str) -> (Option<String>, &str) {
     let Some(rest) = text.strip_prefix("---\n") else {
         return (None, text);
@@ -153,6 +203,20 @@ fn split_frontmatter(text: &str) -> (Option<String>, &str) {
     let Some(end) = rest.find("\n---") else {
         return (None, text);
     };
+    let is_key = |l: &str| {
+        l.split_once(':').is_some_and(|(k, v)| {
+            !k.is_empty()
+                && k.chars()
+                    .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
+                && (v.is_empty() || v.starts_with(' '))
+        })
+    };
+    let mut lines = rest[..end].lines().filter(|l| !l.trim().is_empty());
+    let first_is_key = lines.next().is_some_and(is_key);
+    let rest_fit = lines.all(|l| is_key(l) || l.starts_with([' ', '\t']) || l.starts_with("- "));
+    if !first_is_key || !rest_fit {
+        return (None, text);
+    }
     let title = rest[..end]
         .lines()
         .find_map(|l| l.strip_prefix("title:"))
@@ -176,12 +240,23 @@ fn is_break(line: &str) -> bool {
 
 /// Paragraphs of Markdown or plain text: blank lines between them, headings
 /// marked with `#` (Markdown only; in plain text a `#` line is a break).
+///
+/// A line that reads as a chapter or part heading stands on its own even
+/// with no blank line around it, for a file with one paragraph on each line.
+/// In a file hard-wrapped at a fixed width, the wrapped lines of one
+/// paragraph are joined back with spaces; otherwise each line stays its own
+/// paragraph, as it is in a scene.
 fn text_blocks(text: &str, markdown: bool) -> Vec<Block> {
+    let wrapped = is_hard_wrapped(text);
     let mut out = Vec::new();
     let mut para: Vec<&str> = Vec::new();
     let flush = |para: &mut Vec<&str>, out: &mut Vec<Block>| {
         if !para.is_empty() {
-            out.push(Block::Para(para.join("\n")));
+            out.push(Block::Para(if wrapped {
+                para.iter().map(|l| l.trim()).collect::<Vec<_>>().join(" ")
+            } else {
+                para.join("\n")
+            }));
             para.clear();
         }
     };
@@ -194,6 +269,11 @@ fn text_blocks(text: &str, markdown: bool) -> Vec<Block> {
         if is_break(t) {
             flush(&mut para, &mut out);
             out.push(Block::Break);
+            continue;
+        }
+        if is_heading_line(t) {
+            flush(&mut para, &mut out);
+            out.push(Block::Para(t.to_string()));
             continue;
         }
         if markdown {
@@ -209,6 +289,98 @@ fn text_blocks(text: &str, markdown: bool) -> Vec<Block> {
     }
     flush(&mut para, &mut out);
     out
+}
+
+/// The words a chapter number is spelled in: "Twenty-Three" is two of them.
+const NUMBER_WORDS: [&str; 29] = [
+    "one",
+    "two",
+    "three",
+    "four",
+    "five",
+    "six",
+    "seven",
+    "eight",
+    "nine",
+    "ten",
+    "eleven",
+    "twelve",
+    "thirteen",
+    "fourteen",
+    "fifteen",
+    "sixteen",
+    "seventeen",
+    "eighteen",
+    "nineteen",
+    "twenty",
+    "thirty",
+    "forty",
+    "fifty",
+    "sixty",
+    "seventy",
+    "eighty",
+    "ninety",
+    "hundred",
+    "zero",
+];
+
+/// A line, met inside a run of lines with no blank line around it, that is
+/// surely a heading: "Chapter 3", "CHAPTER TWO: The Door", "Prologue",
+/// "Part One". Stricter than a paragraph standing alone, so a wrapped line
+/// that starts "chapter of her life" or "Chapter House" stays prose.
+fn is_heading_line(t: &str) -> bool {
+    if t.chars().count() > 70 || !t.starts_with(|c: char| c.is_uppercase()) {
+        return false;
+    }
+    if is_part(t) && t.chars().count() <= 40 {
+        return true;
+    }
+    let lower = t.to_lowercase();
+    let mut words = lower
+        .split(|c: char| c.is_whitespace() || c == ':' || c == '.')
+        .filter(|w| !w.is_empty());
+    let first = words.next().unwrap_or("");
+    let second = words.next();
+    let named_after = || {
+        let head = lower.trim_start_matches(first);
+        head.is_empty() || head.starts_with([':', '.'])
+    };
+    match first {
+        "chapter" => second.is_some_and(|w| {
+            w.chars().all(|c| c.is_ascii_digit())
+                || w.chars().all(|c| matches!(c, 'i' | 'v' | 'x' | 'l' | 'c'))
+                || w.split('-').all(|part| NUMBER_WORDS.contains(&part))
+        }),
+        "prologue" | "epilogue" | "interlude" => named_after(),
+        _ => false,
+    }
+}
+
+/// Whether the file is hard-wrapped: paragraphs split by blank lines, and
+/// inside a paragraph, lines broken at a fixed width rather than where the
+/// writer pressed Enter. Every line is short, and the lines that wrap run
+/// close to the width; verse and lists, with their short lines, don't.
+fn is_hard_wrapped(text: &str) -> bool {
+    let lines: Vec<&str> = text.lines().map(str::trim_end).collect();
+    if lines.iter().any(|l| l.chars().count() > 100) {
+        return false;
+    }
+    let mut wrapped_lengths = Vec::new();
+    for group in lines.split(|l| l.trim().is_empty()) {
+        if group.len() < 2 {
+            continue;
+        }
+        for l in &group[..group.len() - 1] {
+            wrapped_lengths.push(l.chars().count());
+        }
+    }
+    let groups = lines
+        .split(|l| l.trim().is_empty())
+        .filter(|g| !g.is_empty())
+        .count();
+    !wrapped_lengths.is_empty()
+        && groups >= 2
+        && wrapped_lengths.iter().sum::<usize>() / wrapped_lengths.len() >= 50
 }
 
 /// "Part Two", "BOOK ONE", "Act 3", "Part IV: The Sea": a heading for a
@@ -832,5 +1004,135 @@ mod tests {
         assert_eq!(paras[2], "It was *very* late.");
         assert_eq!(paras[4], "**Morning.**");
         assert_eq!(builtin_heading("Heading2"), Some(2));
+    }
+
+    /// Write `bytes` as `name` in a fresh folder for `tag`, and read it in.
+    fn read_bytes(tag: &str, name: &str, bytes: &[u8]) -> Draft {
+        let d = std::env::temp_dir().join(format!("grimoire-import-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        let path = d.join(name);
+        std::fs::write(&path, bytes).unwrap();
+        let draft = read(&path).unwrap();
+        std::fs::remove_dir_all(&d).unwrap();
+        draft
+    }
+
+    fn all_text(d: &Draft) -> String {
+        d.shape
+            .parts
+            .iter()
+            .flat_map(|p| &p.chapters)
+            .flat_map(|c| &c.scenes)
+            .map(|s| s.body.as_str())
+            .collect::<Vec<_>>()
+            .join("\n\n")
+    }
+
+    #[test]
+    fn text_in_other_encodings_comes_in_as_written() {
+        // Windows-1252: curly quotes, an em dash and an accent.
+        let d = read_bytes(
+            "cp1252",
+            "lantern.txt",
+            b"Chapter One\r\n\r\n\x93Hello,\x94 she said \x97 caf\xe9 n\x92 all.\r\n",
+        );
+        assert_eq!(
+            all_text(&d),
+            "\u{201c}Hello,\u{201d} she said \u{2014} caf\u{e9} n\u{2019} all."
+        );
+
+        // A UTF-8 byte order mark doesn't hide the front matter.
+        let d = read_bytes(
+            "bom8",
+            "lantern.md",
+            "\u{feff}---\ntitle: The Lantern\n---\n\n# Chapter One\n\nWords here.\n".as_bytes(),
+        );
+        assert_eq!(d.title, "The Lantern");
+        assert_eq!(all_text(&d), "Words here.");
+
+        // UTF-16, both ways round.
+        let text = "Chapter One\r\n\r\nCaf\u{e9} \u{201c}noir\u{201d}.\r\n";
+        let mut le = vec![0xFF, 0xFE];
+        let mut be = vec![0xFE, 0xFF];
+        for u in text.encode_utf16() {
+            le.extend_from_slice(&u.to_le_bytes());
+            be.extend_from_slice(&u.to_be_bytes());
+        }
+        for (tag, bytes) in [("utf16le", le), ("utf16be", be)] {
+            let d = read_bytes(tag, "noir.txt", &bytes);
+            assert_eq!(all_text(&d), "Caf\u{e9} \u{201c}noir\u{201d}.", "{tag}");
+            assert_eq!(shape_of(&d)[0].1[0].0, "Chapter One", "{tag}");
+        }
+    }
+
+    #[test]
+    fn plain_text_with_a_paragraph_on_each_line_still_finds_its_chapters() {
+        let txt = "Chapter One\nIt began with a letter.\nShe read it twice.\nChapter Two\nNo one wrote back.\n";
+        let d = build(text_blocks(txt, false), None, "Letters".into());
+        assert_eq!(
+            shape_of(&d),
+            vec![(
+                None,
+                vec![
+                    ("Chapter One".into(), vec!["Scene One".into()]),
+                    ("Chapter Two".into(), vec!["Scene One".into()]),
+                ]
+            )]
+        );
+        assert_eq!(
+            all_text(&d),
+            "It began with a letter.\nShe read it twice.\n\nNo one wrote back.",
+            "each line stays its own paragraph"
+        );
+        // A wrapped line that only starts with the word is still prose.
+        let txt = "It began with a letter that turned the page on the next\nchapter of her life, and she knew it.\n";
+        let d = build(text_blocks(txt, false), None, "Letters".into());
+        assert_eq!(d.chapters(), 1);
+        assert!(all_text(&d).contains("chapter of her life"));
+    }
+
+    #[test]
+    fn hard_wrapped_paragraphs_are_joined_back_into_one() {
+        let txt = "CHAPTER ONE\n\n\
+                   The rain had stopped by the time Ada Quill reached the\n\
+                   harbour, and the boats knocked together in the dark like\n\
+                   old friends who had run out of things to say.\n\n\
+                   She waited at the end of the pier for a long while, counting\n\
+                   the lamps along the far shore until she lost her place.\n";
+        let d = build(text_blocks(txt, false), None, "Harbour".into());
+        assert_eq!(
+            all_text(&d),
+            "The rain had stopped by the time Ada Quill reached the \
+             harbour, and the boats knocked together in the dark like \
+             old friends who had run out of things to say.\n\n\
+             She waited at the end of the pier for a long while, counting \
+             the lamps along the far shore until she lost her place."
+        );
+        // Short lines with blank lines between them (verse, a list) stay
+        // as they are.
+        let verse = "The wind\nthe salt\nthe door\n\nand then\nthe tide\n";
+        let d = build(text_blocks(verse, false), None, "Verse".into());
+        assert_eq!(
+            all_text(&d),
+            "The wind\nthe salt\nthe door\n\nand then\nthe tide"
+        );
+    }
+
+    #[test]
+    fn only_real_front_matter_is_taken_as_front_matter() {
+        let md = "---\ntitle: The Lantern\nauthor: Ada Quill\ntags:\n  - fiction\n---\n\nWords.\n";
+        assert_eq!(
+            split_frontmatter(md),
+            (Some("The Lantern".into()), "\nWords.\n")
+        );
+        // Prose between two rules is the story, not front matter.
+        let story = "---\n\nThe night was cold. She said: not now.\n\n---\n\nMorning came.\n";
+        let (front, body) = split_frontmatter(story);
+        assert_eq!(front, None);
+        assert_eq!(body, story);
+        let d = build(text_blocks(body, true), front, "Night".into());
+        assert!(all_text(&d).contains("The night was cold. She said: not now."));
+        assert!(all_text(&d).contains("Morning came."));
     }
 }
