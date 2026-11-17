@@ -267,6 +267,51 @@ impl Speller {
             ok
         });
         ok || (part.after_hyphen && self.noun_ed(&word))
+            || self.dropped_g(chars, part, &word)
+            || self.stutter(chars, part, &word)
+    }
+
+    /// The "goin" of "goin'": a word ending in -in, an apostrophe after it,
+    /// and the -ing word in the dictionary.
+    fn dropped_g(&self, chars: &[char], part: &Part, word: &str) -> bool {
+        if !chars.get(part.end).is_some_and(|&c| is_apostrophe(c))
+            || word.chars().count() < 3
+            || !word.to_lowercase().ends_with("in")
+        {
+            return false;
+        }
+        let g = if word.ends_with('N') { 'G' } else { 'g' };
+        self.check(&format!("{word}{g}"))
+    }
+
+    /// The "th" of "th-they" (or "th-th-the"): the start of the word that
+    /// ends the hyphen chain, said twice. That word must be right itself.
+    fn stutter(&self, chars: &[char], part: &Part, word: &str) -> bool {
+        if !part.before_hyphen {
+            return false;
+        }
+        let mut i = part.end;
+        let mut last = None;
+        while chars.get(i).is_some_and(|&c| is_hyphen(c)) {
+            let s = i + 1;
+            let mut e = s;
+            while e < chars.len() && (is_letter(chars[e]) || is_apostrophe(chars[e])) {
+                e += 1;
+            }
+            if e == s {
+                break;
+            }
+            last = Some((s, e));
+            i = e;
+        }
+        let Some((s, e)) = last else {
+            return false;
+        };
+        let (s, e) = trim_to_word(chars, s, e);
+        let full = straighten(&chars[s..e]);
+        full.chars().count() > word.chars().count()
+            && full.to_lowercase().starts_with(&word.to_lowercase())
+            && self.check(&full)
     }
 
     /// The "-hearted" of "kind-hearted": a noun plus -ed that only exists
@@ -892,6 +937,24 @@ mod tests {
         for line in prose {
             assert_eq!(flagged(line), Vec::<String>::new(), "{line}");
         }
+    }
+
+    #[test]
+    fn spoken_words_pass_dropped_letters_and_stutters_too() {
+        let speech = [
+            "We're goin' nowhere, nothin' doin'.",
+            "Somethin’ was wrong.",
+            "Th-they came at n-night, th-th-the lot of them.",
+            "W-what? Wh-where?",
+        ];
+        for line in speech {
+            assert_eq!(flagged(line), Vec::<String>::new(), "{line}");
+        }
+        // Still caught: a dropped g on a word that isn't one, a stutter
+        // that isn't the start of the word after it.
+        assert_eq!(flagged("We're gloin' home."), ["gloin"]);
+        assert_eq!(flagged("He said qx-they."), ["qx"]);
+        assert_eq!(flagged("th-thye"), ["th", "thye"]);
     }
 
     #[test]
