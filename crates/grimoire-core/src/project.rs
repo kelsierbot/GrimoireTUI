@@ -1332,7 +1332,8 @@ fn front_get(front: &str, key: &str) -> Option<String> {
             continue;
         };
         if k.trim() == key {
-            let v = v.trim().trim_matches('"').trim_matches('\'').trim();
+            let v = unquote(v.trim());
+            let v = v.trim();
             if v.is_empty() {
                 return None;
             }
@@ -1340,6 +1341,42 @@ fn front_get(front: &str, key: &str) -> Option<String> {
         }
     }
     None
+}
+
+/// A YAML scalar as written: one surrounding pair of quotes taken off, and
+/// what [`set_front`] escaped inside double quotes (`\"`, `\\`) put back.
+/// Quotes that belong to the value itself stay.
+fn unquote(v: &str) -> String {
+    let pair = |q: char| v.len() >= 2 && v.starts_with(q) && v.ends_with(q);
+    if pair('"') {
+        let inner = &v[1..v.len() - 1];
+        let mut out = String::with_capacity(inner.len());
+        let mut chars = inner.chars();
+        while let Some(c) = chars.next() {
+            if c == '\\' {
+                match chars.next() {
+                    Some(e @ ('"' | '\\')) => out.push(e),
+                    Some(other) => {
+                        out.push('\\');
+                        out.push(other);
+                    }
+                    None => out.push('\\'),
+                }
+            } else {
+                out.push(c);
+            }
+        }
+        out
+    } else if pair('\'') {
+        v[1..v.len() - 1].replace("''", "'")
+    } else {
+        v.to_string()
+    }
+}
+
+/// [`front_get`] for the rest of the crate.
+pub(crate) fn front_scalar(front: &str, key: &str) -> Option<String> {
+    front_get(front, key)
 }
 
 /// Set `key: value` in a frontmatter block. The first line for that key is
@@ -4161,6 +4198,31 @@ mod tests {
     }
 
     // ---- review fixes -----------------------------------------------------
+
+    #[test]
+    fn quoted_values_round_trip_through_two_saves() {
+        for value in [
+            "\"Run,\" she said.",
+            "C:\\Books\\Ada: notes",
+            "'Tis \"odd\" \\ true",
+            "#1 \"\"",
+        ] {
+            let once = set_front(Some("title: Gravel\n"), "synopsis", value);
+            assert_eq!(front_get(&once, "synopsis").as_deref(), Some(value), "{once}");
+            let read = front_get(&once, "synopsis").unwrap();
+            let twice = set_front(Some(&once), "synopsis", &read);
+            assert_eq!(twice, once, "a second save changes nothing");
+            assert_eq!(front_get(&twice, "synopsis").as_deref(), Some(value));
+        }
+        // Plain values and other apps' quoting read as before.
+        assert_eq!(front_get("pov: Wren\n", "pov").as_deref(), Some("Wren"));
+        assert_eq!(front_get("pov: 'Wren'\n", "pov").as_deref(), Some("Wren"));
+        assert_eq!(
+            front_get("pov: 'It''s Ada'\n", "pov").as_deref(),
+            Some("It's Ada")
+        );
+        assert_eq!(front_get("title: \"Gravel\"\n", "title").as_deref(), Some("Gravel"));
+    }
 
     #[test]
     fn crlf_frontmatter_is_frontmatter_and_stays_crlf() {

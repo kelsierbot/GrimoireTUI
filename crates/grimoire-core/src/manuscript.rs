@@ -342,18 +342,10 @@ fn emit(p: &Project, idx: usize, s: &mut String) {
     }
 }
 
+/// Read the way the tree reads it, so a quoted synopsis shows as written. A
+/// list item (`  - The Lot`) has no colon and never ends the search.
 fn front_value(front: &str, key: &str) -> Option<String> {
-    for line in front.lines() {
-        // A list item (`  - The Lot`) has no colon; the key may still follow.
-        let Some((k, v)) = line.split_once(':') else {
-            continue;
-        };
-        if k.trim() == key {
-            let v = v.trim().trim_matches('"').trim();
-            return (!v.is_empty()).then(|| v.to_string());
-        }
-    }
-    None
+    crate::project::front_scalar(front, key)
 }
 
 // ── compile ──────────────────────────────────────────────────────────
@@ -436,6 +428,11 @@ mod tests {
         assert_eq!(
             front_value(front, "synopsis").as_deref(),
             Some("Ada waits.")
+        );
+        let quoted = "synopsis: \"\\\"Run,\\\" she said.\"\n";
+        assert_eq!(
+            front_value(quoted, "synopsis").as_deref(),
+            Some("\"Run,\" she said.")
         );
     }
 
