@@ -224,21 +224,32 @@ pub fn strip(text: &str) -> Cow<'_, str> {
 fn strip_tks(line: &str) -> String {
     let lead: String = line.chars().take_while(|c| c.is_whitespace()).collect();
     let mut words: Vec<String> = Vec::new();
+    // An opening mark from a TK, waiting for the word it belongs to.
+    let mut opening = String::new();
     for token in line.split_whitespace() {
         if !is_tk_token(token) {
-            words.push(token.to_string());
+            words.push(std::mem::take(&mut opening) + token);
             continue;
         }
-        let tail: String = token
-            .trim_start_matches(|c: char| !c.is_alphanumeric())
-            .trim_start_matches(['T', 'K'])
-            .chars()
-            .filter(|c| ".,;:!?…".contains(*c))
-            .collect();
-        match words.last_mut() {
-            Some(prev) if !tail.is_empty() => prev.push_str(&tail),
-            _ => {}
+        // Only the TK letters go; every mark around them is the writer's.
+        let core = token.trim_start_matches(|c: char| !c.is_alphanumeric());
+        let before = &token[..token.len() - core.len()];
+        let after = core.trim_start_matches(['T', 'K']);
+        match (before.is_empty(), after.is_empty(), words.last_mut()) {
+            (true, true, _) => {}
+            // Closing marks sit tight against the word before.
+            (true, false, Some(prev)) if opening.is_empty() => prev.push_str(after),
+            // Opening marks wait for the next word.
+            (false, true, _) => opening.push_str(before),
+            _ => words.push(std::mem::take(&mut opening) + before + after),
         }
+    }
+    if !opening.is_empty() {
+        words.push(opening);
+    }
+    // A line that was only a placeholder (`TK.`) goes, marks and all.
+    if !words.iter().any(|w| w.chars().any(char::is_alphanumeric)) {
+        return String::new();
     }
     format!("{lead}{}", words.join(" "))
 }
@@ -368,6 +379,23 @@ mod tests {
         assert_eq!(strip("to TK and back"), "to and back");
         assert_eq!(strip("%% only a note %%\nProse."), "Prose.");
         assert_eq!(strip("  Indented %%x%% line"), "  Indented line");
+    }
+
+    #[test]
+    fn a_tk_takes_only_its_own_letters_with_it() {
+        // Closing quotes and brackets stay, tight against the word before.
+        assert_eq!(strip("Ada said \"Go to TK.\""), "Ada said \"Go to.\"");
+        assert_eq!(
+            strip("Ada said \"Go to TK!\" and ran"),
+            "Ada said \"Go to!\" and ran"
+        );
+        assert_eq!(strip("the year (TK) it fell"), "the year () it fell");
+        assert_eq!(strip("the year TK) it fell"), "the year) it fell");
+        // An opening mark stays with the word after it.
+        assert_eq!(strip("she said \"TK and then\""), "she said \"and then\"");
+        assert_eq!(strip("\"TK,\" she said."), "\",\" she said.");
+        assert_eq!(strip("dash TK— and on"), "dash— and on");
+        assert_eq!(strip("Before.\n(TK.)\nAfter."), "Before.\nAfter.");
     }
 
     #[test]

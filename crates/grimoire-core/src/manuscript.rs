@@ -106,11 +106,14 @@ pub fn project_file(root: &Path) -> PathBuf {
 }
 
 fn rel(root: &Path, p: &Path) -> String {
-    p.strip_prefix(root)
-        .unwrap_or(p)
-        .to_string_lossy()
-        .trim_end_matches(".md")
-        .to_string()
+    link_target(&p.strip_prefix(root).unwrap_or(p).to_string_lossy())
+}
+
+/// A path from the book's root as a `[[link]]` target: always `/`, as
+/// Obsidian writes it on every system, and no `.md`.
+fn link_target(rel: &str) -> String {
+    let r = rel.replace('\\', "/");
+    r.strip_suffix(".md").map(str::to_string).unwrap_or(r)
 }
 
 pub fn commas(n: usize) -> String {
@@ -186,7 +189,17 @@ pub fn spell(n: usize) -> String {
 /// Regenerate the managed block, leaving everything the author wrote alone.
 pub fn write_project_file(p: &Project) -> Result<PathBuf> {
     let path = project_file(&p.root);
-    let existing = std::fs::read_to_string(&path).unwrap_or_default();
+    // Only a file that isn't there starts fresh. One that can't be read (not
+    // UTF-8, or online-only and offline) is the author's, so nothing is written.
+    let existing = match std::fs::read_to_string(&path) {
+        Ok(s) => s,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => {
+            return Err(anyhow::Error::new(e).context(
+                "project.md can't be read right now, so the map wasn't updated (your notes in it are safe)",
+            ));
+        }
+    };
     let body = structure_block(p);
 
     let out = if existing.is_empty() {
@@ -331,15 +344,10 @@ fn emit(p: &Project, idx: usize, s: &mut String) {
     }
 }
 
+/// Read the way the tree reads it, so a quoted synopsis shows as written. A
+/// list item (`  - The Lot`) has no colon and never ends the search.
 fn front_value(front: &str, key: &str) -> Option<String> {
-    for line in front.lines() {
-        let (k, v) = line.split_once(':')?;
-        if k.trim() == key {
-            let v = v.trim().trim_matches('"').trim();
-            return (!v.is_empty()).then(|| v.to_string());
-        }
-    }
-    None
+    crate::project::front_scalar(front, key)
 }
 
 // ── compile ──────────────────────────────────────────────────────────
@@ -397,6 +405,47 @@ mod tests {
         assert_eq!(spell(23), "TWENTY-THREE");
         assert_eq!(spell(40), "FORTY");
         assert_eq!(spell(99), "NINETY-NINE");
+    }
+
+    #[test]
+    fn an_unreadable_project_file_is_left_alone() {
+        let d = book("unreadable-map");
+        let map = project_file(&d);
+        // Not UTF-8: the author's notes must not become the scaffold.
+        let bytes = b"# My notes\n\xff\xfe caf\xe9\n".to_vec();
+        fs::write(&map, &bytes).unwrap();
+        let p = Project::load(&d).unwrap();
+        assert!(write_project_file(&p).is_err());
+        assert_eq!(fs::read(&map).unwrap(), bytes, "nothing written");
+        // Missing is fine: it starts fresh.
+        fs::remove_file(&map).unwrap();
+        write_project_file(&p).unwrap();
+        assert!(fs::read_to_string(&map).unwrap().contains(BEGIN));
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn a_list_before_the_synopsis_does_not_hide_it() {
+        let front = "title: Gravel\naliases:\n  - The Lot\nsynopsis: Ada waits.\n";
+        assert_eq!(
+            front_value(front, "synopsis").as_deref(),
+            Some("Ada waits.")
+        );
+        let quoted = "synopsis: \"\\\"Run,\\\" she said.\"\n";
+        assert_eq!(
+            front_value(quoted, "synopsis").as_deref(),
+            Some("\"Run,\" she said.")
+        );
+    }
+
+    #[test]
+    fn map_links_use_forward_slashes_everywhere() {
+        assert_eq!(
+            link_target("manuscript\\01-Act-One\\01-Gravel.md"),
+            "manuscript/01-Act-One/01-Gravel"
+        );
+        assert_eq!(link_target("notes/01-Ada.md"), "notes/01-Ada");
+        assert_eq!(link_target("notes/01-Ada.md.md"), "notes/01-Ada.md");
     }
 
     use crate::project;
