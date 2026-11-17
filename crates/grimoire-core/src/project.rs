@@ -2233,11 +2233,23 @@ const ORIGINS: &str = ".origins";
 /// Where something in the Trash was before it was deleted, if the Trash
 /// remembers (things deleted before 0.7.3 have no record).
 pub fn trashed_from(root: &Path, trashed: &Path) -> Option<PathBuf> {
-    let name = trashed.file_name()?.to_string_lossy().to_string();
+    // Something inside a deleted folder was wherever that folder was.
+    let inside = trashed.strip_prefix(trash_dir(root)).ok()?;
+    let mut parts = inside.components();
+    let name = parts.next()?.as_os_str().to_string_lossy().to_string();
+    let rest = parts.as_path();
     let text = fs::read_to_string(trash_dir(root).join(ORIGINS)).ok()?;
     text.lines().rev().find_map(|l| {
         let (went, from) = l.split_once('\t')?;
-        (went == name).then(|| root.join(from))
+        (went == name).then(|| {
+            let was = root.join(from);
+            // (Joining an empty path would add a trailing slash.)
+            if rest.as_os_str().is_empty() {
+                was
+            } else {
+                was.join(rest)
+            }
+        })
     })
 }
 
@@ -2246,6 +2258,14 @@ pub fn trashed_from(root: &Path, trashed: &Path) -> Option<PathBuf> {
 /// name has been taken since. With no record of where it was, it goes to the
 /// end of the manuscript. Returns where it went.
 pub fn restore(root: &Path, trashed: &Path) -> Result<PathBuf> {
+    restore_with_note(root, trashed).map(|(to, _)| to)
+}
+
+/// [`restore`], plus a word for the writer when it couldn't go exactly where
+/// it was: a scene taken out of a deleted chapter whose folder is gone goes to
+/// the top of the manuscript (or notes) instead, and the note says so.
+pub fn restore_with_note(root: &Path, trashed: &Path) -> Result<(PathBuf, Option<String>)> {
+    let top = trashed.parent() == Some(trash_dir(root).as_path());
     let name = trashed
         .file_name()
         .context("there is nothing there to restore")?
@@ -2254,18 +2274,36 @@ pub fn restore(root: &Path, trashed: &Path) -> Result<PathBuf> {
     // "1727380000-01-Scene-One.md" and "1727380000-2-01-Scene-One.md" were
     // both "01-Scene-One.md": a time stamp, then a count if two went in the
     // same second.
+    // Only things at the top of the Trash wear a stamp; what's inside a
+    // deleted folder keeps its own name.
     let digits = |h: &str| !h.is_empty() && h.chars().all(|c| c.is_ascii_digit());
     let after_stamp = match name.split_once('-') {
-        Some((h, t)) if h.len() >= 9 && digits(h) => t,
+        Some((h, t)) if top && h.len() >= 9 && digits(h) => t,
         _ => name.as_str(),
     };
     let original_name = match after_stamp.split_once('-') {
-        Some((h, t)) if h.len() == 1 && digits(h) => t,
+        Some((h, t)) if top && h.len() == 1 && digits(h) => t,
         _ => after_stamp,
     }
     .to_string();
-    let wanted =
+    let mut wanted =
         trashed_from(root, trashed).unwrap_or_else(|| root.join("manuscript").join(&original_name));
+    let mut note = None;
+    // From inside a deleted folder whose old home is gone: rather than
+    // building a folder nobody asked for, the top of its section, in view.
+    if !top && wanted.parent().is_some_and(|p| !p.is_dir()) {
+        let section = wanted
+            .strip_prefix(root)
+            .ok()
+            .and_then(|r| r.components().next())
+            .map(|c| c.as_os_str().to_string_lossy().to_string())
+            .filter(|s| root.join(s).is_dir() && !s.starts_with('.'))
+            .unwrap_or_else(|| "manuscript".into());
+        wanted = root.join(&section).join(&original_name);
+        note = Some(format!(
+            "its old folder is gone, so it's at the top of {section} now"
+        ));
+    }
     let dir = wanted
         .parent()
         .context("nowhere to put it back")?
@@ -2287,7 +2325,12 @@ pub fn restore(root: &Path, trashed: &Path) -> Result<PathBuf> {
     }
     fs::rename(trashed, &target)
         .with_context(|| format!("moving {} out of the trash", trashed.display()))?;
+    // The record belongs to what was deleted; a scene out of a deleted
+    // chapter leaves the chapter's record for the rest of it.
     let origins = trash_dir(root).join(ORIGINS);
+    if !top {
+        return Ok((target, note));
+    }
     if let Ok(text) = fs::read_to_string(&origins) {
         let kept: String = text
             .lines()
@@ -2296,7 +2339,7 @@ pub fn restore(root: &Path, trashed: &Path) -> Result<PathBuf> {
             .collect();
         let _ = crate::atomic::write_text(&origins, &kept);
     }
-    Ok(target)
+    Ok((target, note))
 }
 
 /// Remove something for good. Only ever reached for what is already in the
@@ -4237,6 +4280,36 @@ mod tests {
     }
 
     // ---- review fixes -----------------------------------------------------
+
+    #[test]
+    fn a_scene_from_a_deleted_chapter_goes_back_to_that_chapter() {
+        let d = temp_dir("rv-restore-nested");
+        let ch = d.join("manuscript/01-Act-One/02-Chapter-Two");
+        fs::create_dir_all(&ch).unwrap();
+        fs::write(ch.join("01-Dawn.md"), "Ada wakes.").unwrap();
+        fs::write(ch.join("02-Dusk.md"), "Ada sleeps.").unwrap();
+        let gone = trash(&d, &ch).unwrap();
+        let dawn = gone.join("01-Dawn.md");
+        assert_eq!(trashed_from(&d, &dawn), Some(ch.join("01-Dawn.md")));
+
+        // Its chapter is back (made again by hand): the scene goes home.
+        fs::create_dir_all(&ch).unwrap();
+        let (to, note) = restore_with_note(&d, &dawn).unwrap();
+        assert_eq!(to, ch.join("01-Dawn.md"));
+        assert_eq!(note, None);
+        assert_eq!(fs::read_to_string(&to).unwrap(), "Ada wakes.");
+        assert!(trashed_from(&d, &gone).is_some(), "the chapter's record stays");
+
+        // Its chapter is gone for good: somewhere safe, and it says where.
+        fs::remove_dir_all(&ch).unwrap();
+        let (to, note) = restore_with_note(&d, &gone.join("02-Dusk.md")).unwrap();
+        assert_eq!(to, d.join("manuscript/02-Dusk.md"));
+        let note = note.expect("says where it went");
+        assert!(note.contains("manuscript"), "{note}");
+        assert!(!note.contains('\u{2014}'), "{note}");
+        assert_eq!(fs::read_to_string(&to).unwrap(), "Ada sleeps.");
+        fs::remove_dir_all(&d).unwrap();
+    }
 
     #[test]
     fn renaming_keeps_links_and_renaming_back_restores_them() {
