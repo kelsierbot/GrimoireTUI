@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.3 · The cursor stays put
+
+- **No more cursor flashing along the top.** In Rainbow most of all, where
+  the colours never stop moving, the cursor could be seen darting up to the
+  title line and back many times a second. Each frame is now painted out of
+  sight and handed to the terminal whole, in every theme.
+
 ## 0.8.2 · The one that reached the download page
 
 0.8.0 and 0.8.1 were finished but never built for download: the machine

@@ -525,6 +525,24 @@ fn cmd_is_reachable() -> bool {
         || std::env::var("KITTY_WINDOW_ID").is_ok()
 }
 
+/// One frame, painted where the writer can't see it happen. The terminal's
+/// cursor is what paints: it visits every cell that changed before it comes
+/// back to the page, and in a theme that's always moving (Rainbow's colours
+/// flow along the title line twelve times a second) it was seen flashing
+/// up there. So the frame is handed over whole (terminals that know how
+/// show nothing until it's finished), and the cursor is put away while it's
+/// painted for the ones that don't.
+fn draw_frame(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
+    use ratatui::crossterm::terminal::{BeginSynchronizedUpdate, EndSynchronizedUpdate};
+    execute!(terminal.backend_mut(), BeginSynchronizedUpdate)?;
+    terminal.hide_cursor()?;
+    let drawn = terminal.draw(|f| ui::draw(f, app)).map(|_| ());
+    // Always handed back, or a terminal would go on holding the screen.
+    execute!(terminal.backend_mut(), EndSynchronizedUpdate)?;
+    drawn?;
+    Ok(())
+}
+
 fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
     let mut confirm_quit = false;
     let mut last_frame = Instant::now();
@@ -583,9 +601,9 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
 
         // If the terminal itself goes away, drawing to it or reading from it
         // fails: save what there is before reporting that.
-        if let Err(e) = terminal.draw(|f| ui::draw(f, app)) {
+        if let Err(e) = draw_frame(terminal, app) {
             save_or_rescue(app);
-            return Err(e.into());
+            return Err(e);
         }
 
         let tick = if spectrum || app.reading.is_some() {
