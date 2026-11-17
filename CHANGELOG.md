@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.8.1 · Three loose ends
+
+- **Template Sheets do something.** Highlight a sheet in the outline and
+  press `f`: you name the new note, and it opens in Characters or Places as
+  a copy of the form, ready to fill in. The sheet stays blank for next time.
+- **Take a taught word back.** *Esc › Settings › Words spellcheck was
+  taught…* lists every word you told it to always ignore, this book's and
+  your own. `d` on one and it's underlined again.
+- **A chapter from the corkboard.** `c` adds a chapter at the end of the
+  part and asks for its first scene, then you're back on the board with the
+  new card. A chapter with no scenes yet still shows its heading there.
+
 ## 0.8.0 · A careful pass
 
 Every part of Grimoire was read through again, start to finish. Nothing you
