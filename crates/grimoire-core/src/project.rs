@@ -1726,9 +1726,7 @@ pub fn scaffold_with(root: &Path, title: Option<&str>, shape: &Shape) -> Result<
         &root.join("novel.toml"),
         &format!(
             "title = {}\nauthor = \"\"\ndraft = \"1\"\ntarget_words = {}\ndaily_target = {}\n\n# What this book calls its largest division: Part, Act, Book…\npart_label = \"Part\"\n",
-            toml_title,
-            shape.target_words,
-            shape.daily_target
+            toml_title, shape.target_words, shape.daily_target
         ),
     )?;
 
@@ -2393,7 +2391,12 @@ fn tree_entries(dir: &Path) -> Vec<PathBuf> {
             })
     });
     v.sort_by(|a, b| {
-        let name = |p: &PathBuf| p.file_name().unwrap_or_default().to_string_lossy().to_string();
+        let name = |p: &PathBuf| {
+            p.file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string()
+        };
         order_names(&name(a), &name(b))
     });
     v
@@ -4321,7 +4324,10 @@ mod tests {
         assert_eq!(to, ch.join("01-Dawn.md"));
         assert_eq!(note, None);
         assert_eq!(fs::read_to_string(&to).unwrap(), "Ada wakes.");
-        assert!(trashed_from(&d, &gone).is_some(), "the chapter's record stays");
+        assert!(
+            trashed_from(&d, &gone).is_some(),
+            "the chapter's record stays"
+        );
 
         // Its chapter is gone for good: somewhere safe, and it says where.
         fs::remove_dir_all(&ch).unwrap();
@@ -4406,10 +4412,14 @@ mod tests {
     fn the_hundredth_chapter_comes_after_the_ninety_ninth() {
         let d = temp_dir("rv-hundred");
         let ms = d.join("manuscript");
-        for name in ["100-Ch", "09-Ch", "10-Ch", "11-Ch", "99-Ch", "101-Ch", "Loose"] {
+        for name in [
+            "100-Ch", "09-Ch", "10-Ch", "11-Ch", "99-Ch", "101-Ch", "Loose",
+        ] {
             fs::create_dir_all(ms.join(name)).unwrap();
         }
-        let want = ["09-Ch", "10-Ch", "11-Ch", "99-Ch", "100-Ch", "101-Ch", "Loose"];
+        let want = [
+            "09-Ch", "10-Ch", "11-Ch", "99-Ch", "100-Ch", "101-Ch", "Loose",
+        ];
         let names = |v: Vec<PathBuf>| -> Vec<String> {
             v.iter()
                 .map(|p| p.file_name().unwrap().to_string_lossy().to_string())
@@ -4440,7 +4450,11 @@ mod tests {
             "#1 \"\"",
         ] {
             let once = set_front(Some("title: Gravel\n"), "synopsis", value);
-            assert_eq!(front_get(&once, "synopsis").as_deref(), Some(value), "{once}");
+            assert_eq!(
+                front_get(&once, "synopsis").as_deref(),
+                Some(value),
+                "{once}"
+            );
             let read = front_get(&once, "synopsis").unwrap();
             let twice = set_front(Some(&once), "synopsis", &read);
             assert_eq!(twice, once, "a second save changes nothing");
@@ -4453,14 +4467,20 @@ mod tests {
             front_get("pov: 'It''s Ada'\n", "pov").as_deref(),
             Some("It's Ada")
         );
-        assert_eq!(front_get("title: \"Gravel\"\n", "title").as_deref(), Some("Gravel"));
+        assert_eq!(
+            front_get("title: \"Gravel\"\n", "title").as_deref(),
+            Some("Gravel")
+        );
     }
 
     #[test]
     fn crlf_frontmatter_is_frontmatter_and_stays_crlf() {
         let raw = "---\r\ntitle: Gravel\r\ncompile: false\r\n---\r\n\r\nThe lot was empty.\r\n";
         let (front, body) = split_frontmatter(raw);
-        assert_eq!(front.as_deref(), Some("title: Gravel\r\ncompile: false\r\n"));
+        assert_eq!(
+            front.as_deref(),
+            Some("title: Gravel\r\ncompile: false\r\n")
+        );
         assert_eq!(body, "The lot was empty.\r\n");
 
         let d = temp_dir("rv-crlf");

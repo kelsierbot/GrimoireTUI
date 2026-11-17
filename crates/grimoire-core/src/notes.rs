@@ -385,7 +385,10 @@ mod tests {
     fn a_tk_takes_only_its_own_letters_with_it() {
         // Closing quotes and brackets stay, tight against the word before.
         assert_eq!(strip("Ada said \"Go to TK.\""), "Ada said \"Go to.\"");
-        assert_eq!(strip("Ada said \"Go to TK!\" and ran"), "Ada said \"Go to!\" and ran");
+        assert_eq!(
+            strip("Ada said \"Go to TK!\" and ran"),
+            "Ada said \"Go to!\" and ran"
+        );
         assert_eq!(strip("the year (TK) it fell"), "the year () it fell");
         assert_eq!(strip("the year TK) it fell"), "the year) it fell");
         // An opening mark stays with the word after it.

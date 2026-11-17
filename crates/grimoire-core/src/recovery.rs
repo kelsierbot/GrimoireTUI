@@ -255,7 +255,10 @@ mod tests {
         let first = keep_orphan(&d, o).unwrap();
         assert!(first.starts_with(&trash), "{}", first.display());
         let name = first.file_name().unwrap().to_string_lossy().to_string();
-        assert!(name.contains("02-Rain") && name.contains("recovered"), "{name}");
+        assert!(
+            name.contains("02-Rain") && name.contains("recovered"),
+            "{name}"
+        );
         assert_eq!(fs::read_to_string(&first).unwrap(), text);
         assert!(!o.file.exists(), "the recovery copy is done with");
         assert!(pending(&p).is_empty());
@@ -265,7 +268,11 @@ mod tests {
         let second = keep_orphan(&d, &again[0]).unwrap();
         assert_ne!(first, second);
         assert_eq!(fs::read_to_string(&first).unwrap(), text, "untouched");
-        assert!(fs::read_to_string(&second).unwrap().contains("A second try."));
+        assert!(
+            fs::read_to_string(&second)
+                .unwrap()
+                .contains("A second try.")
+        );
         // And restoring it from the Trash puts it where the scene was.
         let back = project::restore(&d, &first).unwrap();
         assert_eq!(back, gone);

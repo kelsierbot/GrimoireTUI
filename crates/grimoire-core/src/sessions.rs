@@ -1700,7 +1700,10 @@ mod tests {
         let repo = outside_dir(&d);
         // A writer who signs their code commits, with the signer missing.
         run(&d, &["config", "commit.gpgsign", "true"]);
-        run(&d, &["config", "gpg.program", "grimoire-test-no-such-signer"]);
+        run(
+            &d,
+            &["config", "gpg.program", "grimoire-test-no-such-signer"],
+        );
         write(&d, A1, &scene(25));
         assert!(commit_session(&d, tuesday_evening()).unwrap().is_some());
         assert_eq!(sessions(&d, 10).unwrap().len(), 2);
@@ -1712,7 +1715,9 @@ mod tests {
 
     #[test]
     fn a_book_without_parts_counts_chapters() {
-        let Some(d) = book("rv-chapters-noun") else { return };
+        let Some(d) = book("rv-chapters-noun") else {
+            return;
+        };
         enable(&d).unwrap();
         let repo = outside_dir(&d);
         // No parts here: chapters sit straight under the manuscript.
