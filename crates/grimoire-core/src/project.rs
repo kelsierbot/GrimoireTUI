@@ -502,19 +502,27 @@ impl Node {
 
     /// The scene as it belongs on disk: its frontmatter block, untouched, then
     /// the prose.
+    /// A file that came with CRLF line endings goes back with them.
     pub fn file_text(&self) -> String {
+        let eol = match &self.front {
+            Some(f) if f.contains('\n') => eol_of(f),
+            _ => eol_of(&self.body),
+        };
         let mut out = String::new();
         if let Some(f) = &self.front {
-            out.push_str("---\n");
+            out.push_str("---");
+            out.push_str(eol);
             out.push_str(f);
             if !f.ends_with('\n') {
-                out.push('\n');
+                out.push_str(eol);
             }
-            out.push_str("---\n\n");
+            out.push_str("---");
+            out.push_str(eol);
+            out.push_str(eol);
         }
         out.push_str(&self.body);
         if !out.ends_with('\n') {
-            out.push('\n');
+            out.push_str(eol);
         }
         out
     }
@@ -1270,10 +1278,15 @@ pub fn write_atomic(path: &Path, text: &str) -> Result<()> {
     crate::atomic::write_text(path, text)
 }
 
-/// Split a `---` fenced YAML frontmatter block off the front of a file.
+/// Split a `---` fenced YAML frontmatter block off the front of a file. The
+/// fences may end in CRLF (a Windows checkout); the block keeps its own line
+/// endings, so writing it back changes nothing.
 pub fn split_frontmatter(raw: &str) -> (Option<String>, String) {
     let s = raw.strip_prefix("\u{feff}").unwrap_or(raw);
-    let Some(rest) = s.strip_prefix("---\n") else {
+    let Some(rest) = s
+        .strip_prefix("---\n")
+        .or_else(|| s.strip_prefix("---\r\n"))
+    else {
         return (None, s.to_string());
     };
     // Find the closing fence at the start of a line.
@@ -1282,14 +1295,33 @@ pub fn split_frontmatter(raw: &str) -> (Option<String>, String) {
         let trimmed = line.trim_end_matches(['\n', '\r']);
         if trimmed == "---" {
             let front = rest[..offset].to_string();
-            let body = rest[offset + line.len()..]
-                .trim_start_matches('\n')
-                .to_string();
+            let body = trim_blank_lines(&rest[offset + line.len()..]).to_string();
             return (Some(front), body);
         }
         offset += line.len();
     }
     (None, s.to_string())
+}
+
+/// `s` without the empty lines at its start, LF or CRLF.
+fn trim_blank_lines(mut s: &str) -> &str {
+    loop {
+        if let Some(r) = s.strip_prefix('\n') {
+            s = r;
+        } else if let Some(r) = s.strip_prefix("\r\n") {
+            s = r;
+        } else {
+            return s;
+        }
+    }
+}
+
+/// The line ending `text` uses, judged by its first line: CRLF or LF.
+fn eol_of(text: &str) -> &'static str {
+    match text.find('\n') {
+        Some(i) if text[..i].ends_with('\r') => "\r\n",
+        _ => "\n",
+    }
 }
 
 /// Pull a scalar value out of a raw frontmatter block. Deliberately naive —
@@ -1330,6 +1362,7 @@ pub fn set_front(front: Option<&str>, key: &str, value: &str) -> String {
     } else {
         format!("{key}: {value}")
     };
+    let eol = eol_of(front.unwrap_or(""));
     let mut out = String::new();
     let mut done = false;
     for l in front.unwrap_or("").lines() {
@@ -1341,11 +1374,11 @@ pub fn set_front(front: Option<&str>, key: &str, value: &str) -> String {
         } else {
             out.push_str(l);
         }
-        out.push('\n');
+        out.push_str(eol);
     }
     if !done {
         out.push_str(&line);
-        out.push('\n');
+        out.push_str(eol);
     }
     out
 }
@@ -1354,6 +1387,7 @@ pub fn set_front(front: Option<&str>, key: &str, value: &str) -> String {
 /// the key), replacing the key and any list that was under it. An empty list
 /// takes the key out.
 pub fn set_front_list(front: Option<&str>, key: &str, items: &[String]) -> String {
+    let eol = eol_of(front.unwrap_or(""));
     let mut out = String::new();
     let mut skipping = false;
     let mut placed = false;
@@ -1361,9 +1395,9 @@ pub fn set_front_list(front: Option<&str>, key: &str, items: &[String]) -> Strin
         if items.is_empty() {
             return String::new();
         }
-        let mut b = format!("{key}:\n");
+        let mut b = format!("{key}:{eol}");
         for i in items {
-            b.push_str(&format!("  - {}\n", i.replace('\n', " ")));
+            b.push_str(&format!("  - {}{eol}", i.replace(['\r', '\n'], " ")));
         }
         b
     };
@@ -1384,7 +1418,7 @@ pub fn set_front_list(front: Option<&str>, key: &str, items: &[String]) -> Strin
             continue;
         }
         out.push_str(l);
-        out.push('\n');
+        out.push_str(eol);
     }
     if !placed {
         out.push_str(&block());
@@ -2084,6 +2118,7 @@ fn clash_message(file: &str, other: &Path) -> String {
 fn retitle(raw: &str, name: &str) -> Option<String> {
     let (front, body) = split_frontmatter(raw);
     let front = front?;
+    let eol = eol_of(raw.strip_prefix('\u{feff}').unwrap_or(raw));
     let mut done = false;
     let mut out = String::new();
     for line in front.lines() {
@@ -2092,14 +2127,14 @@ fn retitle(raw: &str, name: &str) -> Option<String> {
                 .split_once(':')
                 .is_some_and(|(k, _)| k.trim() == "title")
         {
-            out.push_str(&format!("title: \"{}\"\n", name.replace('"', "'")));
+            out.push_str(&format!("title: \"{}\"{eol}", name.replace('"', "'")));
             done = true;
         } else {
             out.push_str(line);
-            out.push('\n');
+            out.push_str(eol);
         }
     }
-    done.then(|| format!("---\n{out}---\n\n{body}"))
+    done.then(|| format!("---{eol}{out}---{eol}{eol}{body}"))
 }
 
 /// Move something out of the tree rather than destroying it. `.grimoire/` is
@@ -4122,6 +4157,45 @@ mod tests {
         // and renaming it keeps its bytes
         let renamed = rename(&odd, "Bistro").unwrap();
         assert_eq!(fs::read(&renamed).unwrap(), bytes);
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    // ---- review fixes -----------------------------------------------------
+
+    #[test]
+    fn crlf_frontmatter_is_frontmatter_and_stays_crlf() {
+        let raw = "---\r\ntitle: Gravel\r\ncompile: false\r\n---\r\n\r\nThe lot was empty.\r\n";
+        let (front, body) = split_frontmatter(raw);
+        assert_eq!(front.as_deref(), Some("title: Gravel\r\ncompile: false\r\n"));
+        assert_eq!(body, "The lot was empty.\r\n");
+
+        let d = temp_dir("rv-crlf");
+        let ch = d.join("manuscript/01-Act-One");
+        fs::create_dir_all(&ch).unwrap();
+        let scene = ch.join("01-Gravel.md");
+        fs::write(&scene, raw).unwrap();
+        let mut p = Project::load(&d).unwrap();
+        let i = p.nodes.iter().position(|n| n.path == scene).unwrap();
+        let n = &mut p.nodes[i];
+        assert!(!n.compile, "compile: false is read");
+        assert_eq!(n.title, "Gravel");
+        assert_eq!(n.words(), 4, "the YAML isn't prose");
+        assert_eq!(n.file_text(), raw, "untouched, it writes back as it was");
+        n.set_meta("synopsis", "Ada waits.");
+        assert_eq!(
+            n.file_text(),
+            "---\r\ntitle: Gravel\r\ncompile: false\r\nsynopsis: Ada waits.\r\n---\r\n\r\nThe lot was empty.\r\n",
+            "one block, still CRLF"
+        );
+        n.set_meta_list("aliases", &["Lot".into()]);
+        assert!(!n.file_text().replace("\r\n", "").contains('\n'));
+
+        let renamed = rename(&scene, "Gravel Lot").unwrap();
+        let text = fs::read_to_string(&renamed).unwrap();
+        assert_eq!(
+            text,
+            "---\r\ntitle: \"Gravel Lot\"\r\ncompile: false\r\n---\r\n\r\nThe lot was empty.\r\n"
+        );
         fs::remove_dir_all(&d).unwrap();
     }
 }
