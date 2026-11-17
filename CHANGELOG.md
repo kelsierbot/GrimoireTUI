@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.2 · The one that reached the download page
+
+0.8.0 and 0.8.1 were finished but never built for download: the machine
+that makes the Apple silicon build had been retired. Nothing in Grimoire
+itself changes here. This release is both of them, for everyone, so the two
+lists below are what's new since 0.7.5.
+
 ## 0.8.1 · Three loose ends
 
 - **Template Sheets do something.** Highlight a sheet in the outline and

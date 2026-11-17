@@ -27,5 +27,10 @@ install-updater = false
 include = ["assets/dict/DICTIONARY-LICENSE"]
 
 # Audio playback (the default `audio` feature) links ALSA on Linux.
+# GitHub retired the macos-14 machines dist would pick for Apple silicon
+# (the 0.8.0 and 0.8.1 release builds were cancelled by it).
+[dist.github-custom-runners]
+aarch64-apple-darwin = "macos-15"
+
 [dist.dependencies.apt]
 libasound2-dev = "*"
