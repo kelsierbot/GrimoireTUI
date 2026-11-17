@@ -2217,14 +2217,20 @@ pub fn trash(root: &Path, path: &Path) -> Result<PathBuf> {
     fs::rename(path, &target).with_context(|| format!("moving {} to the trash", path.display()))?;
     // Where it came from, so Restore can put it back there. A hidden file,
     // so the Trash section never shows it.
-    if let (Ok(rel), Some(went)) = (path.strip_prefix(root), target.file_name()) {
+    note_trash_origin(root, &target, path);
+    Ok(target)
+}
+
+/// Remember that `went` (at the top of the Trash) came from `from`, so
+/// Restore can put it back there.
+pub(crate) fn note_trash_origin(root: &Path, went: &Path, from: &Path) {
+    if let (Ok(rel), Some(went)) = (from.strip_prefix(root), went.file_name()) {
         let line = format!("{}\t{}\n", went.to_string_lossy(), rel.to_string_lossy());
-        let origins = dir.join(ORIGINS);
+        let origins = trash_dir(root).join(ORIGINS);
         let mut text = fs::read_to_string(&origins).unwrap_or_default();
         text.push_str(&line);
         let _ = crate::atomic::write_text(&origins, &text);
     }
-    Ok(target)
 }
 
 /// The Trash's record of where each thing in it came from.
