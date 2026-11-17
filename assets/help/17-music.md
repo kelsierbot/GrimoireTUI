@@ -11,6 +11,8 @@ Music is **off until you turn it on**: *Esc › Settings › Turn music on*. The
 
 Grimoire never pulls audio out of YouTube Music or Spotify. It presses the buttons of the app you already pay for.
 
+If YouTube Music stops answering after an update (it asks to be paired again now and then), `grimoire music-auth` pairs it again without setting anything else up.
+
 ## From anywhere
 
 - `F5` play / pause, `F4` previous, `F6` next.

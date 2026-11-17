@@ -25,8 +25,8 @@ Folders are containers, at any depth, and `.md` files are scenes or notes. A lea
 
 Both are in `Ctrl-K`:
 
-- *Update project map* writes `project.md`: every part, chapter and scene, with word counts and a link to each file, in a marked block Grimoire rewrites each time. Anything you write above or below the block is left alone.
-- *Compile manuscript (Markdown)* writes the whole book as one Markdown file, `title-manuscript.md` beside `novel.toml`, through the same compile as Export.
+- *Update project map* writes `project.md`: every part, chapter and scene, with word counts and a link to each file, in a marked block Grimoire rewrites each time. Anything you write above or below the block is left alone. From a terminal: `grimoire index`.
+- *Compile manuscript (Markdown)* writes the whole book as one Markdown file, `title-manuscript.md` beside `novel.toml`, through the same compile as Export. From a terminal: `grimoire compile`.
 
 ## A scene's frontmatter
 

@@ -809,6 +809,11 @@ cargo test --workspace   # the book on disk, the desk frame by frame, every them
 cargo install --path .
 ```
 
+One rule above the rest: **what the app can do, the help says.** A change a
+writer can see updates `assets/help/` in the same commit, and tests hold the
+line (every menu row, every `Ctrl-K` action, every key and every command
+must be in the help). [`CLAUDE.md`](CLAUDE.md) has which topic covers what.
+
 ```
 crates/grimoire-core/  the book on disk: project, editor, history, export, search, sync
 crates/grimoire-app/   services for the phone app over the same core

@@ -3739,3 +3739,109 @@ fn a_book_moves_to_the_books_folder_and_new_ones_start_there() {
     );
     let _ = fs::remove_dir_all(&dir);
 }
+
+/// The rule: what the app can do, the help says. Every row of the menu,
+/// in every group and both ways a switch can read, is named in the help's
+/// "The menu, row by row". A new row without its line there fails here.
+#[test]
+fn every_menu_row_is_in_the_menu_help() {
+    let topic = &crate::help::TOPICS[crate::help::index("menu")];
+    let body = topic.body.to_lowercase().replace(['`', '*'], "");
+    // A row's name without its key, its state or what it's set to: "Turn
+    // spellcheck off" is "spellcheck", "Line width: 72 columns" is "line
+    // width", "Corkboard…   (b)" is "corkboard".
+    let name = |label: &str| {
+        let mut n = label.to_lowercase();
+        for cut in ["  ", " (", ": "] {
+            if let Some(i) = n.find(cut) {
+                n.truncate(i);
+            }
+        }
+        let n = n.trim().trim_end_matches('…');
+        let n = n.strip_prefix("turn ").unwrap_or(n);
+        let n = n.strip_prefix("leave ").unwrap_or(n);
+        let n = n
+            .strip_suffix(" off")
+            .or(n.strip_suffix(" on"))
+            .unwrap_or(n);
+        n.to_string()
+    };
+    let (root, _, _) = conflicted("menu-help");
+    let mut d = Desk::open(root, 120, 40);
+    d.app.focus = Focus::Editor;
+    let mut missing = Vec::new();
+    for on in [false, true] {
+        d.app.focus_mode = on;
+        d.app.echo_on = on;
+        d.app.spell_on = on;
+        d.app.icons_on = on;
+        d.app.typewriter = on;
+        d.app.history_in_book = on;
+        d.app.music.enabled = on;
+        for sub in [
+            None,
+            Some(Sub::Book),
+            Some(Sub::Writing),
+            Some(Sub::Settings),
+            Some(Sub::Help),
+        ] {
+            d.app.overlay = match sub {
+                None => Overlay::Menu { sel: 0 },
+                Some(sub) => Overlay::Sub { sub, sel: 0 },
+            };
+            for (label, action) in d.app.menu_rows() {
+                if action == palette::Action::MenuBack {
+                    continue;
+                }
+                let n = name(&label);
+                if !body.contains(&n) {
+                    missing.push(format!("{label:?} (looked for {n:?})"));
+                }
+            }
+        }
+    }
+    missing.sort();
+    missing.dedup();
+    assert!(
+        missing.is_empty(),
+        "assets/help/27-the-menu.md never names these menu rows: {missing:#?}"
+    );
+}
+
+/// The same rule for the terminal: every `grimoire <command>` that
+/// `grimoire --help` lists is explained somewhere in the help.
+#[test]
+fn every_command_is_explained_in_the_help() {
+    let words: String = crate::help::TOPICS
+        .iter()
+        .map(|t| t.body)
+        .collect::<Vec<_>>()
+        .join("\n");
+    // The commands, read from where `main` tells them apart, so a new one
+    // is checked without anyone remembering to list it.
+    let mut commands: Vec<String> = Vec::new();
+    for line in include_str!("main.rs")
+        .lines()
+        .filter(|l| l.contains("first.as_deref()"))
+    {
+        for piece in line.split("Some(\"").skip(1) {
+            if let Some(cmd) = piece.split('"').next()
+                && !cmd.starts_with('-')
+            {
+                commands.push(cmd.to_string());
+            }
+        }
+    }
+    assert!(
+        commands.len() >= 9,
+        "the commands weren't found: {commands:?}"
+    );
+    let missing: Vec<&String> = commands
+        .iter()
+        .filter(|c| !words.contains(&format!("grimoire {c}")))
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "no help topic mentions these commands: {missing:?}"
+    );
+}
