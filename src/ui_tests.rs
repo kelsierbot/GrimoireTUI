@@ -3439,3 +3439,51 @@ fn read_aloud_goes_slower_and_faster() {
     assert_eq!(speed(&d), 0.5, "never slower than half pace");
     assert!(matches!(d.app.overlay, Overlay::Reading), "and it reads on");
 }
+
+/// One scene can be taken back out of a deleted chapter; it used to answer
+/// "restore the folder it's in".
+#[test]
+fn a_scene_comes_back_out_of_a_deleted_chapter() {
+    let root = book("restore-nested", true);
+    let mut d = Desk::open(root.clone(), 120, 50);
+    let trash = grimoire_core::project::trash_dir(&root);
+    // The first chapter goes to the Trash, scenes and all.
+    let chapter = first_scene(&root).parent().unwrap().to_path_buf();
+    d.app.sel = d
+        .app
+        .visible
+        .iter()
+        .position(|&i| d.app.project.nodes[i].path == chapter)
+        .expect("the first chapter is in the outline");
+    d.key(KeyCode::Char('d'));
+    d.key(KeyCode::Char('y'));
+    assert!(!chapter.exists());
+    // Find one of its scenes in the Trash and bring only that back.
+    let scene = d
+        .app
+        .project
+        .nodes
+        .iter()
+        .position(|n| {
+            n.kind == grimoire_core::project::Kind::Scene
+                && n.path.starts_with(&trash)
+                && n.path.parent() != Some(trash.as_path())
+        })
+        .expect("its scenes went with it");
+    let was = d.app.project.nodes[scene].path.clone();
+    d.app.reveal(scene);
+    d.key(KeyCode::Char('u'));
+    assert!(d.app.msg.starts_with("restored"), "{}", d.app.msg);
+    assert!(!was.exists(), "it left the Trash");
+    let back = d
+        .app
+        .visible
+        .get(d.app.sel)
+        .map(|&i| d.app.project.nodes[i].path.clone())
+        .expect("the highlight is on it");
+    assert!(
+        back.starts_with(root.join("manuscript")),
+        "{}",
+        back.display()
+    );
+}

@@ -14,10 +14,17 @@ impl App {
             (Key::Enter, 0) => {
                 let items = std::mem::take(items);
                 self.overlay = Overlay::None;
-                let mut restored = 0;
+                let (mut restored, mut orphans) = (0, 0);
+                let root = self.project.root.clone();
                 for it in &items {
                     let Some(idx) = self.project.nodes.iter().position(|n| n.path == it.scene)
                     else {
+                        // Its scene is gone (deleted or renamed elsewhere):
+                        // the words are kept as a file in the Trash, to
+                        // read, copy from, or restore.
+                        if grimoire_core::recovery::keep_orphan(&root, it).is_ok() {
+                            orphans += 1;
+                        }
                         continue;
                     };
                     let (front, body) = grimoire_core::project::split_frontmatter(&it.text);
@@ -29,11 +36,27 @@ impl App {
                     self.mark_changed(idx);
                     restored += 1;
                 }
-                if self.commit_saves() {
-                    self.msg = format!(
-                        "restored {restored} scene{} · the saved version is in its history",
-                        if restored == 1 { "" } else { "s" }
-                    );
+                let saved = self.commit_saves();
+                if orphans > 0 {
+                    let _ = self.reload_tree();
+                }
+                if saved {
+                    self.msg = match (restored, orphans) {
+                        (0, n) => format!(
+                            "kept the words of {n} scene{} that {} gone · they're in the Trash",
+                            if n == 1 { "" } else { "s" },
+                            if n == 1 { "is" } else { "are" }
+                        ),
+                        (r, 0) => format!(
+                            "restored {r} scene{} · the saved version is in its history",
+                            if r == 1 { "" } else { "s" }
+                        ),
+                        (r, n) => format!(
+                            "restored {r} scene{} · {n} more whose scene is gone {} in the Trash",
+                            if r == 1 { "" } else { "s" },
+                            if n == 1 { "is" } else { "are" }
+                        ),
+                    };
                 }
             }
             (Key::Enter, 1) => {
@@ -95,12 +118,22 @@ pub(super) fn draw_recover(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             Span::styled(" · ", Style::default().fg(t.dim)),
             Span::styled(it.title.clone(), Style::default().fg(t.accent)),
             Span::styled(
-                format!(
-                    "  {} words kept, {} in the saved version{}",
-                    thousands(it.recovered_words),
-                    thousands(it.saved_words),
-                    when.unwrap_or_default()
-                ),
+                if it.scene.exists() {
+                    format!(
+                        "  {} words kept, {} in the saved version{}",
+                        thousands(it.recovered_words),
+                        thousands(it.saved_words),
+                        when.unwrap_or_default()
+                    )
+                } else {
+                    // Deleted or renamed since: there's no saved version
+                    // to weigh these against.
+                    format!(
+                        "  {} words kept, and its scene is gone{}",
+                        thousands(it.recovered_words),
+                        when.unwrap_or_default()
+                    )
+                },
                 dim,
             ),
         ]));

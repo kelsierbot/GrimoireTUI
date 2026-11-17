@@ -1653,12 +1653,10 @@ impl App {
         };
         let path = self.project.nodes[idx].path.clone();
         let trash = project::trash_dir(&self.project.root);
-        if path.parent() != Some(trash.as_path()) {
-            self.msg = if self.project.in_trash(idx) {
-                "restore the folder it's in, and it comes back too".into()
-            } else {
-                "that isn't in the Trash".into()
-            };
+        // Anything in the Trash comes back: a whole folder, or one scene
+        // out of a deleted chapter (to that chapter, where it still is).
+        if !self.project.in_trash(idx) || path == trash {
+            self.msg = "that isn't in the Trash".into();
             return;
         }
         self.flush();
@@ -1667,8 +1665,8 @@ impl App {
         }
         let name = self.project.nodes[idx].title.clone();
         let before = self.project.total_words();
-        match project::restore(&self.project.root, &path) {
-            Ok(to) => {
+        match project::restore_with_note(&self.project.root, &path) {
+            Ok((to, note)) => {
                 self.follow_paths(&path, &to);
                 self.record(TreeStep::Moved {
                     what: format!("restore {name}"),
@@ -1684,7 +1682,11 @@ impl App {
                     self.reveal(i);
                 }
                 let m = self.mod_label();
-                self.msg = format!("restored {name} · {m}Z puts it back in the Trash");
+                self.msg = match note {
+                    // It couldn't go exactly where it was: say where it is.
+                    Some(note) => format!("restored {name} · {note}"),
+                    None => format!("restored {name} · {m}Z puts it back in the Trash"),
+                };
             }
             Err(e) => self.msg = format!("couldn't restore it: {e:#}"),
         }
@@ -2510,7 +2512,7 @@ impl App {
                     self.pdf_job = Some(rx);
                 }
                 lines.push(String::new());
-                // Shunn rounds, which makes a short book "about 0 words".
+                // Shunn rounds, which makes a short book "about 100 words".
                 let rounded = manuscript::rounded_words(done.words);
                 let words = if rounded == 0 {
                     format!("{} words", done.words)

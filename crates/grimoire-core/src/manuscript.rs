@@ -139,7 +139,8 @@ pub fn rounded_words(n: usize) -> usize {
     } else {
         1_000
     };
-    ((n + step / 2) / step) * step
+    // A few lines of a first scene are "about 100 words", never "about 0".
+    (((n + step / 2) / step) * step).max(if n > 0 { step } else { 0 })
 }
 
 const ONES: [&str; 20] = [
@@ -389,6 +390,8 @@ mod tests {
 
     #[test]
     fn word_counts_round_the_way_shunn_asks() {
+        assert_eq!(rounded_words(0), 0);
+        assert_eq!(rounded_words(20), 100, "something written is never 0");
         assert_eq!(rounded_words(1_240), 1_200);
         assert_eq!(rounded_words(1_260), 1_300);
         assert_eq!(rounded_words(6_440), 6_400, "a story: nearest 100");

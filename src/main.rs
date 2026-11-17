@@ -619,7 +619,12 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
             if matches!(app.overlay, Overlay::None) {
                 app.paste(text);
             } else if app.overlay_takes_text() {
-                for c in text.chars().filter(|c| !c.is_control()) {
+                // A tab is a space in a one-line box, as it is on the page.
+                for c in text
+                    .chars()
+                    .map(|c| if c == '\t' { ' ' } else { c })
+                    .filter(|c| !c.is_control())
+                {
                     app.on_overlay_key(Key::Char(c));
                 }
             }
@@ -773,7 +778,12 @@ fn on_key(app: &mut App, k: KeyEvent, confirm_quit: &mut bool) -> bool {
             // Paste: into the page, or into whatever box is being typed in.
             KeyCode::Char('v') if matches!(app.overlay, Overlay::None) => app.paste_clipboard(),
             KeyCode::Char('v') if app.overlay_takes_text() => {
-                for c in app.clipboard_text().chars().filter(|c| !c.is_control()) {
+                for c in app
+                    .clipboard_text()
+                    .chars()
+                    .map(|c| if c == '\t' { ' ' } else { c })
+                    .filter(|c| !c.is_control())
+                {
                     app.on_overlay_key(Key::Char(c));
                 }
             }

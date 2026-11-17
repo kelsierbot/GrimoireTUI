@@ -2791,7 +2791,7 @@ mod tests {
         let paras = docx_paragraphs(doc);
         let has = |style: &str, text: &str| paras.iter().any(|(s, t)| s == style && t == text);
         assert!(
-            paras[0].1.starts_with("Ada Quill") && paras[0].1.ends_with("about 0 words"),
+            paras[0].1.starts_with("Ada Quill") && paras[0].1.ends_with("about 100 words"),
             "{:?}",
             paras[0]
         );
@@ -3132,7 +3132,7 @@ mod tests {
             !paras.iter().any(|(s, _)| s == "Title"),
             "no generated title"
         );
-        assert_eq!(paras[0].1, "about 0 words");
+        assert_eq!(paras[0].1, "about 100 words");
         assert!(
             paras
                 .iter()
@@ -3195,7 +3195,7 @@ mod tests {
         let d = book_dir("compile");
         let p = Project::load(&d).unwrap();
         let expected = concat!(
-            "Ada Quill  \n\nabout 0 words\n\n# The Archive\n\nby Ada Quill\n\n",
+            "Ada Quill  \n\nabout 100 words\n\n# The Archive\n\nby Ada Quill\n\n",
             "\n# ACT ONE\n\n",
             "\n## Chapter One\n\n",
             "The building had *no* windows on the north face.\n\n“Wait — **now**,” she said, & meant <it>.\n",
@@ -3258,7 +3258,7 @@ mod tests {
         assert_eq!(
             lines,
             [
-                "Adaline Quillabout 0 words",
+                "Adaline Quillabout 100 words",
                 "12 Harbour Road",
                 "Seaport",
                 "555-0100",
