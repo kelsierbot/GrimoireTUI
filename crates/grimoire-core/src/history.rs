@@ -53,6 +53,25 @@ impl Version {
 
 /// Every kept version of a scene, newest first.
 pub fn versions(root: &Path, scene: &Path) -> Vec<Version> {
+    stamped(root, scene)
+        .into_iter()
+        .filter_map(|(file, when)| {
+            let text = fs::read_to_string(&file).ok()?;
+            Some(Version { file, when, text })
+        })
+        .collect()
+}
+
+/// The newest kept version that can be read, reading no more than it must.
+fn newest(root: &Path, scene: &Path) -> Option<Version> {
+    stamped(root, scene).into_iter().find_map(|(file, when)| {
+        let text = fs::read_to_string(&file).ok()?;
+        Some(Version { file, when, text })
+    })
+}
+
+/// Every kept version's file and time, newest first, without reading them.
+fn stamped(root: &Path, scene: &Path) -> Vec<(PathBuf, DateTime<Local>)> {
     let composed = dir_for(root, scene);
     let spelled = root
         .join(".grimoire")
@@ -65,7 +84,7 @@ pub fn versions(root: &Path, scene: &Path) -> Vec<Version> {
     if spelled != composed && !crate::names::same_file(&spelled, &composed) {
         dirs.push(spelled);
     }
-    let mut out: Vec<Version> = dirs
+    let mut out: Vec<(PathBuf, DateTime<Local>)> = dirs
         .iter()
         .filter_map(|d| fs::read_dir(d).ok())
         .flat_map(|rd| rd.flatten())
@@ -76,11 +95,10 @@ pub fn versions(root: &Path, scene: &Path) -> Vec<Version> {
             let stamp = stem.split('-').take(3).collect::<Vec<_>>().join("-");
             let naive = NaiveDateTime::parse_from_str(&stamp, STAMP).ok()?;
             let when = Local.from_local_datetime(&naive).earliest()?;
-            let text = fs::read_to_string(&file).ok()?;
-            Some(Version { file, when, text })
+            Some((file, when))
         })
         .collect();
-    out.sort_by(|a, b| b.when.cmp(&a.when).then_with(|| b.file.cmp(&a.file)));
+    out.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| b.0.cmp(&a.0)));
     out
 }
 
@@ -98,7 +116,9 @@ fn snapshot_at(
     gap: Option<Duration>,
     now: DateTime<Local>,
 ) -> Result<bool> {
-    let newest = versions(root, scene).into_iter().next();
+    // Every keystroke-pause lands here: read only the newest copy, not the
+    // whole history.
+    let newest = newest(root, scene);
     if let Some(v) = &newest {
         if v.text == text {
             return Ok(false);
@@ -269,6 +289,25 @@ mod tests {
             v[0].file
                 .starts_with(d.join(".grimoire/history/manuscript/01-Act-One/01-Gravel"))
         );
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn the_newest_readable_copy_decides_without_reading_the_rest() {
+        let d = root("rv-newest");
+        let scene = d.join("manuscript/01-Gravel.md");
+        let t = Local.with_ymd_and_hms(2026, 9, 16, 21, 0, 0).unwrap();
+        snapshot_at(&d, &scene, "old", None, t).unwrap();
+        snapshot_at(&d, &scene, "kept", None, t + Span::minutes(1)).unwrap();
+        // The newest is something that can't be read: the one under it counts.
+        let dir = dir_for(&d, &scene);
+        fs::create_dir_all(dir.join(format!("{}.md", (t + Span::minutes(2)).format(STAMP))))
+            .unwrap();
+        let n = newest(&d, &scene).expect("one is readable");
+        assert_eq!(n.text, "kept");
+        assert!(!snapshot_at(&d, &scene, "kept", None, t + Span::minutes(3)).unwrap());
+        assert_eq!(stamped(&d, &scene).len(), 3, "listed without reading");
+        assert_eq!(versions(&d, &scene).len(), 2);
         fs::remove_dir_all(&d).unwrap();
     }
 
