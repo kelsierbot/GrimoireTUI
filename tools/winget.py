@@ -134,8 +134,12 @@ def main():
             if api("GET", f"/repos/{me}/winget-pkgs", tok=tok):
                 break
             time.sleep(5)
-    base = api("GET", f"/repos/{UPSTREAM}/git/ref/heads/master", tok=tok)["object"]["sha"]
-    base_tree = api("GET", f"/repos/{UPSTREAM}/git/commits/{base}", tok=tok)["tree"]["sha"]
+    # Build on the fork's own master, brought up to date first. (Building on
+    # upstream's newest commit directly fails now and then: for a moment the
+    # fork can't see a commit that has only just landed upstream.)
+    api("POST", f"/repos/{me}/winget-pkgs/merge-upstream", {"branch": "master"}, tok=tok)
+    base = api("GET", f"/repos/{me}/winget-pkgs/git/ref/heads/master", tok=tok)["object"]["sha"]
+    base_tree = api("GET", f"/repos/{me}/winget-pkgs/git/commits/{base}", tok=tok)["tree"]["sha"]
     folder = f"manifests/c/CatfinityStudios/Grimoire/{version}"
     tree = api("POST", f"/repos/{me}/winget-pkgs/git/trees", {
         "base_tree": base_tree,
