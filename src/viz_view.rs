@@ -501,7 +501,7 @@ fn song(app: &App) -> Option<String> {
         MusicState::Playing(tr) if !tr.title.is_empty() => Some(if tr.artist.is_empty() {
             tr.title.clone()
         } else {
-            format!("{} — {}", tr.title, tr.artist)
+            format!("{} · {}", tr.title, tr.artist)
         }),
         _ => None,
     }

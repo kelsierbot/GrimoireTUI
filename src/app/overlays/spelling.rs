@@ -5,8 +5,8 @@ use super::*;
 /// The rows of the spelling popup after its suggestions.
 const IGNORES: [(Ignore, &str); 3] = [
     (Ignore::Now, "Ignore for now"),
-    (Ignore::Book, "Always ignore — this book"),
-    (Ignore::Everywhere, "Always ignore — every book"),
+    (Ignore::Book, "Always ignore (this book)"),
+    (Ignore::Everywhere, "Always ignore (every book)"),
 ];
 
 /// Where the popup sits: under the word (over it when there's no room
@@ -301,7 +301,7 @@ pub(super) fn draw_names(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             ),
             Span::styled(d.variant.clone(), Style::default().fg(t.warn)),
             Span::styled(format!(" ×{}", d.hits.len()), dim),
-            Span::styled(" — the ", dim),
+            Span::styled(" · the ", dim),
             Span::styled(d.name.section.clone(), dim),
             Span::styled(" note says ", dim),
             Span::styled(d.name.name.clone(), Style::default().fg(t.accent)),

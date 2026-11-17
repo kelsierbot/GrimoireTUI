@@ -178,7 +178,7 @@ pub(super) fn draw_export(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
     let pdf_note = if app.has_office() {
         "the same pages, made by LibreOffice"
     } else {
-        "needs LibreOffice (free) — libreoffice.org"
+        "needs LibreOffice (free) from libreoffice.org"
     };
     let paperback_note = if app.has_office() {
         format!("◂ {} ▸  print-ready DOCX + PDF", trim.label())
@@ -245,7 +245,7 @@ pub(super) fn draw_export(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
     lines.push(row2(how_much + 1, "Look…", m.manuscript.summary(), dim));
     let who = if m.contact.is_empty() {
         (
-            "not set — the title page wants your name and email".to_string(),
+            "not set (the title page wants your name and email)".to_string(),
             Style::default().fg(t.warn),
         )
     } else {
@@ -278,7 +278,7 @@ pub(super) fn draw_export(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
             format!(
-                " {} TK{} still in the text — x again exports anyway, ^T finds them",
+                " {} TK{} still in the text · x again exports anyway, ^T finds them",
                 found.len(),
                 if found.len() == 1 { " is" } else { "s are" }
             ),

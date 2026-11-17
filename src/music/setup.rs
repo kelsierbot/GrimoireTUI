@@ -184,8 +184,8 @@ fn ask_arch(detected: &'static str) -> &'static str {
         ("1", "x86")
     };
     println!("\n  Which kind of computer is this?");
-    println!("    1) x86 — Intel or AMD: most Windows and Linux PCs, Intel Macs");
-    println!("    2) ARM — Apple Silicon Macs (M1 and later), ARM Linux devices");
+    println!("    1) x86 (Intel or AMD): most Windows and Linux PCs, Intel Macs");
+    println!("    2) ARM: Apple Silicon Macs (M1 and later), ARM Linux devices");
     println!("  This one reports {family}, so Enter picks {default}.");
     loop {
         print!("  1 or 2 [{default}]: ");
@@ -473,7 +473,7 @@ fn download_and_install(arch: &str) -> Result<()> {
     let expect = pick["size"].as_u64().unwrap_or(0);
     let have = std::fs::metadata(&tmp).map(|m| m.len()).unwrap_or(0);
     if have > 0 && have == expect {
-        println!("  Already downloaded {name} — reusing it.");
+        println!("  Already downloaded {name}, so reusing it.");
     } else {
         if mb > 0 {
             println!("  Downloading {name} ({mb} MB)…");
@@ -534,7 +534,7 @@ fn download_and_install(arch: &str) -> Result<()> {
         // The web installer fetches the package for this PC's CPU itself, then
         // installs per-user. /S keeps it silent; it runs to completion before
         // returning, so there is nothing to poll.
-        println!("  Installing — the installer downloads the app itself, so give it a minute…");
+        println!("  Installing: the installer downloads the app itself, so give it a minute…");
         let status = Command::new(&tmp)
             .arg("/S")
             .status()
@@ -612,7 +612,7 @@ pub fn setup_for(source: Source) -> Result<()> {
     match source {
         Source::YouTubeMusic => setup(),
         Source::Spotify if cfg!(windows) => {
-            println!("Spotify isn't supported on Windows yet — Grimoire drives it through");
+            println!("Spotify isn't supported on Windows yet. Grimoire drives it through");
             println!("AppleScript on macOS and MPRIS on Linux, and Windows has neither.");
             println!();
             println!("  YouTube Music, Jellyfin and Plex all work here:");
@@ -624,7 +624,7 @@ pub fn setup_for(source: Source) -> Result<()> {
             cfg.source = Source::Spotify;
             cfg.enabled = true;
             cfg.save()?;
-            println!("Spotify needs no setup — Grimoire drives the desktop app directly.");
+            println!("Spotify needs no setup. Grimoire drives the desktop app directly.");
             println!();
             if cfg!(target_os = "macos") {
                 println!("  Just have Spotify open. Nothing to sign into.");
@@ -641,7 +641,7 @@ pub fn setup_for(source: Source) -> Result<()> {
 fn setup_jellyfin() -> Result<()> {
     let mut cfg = Config::load();
     println!("Connecting Grimoire to Jellyfin.\n");
-    println!("  Grimoire plays these tracks itself — your files, your server,");
+    println!("  Grimoire plays these tracks itself: your files, your server,");
     println!("  nothing else needs to be running.\n");
 
     let server = prompt(
@@ -675,7 +675,7 @@ fn setup_jellyfin() -> Result<()> {
     let tracks = cat.fetch(20)?;
     println!("  Found {} track(s).", tracks.len());
     if let Some(t) = tracks.first() {
-        println!("  For example: {} — {}", t.title, t.artist);
+        println!("  For example: {} · {}", t.title, t.artist);
     }
     println!("\nDone. F5 plays, F4/F6 move through the queue.");
     Ok(())
@@ -684,7 +684,7 @@ fn setup_jellyfin() -> Result<()> {
 fn setup_plex() -> Result<()> {
     let mut cfg = Config::load();
     println!("Connecting Grimoire to Plex.\n");
-    println!("  Grimoire plays these tracks itself — your files, your server.\n");
+    println!("  Grimoire plays these tracks itself: your files, your server.\n");
     println!("  Plex has no password login for apps. Get a token by opening any");
     println!("  item in the Plex web app, choosing Get Info → View XML, and");
     println!("  copying the X-Plex-Token value from the address bar.\n");
@@ -715,7 +715,7 @@ fn setup_plex() -> Result<()> {
     let tracks = cat.fetch(20)?;
     println!("  Found {} track(s).", tracks.len());
     if let Some(t) = tracks.first() {
-        println!("  For example: {} — {}", t.title, t.artist);
+        println!("  For example: {} · {}", t.title, t.artist);
     }
     println!("\nDone. F5 plays, F4/F6 move through the queue.");
     Ok(())
@@ -739,7 +739,7 @@ pub fn setup() -> Result<()> {
                 app_path().display(),
                 machine_arch()
             );
-            println!("  It can never start here — replacing it.\n");
+            println!("  It can never start here, so replacing it.\n");
         } else {
             println!("  not installed.\n");
         }
@@ -766,7 +766,7 @@ pub fn setup() -> Result<()> {
 
     println!("\nEnabling the API Server plugin…");
     if !client_config_path().exists() {
-        println!("  no config yet — starting the app once to create it.");
+        println!("  no config yet, so starting the app once to create it.");
         launch_client();
         // Up to a minute. A first launch is slow — Windows Defender scans a
         // freshly installed Electron app before it lets it start — and this
@@ -784,8 +784,8 @@ pub fn setup() -> Result<()> {
         Ok(Plugin::TurnedOn) => {
             println!("  turned on, bound to 127.0.0.1:{port} (config backed up).")
         }
-        Ok(Plugin::NoConfig) => println!("  no client config found — enable it by hand."),
-        Err(e) => println!("  could not edit the config ({e}) — enable it by hand."),
+        Ok(Plugin::NoConfig) => println!("  no client config found, so enable it by hand."),
+        Err(e) => println!("  could not edit the config ({e}), so enable it by hand."),
     }
 
     println!("\nStarting YouTube Music…");
@@ -814,7 +814,7 @@ pub fn setup() -> Result<()> {
     authenticate(&cfg.host, port)?;
 
     println!();
-    println!("Done. Sign in to YouTube Music and press play —");
+    println!("Done. Sign in to YouTube Music and press play.");
     println!("Grimoire picks it up within a second or two. F4/F5/F6 control it.");
     Ok(())
 }

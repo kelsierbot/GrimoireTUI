@@ -13,7 +13,7 @@ impl App {
                     Ok(()) => {
                         self.sessions_on = true;
                         self.msg =
-                            "session history is on — each session is kept when you quit".into();
+                            "session history is on · each session is kept when you quit".into();
                         self.open_sessions();
                     }
                     Err(e) => self.msg = format!("couldn't turn on session history: {e}"),
@@ -122,7 +122,7 @@ pub(super) fn draw_sessions_off(f: &mut Frame, _app: &App, area: Rect, t: &Theme
             text,
         )),
         Line::from(Span::styled(
-            " like a diary line — “Tuesday evening · Act Two · 1,240 words” — so you",
+            " like a diary line, “Tuesday evening · Act Two · 1,240 words”, so you",
             text,
         )),
         Line::from(Span::styled(
@@ -196,7 +196,7 @@ pub(super) fn draw_sessions(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
         lines.push(Line::from(vec![
             Span::styled(" now: ", dim),
             Span::styled(p.clone(), Style::default().fg(t.sun)),
-            Span::styled("  — saved when you quit, or s to save it now", dim),
+            Span::styled("  · saved when you quit, or s to save it now", dim),
         ]));
     }
     lines.push(Line::from(""));

@@ -742,7 +742,7 @@ fn clicking_a_misspelt_word_offers_its_fixes_and_one_undo_takes_one_back() {
     click(&mut d, "Teh cat");
     assert!(popup_open(&d), "the popup opens on the word");
     assert!(d.shows("“Teh”"));
-    assert!(d.shows("Always ignore — every book"));
+    assert!(d.shows("Always ignore (every book)"));
     // "The", in the word's own capitalisation, is on offer; clicking it fixes.
     click(&mut d, "The ");
     assert!(!popup_open(&d));
@@ -780,7 +780,7 @@ fn always_ignore_in_this_book_writes_its_list_and_lifts_the_underline() {
         "underlined to begin with"
     );
     click(&mut d, "Qwyrk");
-    click(&mut d, "Always ignore — this book");
+    click(&mut d, "Always ignore (this book)");
     let list = fs::read_to_string(d.root.join("dictionary.txt")).unwrap_or_default();
     assert!(list.lines().any(|l| l == "Qwyrk"), "{list}");
     d.key(KeyCode::End); // off the word, so it would be underlined again
@@ -801,7 +801,7 @@ fn the_every_book_list_is_kept_and_read_by_the_next_launch() {
     let mut d = spelling_desk("spell-user", "Zorblat waits.");
     d.app.user_dict = Some(list.clone());
     click(&mut d, "Zorblat");
-    click(&mut d, "Always ignore — every book");
+    click(&mut d, "Always ignore (every book)");
     assert!(spell::words_in(&list).contains(&"Zorblat".to_string()));
     // A fresh app — another book, even — accepts it once it reads the list.
     let mut other = spelling_desk("spell-user-2", "Zorblat returns.");
@@ -857,8 +857,8 @@ fn f8_offers_the_same_ways_to_ignore() {
         Overlay::Spelling { inline: false, .. }
     ));
     assert!(d.shows("Ignore for now"));
-    assert!(d.shows("Always ignore — this book"));
-    assert!(d.shows("Always ignore — every book"));
+    assert!(d.shows("Always ignore (this book)"));
+    assert!(d.shows("Always ignore (every book)"));
 }
 
 /// Not a test: `GRIMOIRE_SCENE_DUMP=<file> cargo test dump_pomodoro -- --ignored`
@@ -1158,7 +1158,7 @@ fn a_synced_book_with_history_inside_offers_to_move_it_out() {
     d.app.msg.clear();
     d.app.note_where_it_syncs(true);
     assert_eq!(
-        d.app.msg, "in Dropbox — conflicts are caught and kept",
+        d.app.msg, "in Dropbox · conflicts are caught and kept",
         "only once"
     );
     d.draw();
@@ -1224,7 +1224,7 @@ fn settling_takes_the_copy_and_ctrl_z_puts_both_back() {
     d.app.open_conflicts();
     d.draw();
     assert!(d.shows("SETTLE CONFLICTS"));
-    assert!(d.shows("Scene One — Dropbox copy"));
+    assert!(d.shows("Scene One · Dropbox copy"));
     d.key(KeyCode::Enter);
     assert!(matches!(d.app.overlay, Overlay::Settle { .. }));
     assert!(d.shows("Take the Dropbox copy"));
@@ -1456,7 +1456,7 @@ fn the_look_dialog_saves_to_novel_toml_and_goes_back_to_export() {
 fn author_details_are_typed_in_and_kept() {
     let mut d = export_desk("author", "Words.");
     let (_, _, author, _) = export_rows(&d);
-    assert!(d.shows("not set — the title page wants your name"));
+    assert!(d.shows("not set (the title page wants your name"));
     go_to(&mut d, author);
     d.key(KeyCode::Enter);
     assert!(matches!(d.app.overlay, Overlay::Author { .. }));
@@ -2029,6 +2029,8 @@ fn key_named(name: &str) -> KeyEvent {
         "End" => KeyCode::End,
         "PgUp" => KeyCode::PageUp,
         "PgDn" => KeyCode::PageDown,
+        "Backspace" => KeyCode::Backspace,
+        "Delete" => KeyCode::Delete,
         "↑" => KeyCode::Up,
         "↓" => KeyCode::Down,
         "←" => KeyCode::Left,
@@ -2136,6 +2138,15 @@ const EVERY_KEY: &[(&str, &str, &[&str])] = &[
     ("The page", "End", &["Home"]),
     ("The page", "PgUp", &[]),
     ("The page", "PgDn", &["PgUp"]),
+    ("The page", "Ctrl-←", &[]),
+    ("The page", "Ctrl-→", &["Ctrl-←"]),
+    ("The page", "Ctrl-↑", &[]),
+    ("The page", "Ctrl-↓", &["Ctrl-↑"]),
+    ("The page", "Ctrl-Home", &[]),
+    ("The page", "Ctrl-End", &["Ctrl-Home"]),
+    ("The page", "Shift-→", &["Home"]),
+    ("The page", "Ctrl-Backspace", &[]),
+    ("The page", "Ctrl-Delete", &["Home"]),
     ("The page", "Ctrl-C", &[]),
     ("The page", "Ctrl-X", &[]),
     ("The page", "Ctrl-Shift-Z", &["x", "Ctrl-Z"]),

@@ -63,11 +63,16 @@
 |---|---|
 | `Home` | start of the line; `End` the end |
 | `PgUp` | a screenful up; `PgDn` down |
+| `Ctrl-←` | a word back; `Ctrl-→` a word on (Alt too, and Option on a Mac) |
+| `Ctrl-↑` | a paragraph up; `Ctrl-↓` down |
+| `Ctrl-Home` | the top of the scene; `Ctrl-End` the end |
+| `Shift-→` | select as you go: Shift with any arrow, Home, End, PgUp or PgDn |
+| `Ctrl-Backspace` | delete the word before the cursor; `Ctrl-Delete` the word after |
 | `Ctrl-C` | copy the selection |
 | `Ctrl-X` | cut the selection |
 | `Ctrl-Shift-Z` | redo, where the terminal can send it |
 
-Click to place the cursor, drag to select, and click or right-click an underlined word for its spellings.
+Click to place the cursor, drag to select, double-click for a word and click once more for the paragraph. Click or right-click an underlined word for its spellings.
 
 ## The find bar
 

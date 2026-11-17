@@ -85,7 +85,7 @@ impl App {
     pub fn open_marks(&mut self) {
         let rows = self.mark_rows();
         if rows.is_empty() {
-            self.msg = "no notes or TKs yet — %% like this %% or TK, in any scene".into();
+            self.msg = "no notes or TKs yet · %% like this %% or TK, in any scene".into();
             return;
         }
         self.overlay = Overlay::Marks {

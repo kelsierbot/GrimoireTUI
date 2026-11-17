@@ -79,9 +79,9 @@ pub enum Focus {
 /// back.
 /// The recovered-words choices, in the order they're listed.
 pub const RECOVER_CHOICES: [&str; 3] = [
-    "Restore them — the saved versions go into each scene's history",
-    "Keep the saved versions — the recovered words go to the trash",
-    "Decide later — offered again next time",
+    "Restore them (the saved versions go into each scene's history)",
+    "Keep the saved versions (the recovered words go to the trash)",
+    "Decide later (offered again next time)",
 ];
 
 #[derive(Debug, Clone)]
@@ -870,7 +870,7 @@ impl App {
             }
             if guide.is_some() {
                 app.msg =
-                    "a new book — this is how it's laid out · Tab to read, Esc for the menu".into();
+                    "a new book, and this is how it's laid out · Tab to read, Esc for the menu".into();
             }
             app.resume_where_left();
             app.note_where_it_syncs(setup.background);
@@ -882,10 +882,10 @@ impl App {
                 .filter(|n| n.disk.unavailable.is_some())
                 .count();
             if let Some(why) = &app.project.meta_unreadable {
-                app.msg = format!("{why} — opened with the defaults, and it won't be rewritten");
+                app.msg = format!("{why} · opened with the defaults, and it won't be rewritten");
             } else if unreadable > 0 {
                 app.msg = format!(
-                    "{unreadable} file{} can't be read right now (not downloaded, or offline?) — shown, kept, and never saved over",
+                    "{unreadable} file{} can't be read right now (not downloaded, or offline?) · shown, kept, and never saved over",
                     if unreadable == 1 { "" } else { "s" }
                 );
             }
@@ -906,14 +906,14 @@ impl App {
         let told = root.join(".grimoire").join("history-notice");
         if self.history_in_book && !told.exists() {
             self.msg = format!(
-                "writing history is inside this {} folder, where sync can damage it — \
+                "writing history is inside this {} folder, where sync can damage it · \
                  Esc › Move writing history out (your writing is safe either way)",
                 client.label()
             );
             let _ = fs::create_dir_all(root.join(".grimoire"));
             let _ = fs::write(&told, "shown\n");
         } else if self.msg.is_empty() {
-            self.msg = format!("in {} — conflicts are caught and kept", client.label());
+            self.msg = format!("in {} · conflicts are caught and kept", client.label());
         } else {
             self.msg = format!("{} · in {}", self.msg, client.label());
         }
@@ -938,7 +938,7 @@ impl App {
     /// never collide with typing.
     pub fn on_function_key(&mut self, n: u8) {
         if matches!(n, 4..=7) && !self.music.enabled {
-            self.msg = "music is off — turn it on from the menu (Esc › Settings)".into();
+            self.msg = "music is off · turn it on from the menu (Esc › Settings)".into();
             return;
         }
         match n {
@@ -1013,7 +1013,7 @@ impl App {
                 self.editor = Editor::from_text("");
             }
             self.msg = format!(
-                "{} can't be edited yet — {}",
+                "{} can't be edited yet: {}",
                 self.project.nodes[i].title, why.why
             );
             return;
@@ -1025,7 +1025,7 @@ impl App {
             self.editor.place(cy, cx);
         }
         self.msg = format!(
-            "{} isn't UTF-8 text, so Grimoire shows it but won't change it — resave it as UTF-8 to edit it here",
+            "{} isn't UTF-8 text, so Grimoire shows it but won't change it, so resave it as UTF-8 to edit it here",
             self.project.nodes[i].title
         );
     }
@@ -1135,7 +1135,7 @@ impl App {
                     .as_ref()
                     .map(|u| u.why.clone())
                     .unwrap_or_else(|| "its file is missing just now".into());
-                let wait = format!("{} can't be saved yet — {why}", n.title);
+                let wait = format!("{} can't be saved yet: {why}", n.title);
                 if !matches!(&self.save_state, SaveState::Waiting(w) if *w == wait) {
                     self.msg =
                         format!("{wait}. Your words are kept and will be saved once it can be.");
@@ -1159,11 +1159,11 @@ impl App {
         self.save_state = SaveState::Failed(why.clone());
         self.msg = if kept {
             format!(
-                "couldn't save {title} ({why}) — your words are kept safe and will be offered back"
+                "couldn't save {title} ({why}) · your words are kept safe and will be offered back"
             )
         } else {
             format!(
-                "couldn't save {title} ({why}) — and couldn't keep a copy either; copy your text somewhere"
+                "couldn't save {title} ({why}), and couldn't keep a copy either; copy your text somewhere"
             )
         };
         false
@@ -1320,7 +1320,7 @@ impl App {
                     self.editor.set_text(&body);
                     let m = self.mod_label();
                     self.msg = format!(
-                        "{title} was changed outside Grimoire — showing that version ({m}Z goes back)"
+                        "{title} was changed outside Grimoire · showing that version ({m}Z goes back)"
                     );
                 }
             }
@@ -1330,7 +1330,7 @@ impl App {
                     self.editor.set_text(&body);
                 }
                 self.msg = format!(
-                    "{title} was changed elsewhere while you were writing — that version is the scene now, and yours is beside it as “{}”",
+                    "{title} was changed elsewhere while you were writing · that version is the scene now, and yours is beside it as “{}”",
                     name(&copy)
                 );
                 self.tree_stale = true;
@@ -1343,7 +1343,7 @@ impl App {
             }
             DiskChange::GoneParked(copy) => {
                 self.msg = format!(
-                    "{title} was moved or deleted outside Grimoire — your unsaved words are in the Trash as “{}”",
+                    "{title} was moved or deleted outside Grimoire · your unsaved words are in the Trash as “{}”",
                     name(&copy)
                 );
                 self.tree_stale = true;
@@ -1351,7 +1351,7 @@ impl App {
             DiskChange::Unavailable(why) => {
                 if open || self.project.nodes[i].dirty {
                     self.msg = format!(
-                        "{title}: {} — what's here is kept, and nothing is saved over it until it can be read",
+                        "{title}: {} · what's here is kept, and nothing is saved over it until it can be read",
                         why.why
                     );
                 }
@@ -1411,7 +1411,7 @@ impl App {
                 self.open = Some(j);
                 self.reveal(j);
                 self.msg = format!(
-                    "{} was moved outside Grimoire — followed it",
+                    "{} was moved outside Grimoire · followed it",
                     self.project.nodes[j].title
                 );
             }
@@ -1492,7 +1492,7 @@ impl App {
                 if !self.background || copy_to_clipboard(&text) {
                     self.editor.delete_selection();
                     self.flush();
-                    self.msg = "cut — undo puts it back".into();
+                    self.msg = "cut · undo puts it back".into();
                 } else {
                     self.msg = "no clipboard tool found, so nothing was cut".into();
                 }
@@ -2003,8 +2003,8 @@ impl App {
                 }
                 self.msg = match n {
                     0 => "no matches".into(),
-                    1 => "replaced 1 — Ctrl-Z undoes it".into(),
-                    n => format!("replaced {n} — Ctrl-Z undoes them"),
+                    1 => "replaced 1 · Ctrl-Z undoes it".into(),
+                    n => format!("replaced {n} · Ctrl-Z undoes them"),
                 };
             }
             Overlay::FindBook {
@@ -2128,7 +2128,7 @@ impl App {
         }
         let m = self.mod_label();
         self.msg = format!(
-            "replaced {total} in {scenes} scene{} — {m}Z takes back all of it",
+            "replaced {total} in {scenes} scene{} · {m}Z takes back all of it",
             if scenes == 1 { "" } else { "s" }
         );
     }
@@ -2750,7 +2750,7 @@ impl App {
                     self.backup_note = Some(match outcome {
                         sessions::PushOutcome::Pushed => "backed up ✓".into(),
                         sessions::PushOutcome::NoRemote => {
-                            "no remote — sessions stay on this computer".into()
+                            "no remote · sessions stay on this computer".into()
                         }
                         sessions::PushOutcome::Failed(why) => format!("couldn't back up: {why}"),
                     });
@@ -2802,7 +2802,7 @@ impl App {
     pub fn open_sessions(&mut self) {
         if !sessions::git_available() {
             self.msg =
-                "writing sessions need Git — install it from git-scm.com, then try again".into();
+                "writing sessions need Git · install it from git-scm.com, then try again".into();
             return;
         }
         if !self.sessions_on {
@@ -2818,14 +2818,14 @@ impl App {
                     .flatten()
                     .filter(|l| l.contains(" · "));
                 let backup = if !sessions::has_remote(&root) {
-                    "only on this computer — connect a remote (git remote add origin …) to back sessions up".to_string()
+                    "only on this computer · connect a remote (git remote add origin …) to back sessions up".to_string()
                 } else if self.backup_rx.is_some() {
                     "backing up…".to_string()
                 } else {
                     match (sessions::unpushed(&root), &self.backup_note) {
                         (Some(0), _) => "backed up ✓".to_string(),
                         (_, Some(note)) if note.starts_with("couldn't") => note.clone(),
-                        (None, _) => "not backed up yet — it happens in the background".to_string(),
+                        (None, _) => "not backed up yet · it happens in the background".to_string(),
                         (Some(1), _) => "1 session waiting to back up".to_string(),
                         (Some(n), _) => format!("{n} sessions waiting to back up"),
                     }
@@ -2892,7 +2892,7 @@ impl App {
         }
         let Some(i) = entry else {
             self.msg = if self.codex_index.is_empty() {
-                "no notes yet — add one under Characters or Places".into()
+                "no notes yet · add one under Characters or Places".into()
             } else {
                 "put the cursor on a name from your notebook".into()
             };
@@ -3087,7 +3087,7 @@ impl App {
             .get(line)
             .map(|l| l.chars().skip(start).take(end - start).collect());
         if still.as_deref() != Some(word) {
-            self.msg = "the text changed under it — try again".into();
+            self.msg = "the text changed under it · try again".into();
             return;
         }
         self.editor.replace_in_line(line, start, end, with);
@@ -3193,7 +3193,7 @@ impl App {
         let n = &self.project.nodes[idx];
         let versions = history::versions(&self.project.root, &n.path);
         if versions.is_empty() {
-            self.msg = format!("no history for {} yet — it's kept as you write", n.title);
+            self.msg = format!("no history for {} yet · it's kept as you write", n.title);
             return;
         }
         self.overlay = Overlay::History {
@@ -3222,7 +3222,7 @@ impl App {
         self.flush();
         self.mark_changed(idx);
         self.focus = Focus::Editor;
-        self.msg = "restored — Ctrl-Z undoes it".into();
+        self.msg = "restored · Ctrl-Z undoes it".into();
     }
 
     // ---- creating scenes, chapters and parts -------------------------------
@@ -3357,7 +3357,7 @@ impl App {
     fn selected_file(&mut self) -> Option<usize> {
         let idx = self.visible.get(self.sel).copied()?;
         if self.project.nodes[idx].kind == Kind::Category {
-            self.msg = "that's a section — pick what's inside it".into();
+            self.msg = "that's a section · pick what's inside it".into();
             return None;
         }
         Some(idx)
@@ -3487,7 +3487,7 @@ impl App {
                     batches: vec![batch],
                     links: false,
                 });
-                format!("{with} — {m}Z puts it back")
+                format!("{with} · {m}Z puts it back")
             })
         };
         match done {
@@ -4769,7 +4769,7 @@ impl App {
             return;
         }
         if self.open.is_none() {
-            self.msg = "open a scene first — focus mode is for writing one".into();
+            self.msg = "open a scene first · focus mode is for writing one".into();
             return;
         }
         self.focus_mode = true;
@@ -4825,7 +4825,7 @@ impl App {
             return;
         }
         if self.open == Some(i) {
-            self.msg = "that's the scene you're writing — pick another to show beside it".into();
+            self.msg = "that's the scene you're writing · pick another to show beside it".into();
             return;
         }
         if self.beside.as_ref().is_some_and(|b| b.path == node.path) {
@@ -5040,7 +5040,7 @@ impl App {
         self.msg = if on {
             match self.music.state {
                 music::State::NoToken => {
-                    "music on — run grimoire music-setup to connect a player".into()
+                    "music on · run grimoire music-setup to connect a player".into()
                 }
                 _ => format!("music on · {}", self.music.source.label()),
             }

@@ -333,7 +333,7 @@ impl Jukebox {
     #[cfg(not(feature = "audio"))]
     fn load(&mut self, _i: usize) -> Result<()> {
         Err(anyhow!(
-            "this build has no audio support — rebuild with the `audio` feature"
+            "this build has no audio support, so rebuild with the `audio` feature"
         ))
     }
 

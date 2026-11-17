@@ -19,13 +19,16 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Rust
         run: |
           rustup toolchain install stable --profile minimal --component clippy,rustfmt
           rustup default stable
           rustc --version
+
+      # Dependencies built once, then reused: minutes off every run.
+      - uses: Swatinem/rust-cache@v2
 
       - name: ALSA headers (audio feature)
         if: runner.os == 'Linux'

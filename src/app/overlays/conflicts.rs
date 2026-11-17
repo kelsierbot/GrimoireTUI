@@ -27,7 +27,7 @@ impl App {
     pub fn open_conflicts(&mut self) {
         self.flush();
         if self.conflicts().is_empty() {
-            self.msg = "no conflicts — every scene has one version".into();
+            self.msg = "no conflicts · every scene has one version".into();
             return;
         }
         self.overlay = Overlay::Conflicts { sel: 0 };
@@ -142,17 +142,17 @@ impl App {
             Settle::TakeCopy => (
                 format!("take the {label} of {title}"),
                 format!(
-                    "{title} has the {label}'s words now — its own are in its history (H) · {m}Z undoes"
+                    "{title} has the {label}'s words now, and its own are in its history (H) · {m}Z undoes"
                 ),
             ),
             Settle::KeepOriginal => (
                 format!("keep {title} over its {label}"),
-                format!("kept {title} as it was — the {label} is in the trash · {m}Z undoes"),
+                format!("kept {title} as it was · the {label} is in the trash · {m}Z undoes"),
             ),
             Settle::KeepBoth => (
                 format!("keep both versions of {title}"),
                 format!(
-                    "kept both — the {label} is a scene of its own, right after it · {m}Z undoes"
+                    "kept both · the {label} is a scene of its own, right after it · {m}Z undoes"
                 ),
             ),
         };
@@ -224,7 +224,7 @@ pub(super) fn draw_conflicts(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             Style::default().fg(t.text),
         )),
         Line::from(Span::styled(
-            " that lost — nothing is gone until you choose, and never after.",
+            " that lost. Nothing is gone until you choose, and never after.",
             Style::default().fg(t.dim),
         )),
         Line::from(""),
@@ -241,7 +241,7 @@ pub(super) fn draw_conflicts(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             .as_ref()
             .map_or("copy", |c| c.source.label());
         let detail = format!("{} · {}", modified(app, i), difference(app, i));
-        let left = format!(" {} {title} — {label}", if on { "▸" } else { " " });
+        let left = format!(" {} {title} · {label}", if on { "▸" } else { " " });
         let room = iw.saturating_sub(left.chars().count() + 2);
         lines.push(
             Line::from(vec![
@@ -336,7 +336,7 @@ pub(super) fn draw_settle(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
                     Style::default().fg(if on { t.accent } else { t.text }),
                 ),
                 Span::styled(
-                    format!(" — {}", truncate(why, room)),
+                    format!(" · {}", truncate(why, room)),
                     Style::default().fg(t.dim),
                 ),
             ])

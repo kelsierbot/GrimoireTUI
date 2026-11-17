@@ -388,7 +388,7 @@ impl Modes {
                 .shuffle
                 .map(|s| format!("shuffle {}", if s { "on" } else { "off" })),
             Cmd::Volume(d) => self.volume.map(|v| match (v, *d > 0) {
-                (100.., true) => "volume 100 — as loud as it goes".to_string(),
+                (100.., true) => "volume 100 (as loud as it goes)".to_string(),
                 (0, false) => "volume 0".to_string(),
                 _ => format!("volume {v}"),
             }),
@@ -705,7 +705,7 @@ mod config_tests {
         assert_eq!(m.said(&Cmd::Shuffle).as_deref(), Some("shuffle off"));
         assert_eq!(
             m.said(&Cmd::Volume(10)).as_deref(),
-            Some("volume 100 — as loud as it goes")
+            Some("volume 100 (as loud as it goes)")
         );
         assert_eq!(m.said(&Cmd::Volume(-10)).as_deref(), Some("volume 100"));
         assert_eq!(m.said(&Cmd::Like).as_deref(), Some("like taken back"));

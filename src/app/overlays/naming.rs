@@ -224,7 +224,7 @@ pub(super) fn draw_confirm(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
         )),
         Line::from(Span::styled(
             if *permanent {
-                " it's already in the trash — this is for good"
+                " it's already in the trash, so this is for good"
             } else {
                 " it moves to the trash, so it isn't gone for good"
             },

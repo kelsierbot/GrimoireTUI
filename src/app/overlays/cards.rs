@@ -235,7 +235,7 @@ pub(super) fn draw_cork(
         ));
     }
     if povs.is_empty() {
-        legend.push(Span::styled("none set yet — v on a card sets one", dim));
+        legend.push(Span::styled("none set yet · v on a card sets one", dim));
     }
     f.render_widget(
         Paragraph::new(Line::from(legend)),

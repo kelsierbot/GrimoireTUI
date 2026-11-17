@@ -31,7 +31,7 @@ impl App {
                 }
                 if self.commit_saves() {
                     self.msg = format!(
-                        "restored {restored} scene{} — the saved version is in its history",
+                        "restored {restored} scene{} · the saved version is in its history",
                         if restored == 1 { "" } else { "s" }
                     );
                 }
@@ -51,17 +51,17 @@ impl App {
                     self.msg = format!("couldn't re-read the tree: {e}");
                 } else if failed > 0 {
                     self.msg = format!(
-                        "kept the saved versions — {failed} recovered cop{} couldn't be moved and will be offered again",
+                        "kept the saved versions · {failed} recovered cop{} couldn't be moved and will be offered again",
                         if failed == 1 { "y" } else { "ies" }
                     );
                 } else {
                     self.msg =
-                        "kept the saved versions — the recovered words are in the trash".into();
+                        "kept the saved versions · the recovered words are in the trash".into();
                 }
             }
             (Key::Enter, _) | (Key::Esc, _) => {
                 self.overlay = Overlay::None;
-                self.msg = "left for now — offered again next time".into();
+                self.msg = "left for now · offered again next time".into();
             }
             _ => {}
         }

@@ -104,7 +104,7 @@ fn main() -> Result<()> {
     }
 
     if matches!(first.as_deref(), Some("-h") | Some("--help")) {
-        println!("grimoire — a terminal writing desk for novels\n");
+        println!("grimoire: a terminal writing desk for novels\n");
         println!("usage:");
         println!("  grimoire                    open your current manuscript");
         println!("  grimoire <dir>              open a specific one");
@@ -189,7 +189,7 @@ fn main() -> Result<()> {
     }
 
     let mut terminal = ratatui::try_init()
-        .context("this needs a real terminal — grimoire cannot run in a pipe")?;
+        .context("this needs a real terminal, because grimoire cannot run in a pipe")?;
 
     // Cmd/Super only reaches a TUI when the terminal speaks the Kitty keyboard
     // protocol. Ghostty, Kitty, WezTerm and foot do; Apple Terminal does not.
@@ -300,7 +300,9 @@ fn export_command(mut args: impl Iterator<Item = String>) -> Result<()> {
             s if s.starts_with("--parts=") => numbers = Some(part_numbers(&s["--parts=".len()..])?),
             s if s.starts_with('-') => anyhow::bail!("unknown option '{s}'\n\n  {EXPORT_USAGE}"),
             _ if dir.is_none() => dir = Some(PathBuf::from(a)),
-            _ => anyhow::bail!("one book at a time — '{a}' is a second folder\n\n  {EXPORT_USAGE}"),
+            _ => anyhow::bail!(
+                "one book at a time, and '{a}' is a second folder\n\n  {EXPORT_USAGE}"
+            ),
         }
     }
     // A trim size is only for the paperback, so asking for one asks for it.
@@ -319,14 +321,14 @@ fn export_command(mut args: impl Iterator<Item = String>) -> Result<()> {
             let all = export::parts(&project);
             let noun = project.meta.part_noun();
             if all.is_empty() {
-                anyhow::bail!("this book has no {noun}s to choose from — leave out --parts");
+                anyhow::bail!("this book has no {noun}s to choose from, so leave out --parts");
             }
             let mut chosen = Vec::new();
             for n in numbers {
                 match all.get(n.wrapping_sub(1)) {
                     Some((idx, _)) => chosen.push(*idx),
                     None => anyhow::bail!(
-                        "there is no {noun} {n} — this book has {}:\n{}",
+                        "there is no {noun} {n}. This book has {}:\n{}",
                         all.len(),
                         all.iter()
                             .enumerate()
@@ -466,7 +468,7 @@ fn find_project(arg: Option<PathBuf>) -> Result<(PathBuf, Option<String>)> {
         }
         if !is_project(&abs) {
             anyhow::bail!(
-                "{} is not a manuscript — no manuscript/ directory inside it\n\n  grimoire new {}   start one there",
+                "{} is not a manuscript (no manuscript/ directory inside it)\n\n  grimoire new {}   start one there",
                 pretty(&abs),
                 pretty(&p)
             );
@@ -554,7 +556,7 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
         app.tick_player();
         if app.pomo.tick() {
             app.msg = match app.pomo.phase {
-                scene::Phase::Break => "break — go and look at something far away".into(),
+                scene::Phase::Break => "break · go and look at something far away".into(),
                 _ => "back to it".into(),
             };
         }

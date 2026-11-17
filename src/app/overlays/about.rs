@@ -41,8 +41,8 @@ impl App {
     /// The Ko-fi page, in the browser.
     pub(crate) fn open_kofi(&mut self) {
         self.msg = match open_url(KOFI_URL) {
-            Ok(()) => "opening Ko-fi — thank you".to_string(),
-            Err(e) => format!("couldn't open a browser ({e}) — it's {KOFI_URL}"),
+            Ok(()) => "opening Ko-fi, thank you".to_string(),
+            Err(e) => format!("couldn't open a browser ({e}), it's {KOFI_URL}"),
         };
         self.last_opened = Some(KOFI_URL.to_string());
     }
@@ -51,7 +51,7 @@ impl App {
     pub(crate) fn open_game(&mut self) {
         self.msg = match open_url(GAME_URL) {
             Ok(()) => "opening Catfinity, the idle cat RPG".to_string(),
-            Err(e) => format!("couldn't open a browser ({e}) — it's {GAME_URL}"),
+            Err(e) => format!("couldn't open a browser ({e}), it's {GAME_URL}"),
         };
         self.last_opened = Some(GAME_URL.to_string());
     }
@@ -60,7 +60,7 @@ impl App {
     pub(crate) fn open_studio_site(&mut self) {
         self.msg = match open_url(STUDIO_URL) {
             Ok(()) => format!("opening {}", STUDIO_URL.trim_start_matches("https://")),
-            Err(e) => format!("couldn't open a browser ({e}) — it's {STUDIO_URL}"),
+            Err(e) => format!("couldn't open a browser ({e}), it's {STUDIO_URL}"),
         };
         self.last_opened = Some(STUDIO_URL.to_string());
     }

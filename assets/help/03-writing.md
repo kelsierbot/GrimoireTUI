@@ -6,11 +6,17 @@ Open a scene from the outline and press `Tab` (or click the page) to write in it
 
 - The arrow keys move the cursor. `Up` and `Down` move one **line on the screen**, not one paragraph, so they behave the way you'd expect inside a long wrapped paragraph.
 - `Home` and `End` go to the start and end of the line; `PgUp` and `PgDn` move a screenful.
+- `Ctrl-←` and `Ctrl-→` move a **word** at a time (`Alt` works too, and `Option` on a Mac). `Ctrl-↑` and `Ctrl-↓` move a paragraph.
+- `Ctrl-Home` and `Ctrl-End` go to the top and the end of the scene.
+- `Ctrl-Backspace` deletes the word before the cursor, and `Ctrl-Delete` the word after it.
 - Click anywhere in the prose to put the cursor there.
 
 ## Selecting, cutting and pasting
 
-- **Drag** with the mouse to select.
+- **Drag** with the mouse to select. **Double-click** picks a word, and a third click picks the paragraph.
+- Hold `Shift` with the arrows, `Home`, `End`, `PgUp` or `PgDn` to select as you go.
+- Typing over a selection replaces it. `Backspace` or `Delete` removes it.
+- `Esc` lets go of a selection. With nothing selected, `Esc` opens the menu.
 - `Ctrl-C` copies the selection and `Ctrl-X` cuts it. `Ctrl-V` pastes (so does your terminal's own paste, `Ctrl-Shift-V` or `Cmd-V`); a paste is one step to undo.
 - `Ctrl-A` selects the whole scene (*Select the whole scene* in `Ctrl-K`).
 
@@ -21,8 +27,6 @@ Open a scene from the outline and press `Tab` (or click the page) to write in it
 - Both are in *Esc › Writing tools* too, and in `Ctrl-K` (*Italic*, *Bold*). Some terminals send `Ctrl-I` as `Tab`; the menu always works.
 
 In the file, italics are `*stars*` and bold is `**double stars**`, the way Markdown writes them, and every export turns them into real italics and bold.
-- Typing over a selection replaces it. `Backspace` or `Delete` removes it.
-- `Esc` lets go of a selection. With nothing selected, `Esc` opens the menu.
 
 ## Undo
 
