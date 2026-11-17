@@ -3270,3 +3270,56 @@ fn a_name_is_mended_in_the_middle_of_the_rename_box() {
     d.key(KeyCode::Esc);
     assert_eq!(d.app.caret, None);
 }
+
+/// `d` on the Trash itself empties it, after asking; and nothing new is
+/// made from inside it (a scene started there used to land in the manuscript).
+#[test]
+fn the_trash_empties_after_asking_and_nothing_starts_in_it() {
+    let root = book("empty-trash", true);
+    let mut d = Desk::open(root.clone(), 120, 44);
+    let trash = grimoire_core::project::trash_dir(&root);
+    // A scene goes to the Trash.
+    d.key(KeyCode::Char('d'));
+    d.key(KeyCode::Char('y'));
+    assert_eq!(
+        fs::read_dir(&trash).unwrap().flatten().count(),
+        2,
+        "it and .origins"
+    );
+    // Onto the Trash section itself.
+    let at = d
+        .app
+        .visible
+        .iter()
+        .position(|&i| d.app.project.nodes[i].path == trash)
+        .expect("the Trash shows in the outline");
+    d.app.sel = at;
+    let scenes = d.app.project.nodes.len();
+    d.key(KeyCode::Char('n'));
+    assert!(
+        matches!(d.app.overlay, Overlay::None),
+        "nothing starts here"
+    );
+    assert!(d.app.msg.contains("Trash"), "{}", d.app.msg);
+    assert_eq!(d.app.project.nodes.len(), scenes);
+    d.key(KeyCode::Char('d'));
+    assert!(d.shows("EMPTY THE TRASH"), "{}", d.rows().join("\n"));
+    assert!(d.shows("for good"));
+    // Esc keeps everything.
+    d.key(KeyCode::Esc);
+    assert_eq!(fs::read_dir(&trash).unwrap().flatten().count(), 2);
+    d.key(KeyCode::Char('d'));
+    d.key(KeyCode::Char('y'));
+    assert_eq!(fs::read_dir(&trash).unwrap().flatten().count(), 0);
+    assert!(trash.is_dir(), "the Trash itself stays");
+    assert_eq!(d.app.msg, "the Trash is empty");
+    // And again there's nothing to ask about.
+    d.app.sel = d
+        .app
+        .visible
+        .iter()
+        .position(|&i| d.app.project.nodes[i].path == trash)
+        .expect("still there");
+    d.key(KeyCode::Char('d'));
+    assert!(matches!(d.app.overlay, Overlay::None));
+}

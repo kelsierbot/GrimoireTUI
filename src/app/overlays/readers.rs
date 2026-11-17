@@ -26,6 +26,19 @@ impl App {
             return;
         };
         if done.is_some() {
+            // The files are made: `o` shows them in the computer's own
+            // file manager, and the list stays up to read.
+            if matches!(key, Key::Char('o') | Key::Char('O')) {
+                let dir = self.project.root.join("exports");
+                self.msg = match super::about::open_url(&dir.to_string_lossy()) {
+                    Ok(()) => "opened the exports folder".into(),
+                    Err(_) => format!(
+                        "couldn't open it here · the files are in {}",
+                        crate::books::pretty(&dir)
+                    ),
+                };
+                return;
+            }
             self.overlay = Overlay::None;
             return;
         }
@@ -136,7 +149,7 @@ pub(super) fn draw_export(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
         while lines.len() < (inner.height as usize).saturating_sub(1) {
             lines.push(Line::from(""));
         }
-        lines.push(hint_line(" any key closes", t));
+        lines.push(hint_line(" o opens the folder   any other key closes", t));
         f.render_widget(Paragraph::new(lines), inner);
         return;
     }

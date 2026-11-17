@@ -103,7 +103,13 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
-    if matches!(first.as_deref(), Some("-h") | Some("--help")) {
+    // `grimoire help` too, unless there's a book in a folder called that.
+    let asked_for_help = match first.as_deref() {
+        Some("-h") | Some("--help") => true,
+        Some("help") => !Path::new("help").exists(),
+        _ => false,
+    };
+    if asked_for_help {
         println!("grimoire: a terminal writing desk for novels\n");
         println!("usage:");
         println!("  grimoire                    open your current manuscript");
@@ -115,9 +121,10 @@ fn main() -> Result<()> {
         println!("  grimoire index              refresh project.md, the project map");
         println!("  grimoire compile            assemble the manuscript");
         println!("  grimoire export [dir]       DOCX + EPUB into exports/; pick formats");
-        println!("                              with --docx --epub --paperback --md,");
-        println!("                              a trim with --trim 6x9, parts with");
-        println!("                              --parts 1,3");
+        println!("                              with --docx --pdf --epub --paperback");
+        println!("                              --md, a trim with --trim 6x9, parts");
+        println!("                              with --parts 1,3, or a sample with");
+        println!("                              --chapters 1-3 or --words 10000");
         println!("  grimoire --version          which version, and who made it");
         println!("  grimoire music-setup <src>  connect music: youtube-music |");
         println!("                              spotify | jellyfin | plex");
@@ -175,6 +182,10 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
+    // A mistyped option isn't a book to open (or to offer to make).
+    if let Some(option) = first.as_deref().filter(|a| a.starts_with('-')) {
+        anyhow::bail!("there's no option '{option}' · grimoire --help lists what there is");
+    }
     let (root, opening_msg) = resolve_project(first.map(PathBuf::from))?;
     remember(&root);
 

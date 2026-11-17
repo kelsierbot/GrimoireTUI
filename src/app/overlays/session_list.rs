@@ -58,6 +58,9 @@ impl App {
                             .file_stem()
                             .map(|x| x.to_string_lossy().to_string())
                             .unwrap_or_default();
+                        // The list as it stands, to come back to: the same
+                        // session, the same file in it.
+                        self.sessions_back = Some(self.overlay.clone());
                         self.overlay = Overlay::SessionDiff {
                             title,
                             label: s.label.clone(),
@@ -103,7 +106,10 @@ impl App {
         match key {
             Key::Down | Key::PageDown | Key::Char(' ') => *scroll += 5,
             Key::Up | Key::PageUp => *scroll = scroll.saturating_sub(5),
-            _ => self.open_sessions_keeping_place(),
+            _ => match self.sessions_back.take() {
+                Some(list) => self.overlay = list,
+                None => self.open_sessions_keeping_place(),
+            },
         }
     }
 }

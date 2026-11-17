@@ -68,7 +68,7 @@ impl App {
 
 /// Hand `url` to the system's browser, detached, so Grimoire doesn't wait on
 /// it. Tests never launch anything; they read `App::last_opened`.
-fn open_url(url: &str) -> std::io::Result<()> {
+pub(super) fn open_url(url: &str) -> std::io::Result<()> {
     if cfg!(test) {
         return Ok(());
     }

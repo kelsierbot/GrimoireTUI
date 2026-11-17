@@ -315,6 +315,9 @@ pub struct App {
     /// The corkboard to come back to after naming, renaming or deleting a
     /// card from it.
     pub cork_back: Option<(Overlay, Focus)>,
+    /// The sessions list a change was opened from, kept so that closing the
+    /// change comes back to the same session and the same row.
+    pub sessions_back: Option<Overlay>,
     /// The last click on the page: when, where, and how many in a row.
     last_click: Option<(Instant, u16, u16, u8)>,
     /// What was last copied or cut, for Ctrl-V when the system clipboard
@@ -846,6 +849,7 @@ impl App {
             day_noted: None,
             reading: None,
             cork_back: None,
+            sessions_back: None,
             clip: String::new(),
             last_click: None,
             state_file: None,
@@ -2005,10 +2009,11 @@ impl App {
                     self.editor.set_text(&text);
                     self.flush();
                 }
+                let m = self.mod_label();
                 self.msg = match n {
                     0 => "no matches".into(),
-                    1 => "replaced 1 · Ctrl-Z undoes it".into(),
-                    n => format!("replaced {n} · Ctrl-Z undoes them"),
+                    1 => format!("replaced 1 · {m}Z undoes it"),
+                    n => format!("replaced {n} · {m}Z undoes them"),
                 };
             }
             Overlay::FindBook {
@@ -3226,7 +3231,7 @@ impl App {
         self.flush();
         self.mark_changed(idx);
         self.focus = Focus::Editor;
-        self.msg = "restored · Ctrl-Z undoes it".into();
+        self.msg = format!("restored · {}Z undoes it", self.mod_label());
     }
 
     // ---- creating scenes, chapters and parts -------------------------------
@@ -3235,6 +3240,12 @@ impl App {
     /// Where things go is `create::plan`'s job.
     pub fn start_create(&mut self, want: New) {
         let sel = self.visible.get(self.sel).copied();
+        // Made in the Trash, a new scene would quietly land in the
+        // manuscript instead. Say so, and make nothing.
+        if sel.is_some_and(|i| self.project.in_trash(i)) {
+            self.msg = "nothing new starts in the Trash · pick a place in the book first".into();
+            return;
+        }
         match create::plan(&self.project, &self.parents, sel, want) {
             Ok(plan) => {
                 let fresh = !plan.name.is_empty();
@@ -3419,6 +3430,14 @@ impl App {
     }
 
     pub fn start_delete(&mut self) {
+        // On the Trash itself, delete empties it.
+        if let Some(idx) = self.visible.get(self.sel).copied()
+            && self.project.nodes[idx].kind == Kind::Category
+            && self.project.in_trash(idx)
+        {
+            self.start_empty_trash();
+            return;
+        }
         let Some(idx) = self.selected_file() else {
             return;
         };
@@ -3429,6 +3448,35 @@ impl App {
             noun: self.noun_of(idx),
             words: self.project.subtree_words(idx),
             permanent: self.project.in_trash(idx),
+        };
+    }
+
+    /// Ask before emptying the Trash: the one delete that can't be undone.
+    pub fn start_empty_trash(&mut self) {
+        let trash = project::trash_dir(&self.project.root);
+        let Some(idx) = self.project.nodes.iter().position(|n| n.path == trash) else {
+            self.msg = "the Trash is already empty".into();
+            return;
+        };
+        let holds = self
+            .project
+            .nodes
+            .iter()
+            .filter(|n| n.path.parent() == Some(trash.as_path()))
+            .count();
+        if holds == 0 {
+            self.msg = "the Trash is already empty".into();
+            return;
+        }
+        self.overlay = Overlay::Confirm {
+            path: trash,
+            name: match holds {
+                1 => "the 1 thing in the Trash".into(),
+                n => format!("all {n} things in the Trash"),
+            },
+            noun: "the trash".into(),
+            words: self.project.subtree_words(idx),
+            permanent: true,
         };
     }
 
@@ -3453,7 +3501,21 @@ impl App {
             self.editor = Editor::from_text("");
             self.focus = Focus::Tree;
         }
-        let done = if permanent {
+        let emptying = path == project::trash_dir(&root);
+        let done = if emptying {
+            // The Trash itself stays; everything in it goes, and its record
+            // of where things came from with them.
+            let mut gone = Ok(());
+            for entry in std::fs::read_dir(&path).into_iter().flatten().flatten() {
+                if let Err(e) = project::destroy(&entry.path()) {
+                    gone = Err(e);
+                }
+            }
+            gone.map(|_| {
+                self.undo_stash.retain(|p, _| !p.starts_with(&path));
+                String::new()
+            })
+        } else if permanent {
             project::destroy(&path).map(|_| {
                 self.undo_stash.retain(|p, _| !p.starts_with(&path));
                 String::new()
@@ -3500,7 +3562,11 @@ impl App {
                     self.msg = format!("deleted, but couldn't re-read the tree: {e}");
                     return;
                 }
-                self.msg = format!("deleted {name}{where_to}");
+                self.msg = if emptying {
+                    "the Trash is empty".into()
+                } else {
+                    format!("deleted {name}{where_to}")
+                };
             }
             Err(e) => self.msg = format!("couldn't delete it: {e}"),
         }
@@ -4730,7 +4796,15 @@ impl App {
             Action::ReadAloud => writing,
             Action::FindInScene => writing,
             Action::Italic | Action::Bold => writing,
-            Action::Details => writing,
+            // Details are a scene's or a note's: the one being written, or
+            // the one highlighted in the outline (where `i` opens them).
+            Action::Details => {
+                writing
+                    || self
+                        .visible
+                        .get(self.sel)
+                        .is_some_and(|&i| self.project.nodes[i].kind == Kind::Scene)
+            }
             Action::OpenCodex | Action::NextTk => writing,
             Action::Restore => self.selection_in_trash(),
             Action::History => writing || !self.visible.is_empty(),
@@ -5111,8 +5185,19 @@ impl App {
                         "{esc}  u restore  d delete for good  ? help  Tab pane  {m}Z undo  {m}Q quit "
                     );
                 }
+                // On the Trash itself, the one thing to do is empty it.
+                if sel.is_some_and(|i| self.project.in_trash(i)) {
+                    return format!(
+                        "{esc}  ↵ fold  d empty the Trash  ? help  Tab pane  {m}Q quit "
+                    );
+                }
+                // Enter opens a scene and folds everything else.
+                let enter = match sel.map(|i| self.project.nodes[i].kind) {
+                    Some(Kind::Scene) => "↵ open",
+                    _ => "↵ fold",
+                };
                 format!(
-                    "{esc}{focus}  ? help  Tab pane  ↵ fold  {}  b corkboard  r rename  d delete  {m}Z undo  H history  {m}Q quit ",
+                    "{esc}{focus}  ? help  Tab pane  {enter}  {}  b corkboard  r rename  d delete  {m}Z undo  H history  {m}Q quit ",
                     keys.join("  ")
                 )
             }

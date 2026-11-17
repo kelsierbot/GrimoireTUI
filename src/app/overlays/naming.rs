@@ -198,7 +198,15 @@ pub(super) fn draw_confirm(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
     };
     let box_area = centred(area, 58, 8);
     f.render_widget(Clear, box_area);
-    let title = format!("DELETE {}", noun.to_uppercase());
+    let Overlay::Confirm { path, .. } = &app.overlay else {
+        return;
+    };
+    let emptying = *path == grimoire_core::project::trash_dir(&app.project.root);
+    let title = if emptying {
+        "EMPTY THE TRASH".to_string()
+    } else {
+        format!("DELETE {}", noun.to_uppercase())
+    };
     let block = pane_block(&title, true, t);
     let inner = block.inner(box_area);
     f.render_widget(block, box_area);
@@ -233,7 +241,9 @@ pub(super) fn draw_confirm(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             Style::default().fg(t.warn),
         )),
         Line::from(Span::styled(
-            if *permanent {
+            if emptying {
+                " this is for good: nothing in it can be brought back"
+            } else if *permanent {
                 " it's already in the trash, so this is for good"
             } else {
                 " it moves to the trash, so it isn't gone for good"
