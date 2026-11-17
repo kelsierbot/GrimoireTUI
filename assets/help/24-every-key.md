@@ -53,6 +53,7 @@
 | `H` | the scene's history |
 | `b` | the corkboard |
 | `v` | show the scene beside |
+| `f` | on a Template Sheet: a new note that starts as a copy of it |
 | `/` | find in the whole book |
 | `t` | themes |
 | `q` | quit |

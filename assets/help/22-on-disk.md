@@ -12,7 +12,7 @@ A book is an ordinary folder you can open, copy and back up without Grimoire.
 | `characters/`, `places/` | the notebook |
 | `notes/`, `research/` | more of the notebook |
 | `front-matter/`, `back-matter/` | pages before and after the story, by edition |
-| `template-sheets/` | Character and Setting sketches to copy |
+| `template-sheets/` | Character and Setting sketches to copy (`f` on one in the outline) |
 | `dictionary.txt` | words spellcheck accepts in this book |
 | `cover.jpg` | the EPUB's cover, if you add one |
 | `exports/` | what Export writes |

@@ -2131,6 +2131,7 @@ const EVERY_KEY: &[(&str, &str, &[&str])] = &[
     ("The outline", "H", &[]),
     ("The outline", "b", &[]),
     ("The outline", "v", &["↓"]),
+    ("The outline", "f", &[]),
     ("The outline", "/", &[]),
     ("The outline", "t", &[]),
     ("The outline", "q", &[]),
@@ -3521,4 +3522,47 @@ fn a_taught_word_can_be_taken_back() {
         panic!("the list stays up");
     };
     assert_eq!(words, &vec![("Oren".to_string(), true)]);
+}
+
+/// `f` on a Template Sheet makes a note that starts as a copy of the form,
+/// in the section the form is for; the sheet stays as it was.
+#[test]
+fn a_template_sheet_fills_in_a_new_note() {
+    let root = book("sheet-copy", true);
+    let mut d = Desk::open(root.clone(), 130, 50);
+    let sheet = d
+        .app
+        .project
+        .nodes
+        .iter()
+        .position(|n| n.title == "Character Sketch")
+        .expect("the starter book has a character sheet");
+    let form = d.app.project.nodes[sheet].body.clone();
+    assert!(form.contains("## Wants"));
+    d.app.reveal(sheet);
+    d.draw();
+    assert!(d.status().contains("f fill in a copy"), "{}", d.status());
+    d.key(KeyCode::Char('f'));
+    assert!(
+        d.shows("NEW NOTE") && d.shows("Characters"),
+        "{}",
+        d.rows().join("\n")
+    );
+    d.typed("Mara Venn");
+    d.key(KeyCode::Enter);
+    let made = d.app.open.expect("the new note opens");
+    let note = &d.app.project.nodes[made];
+    assert_eq!(note.title, "Mara Venn");
+    assert!(
+        note.path.starts_with(root.join("characters")),
+        "{}",
+        note.path.display()
+    );
+    assert_eq!(d.app.editor.text(), form);
+    assert!(fs::read_to_string(&note.path).unwrap().contains("## Wants"));
+    // Cancelling leaves no form waiting for the next thing made.
+    d.app.reveal(sheet);
+    d.key(KeyCode::Char('f'));
+    d.key(KeyCode::Esc);
+    assert_eq!(d.app.from_sheet, None);
 }

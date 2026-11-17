@@ -66,6 +66,8 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 
     if matches!(app.overlay, Overlay::None) {
         app.caret = None;
+        // A form waits only while its note is being named.
+        app.from_sheet = None;
     } else {
         crate::app::overlays::draw(f, app, f.area(), &t);
     }

@@ -2006,7 +2006,7 @@ The starter pages stay out of the book until you want them: each begins with \
 the line compile: false, and changing it to compile: true puts it in.\n\n\
 NOTES and RESEARCH are for everything else you gather. Sample Output, in \
 Research, is a place to keep exports you want to compare.\n\n\
-TEMPLATE SHEETS are blank forms. Copy one into Characters or Places to fill in.\n\n\
+TEMPLATE SHEETS are blank forms. In the tree, f on one makes a copy in Characters or Places to fill in.\n\n\
 TRASH keeps whatever you delete until you delete it from there too.\n";
 
     pub const CHARACTER_SKETCH: &str = "---\ntitle: \"Character Sketch\"\n---\n\n\

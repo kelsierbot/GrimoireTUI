@@ -20,7 +20,7 @@ use grimoire_core::editor::{self, Editor};
 use grimoire_core::export;
 use grimoire_core::history;
 use grimoire_core::manuscript;
-use grimoire_core::project::{self, DiskChange, Kind, Project};
+use grimoire_core::project::{self, Area, DiskChange, Kind, Project};
 use grimoire_core::recovery;
 use grimoire_core::resume;
 use grimoire_core::search;
@@ -326,6 +326,8 @@ pub struct App {
     /// A search across the book that a match was opened from: what was
     /// looked for, the replacement if one was typed, and the row.
     pub book_find: Option<(String, Option<String>, usize)>,
+    /// A Template Sheet's form, waiting for the note being named to fill.
+    pub from_sheet: Option<String>,
     /// The last click on the page: when, where, and how many in a row.
     last_click: Option<(Instant, u16, u16, u8)>,
     /// What was last copied or cut, for Ctrl-V when the system clipboard
@@ -866,6 +868,7 @@ impl App {
             cork_back: None,
             sessions_back: None,
             book_find: None,
+            from_sheet: None,
             clip: String::new(),
             last_click: None,
             state_file: None,
@@ -3349,6 +3352,49 @@ impl App {
         }
     }
 
+    /// `f` on a Template Sheet: a new note in Characters or Places (or
+    /// Notes) that starts as a copy of the form, ready to fill in. It's
+    /// named first, like any new note.
+    pub fn start_from_sheet(&mut self) {
+        let sheet = self.visible.get(self.sel).copied().filter(|&i| {
+            let n = &self.project.nodes[i];
+            n.kind == Kind::Scene && n.area == Area::Templates && !self.project.in_trash(i)
+        });
+        let Some(sheet) = sheet else {
+            self.msg = "f fills in a copy of a Template Sheet · highlight one there first".into();
+            return;
+        };
+        let title = self.project.nodes[sheet].title.to_lowercase();
+        let wanted = if title.contains("character") {
+            Area::Characters
+        } else if title.contains("setting") || title.contains("place") {
+            Area::Places
+        } else {
+            Area::Notes
+        };
+        let section = |a: Area| {
+            self.project
+                .nodes
+                .iter()
+                .position(|n| n.kind == Kind::Category && n.area == a)
+        };
+        let Some(home) = section(wanted).or_else(|| section(Area::Notes)) else {
+            self.msg = "there's no Characters, Places or Notes section to put it in".into();
+            return;
+        };
+        match create::plan(&self.project, &self.parents, Some(home), New::Scene) {
+            Ok(plan) => {
+                self.from_sheet = Some(self.project.nodes[sheet].body.clone());
+                self.overlay = Overlay::Create {
+                    buf: String::new(),
+                    plan,
+                    fresh: false,
+                };
+            }
+            Err(why) => self.msg = why,
+        }
+    }
+
     fn finish_create(&mut self, plan: Plan, name: String) {
         // Save first, so re-reading the tree can't lose an unsaved sentence.
         self.flush();
@@ -3402,6 +3448,14 @@ impl App {
                 self.focus = Focus::Tree;
             } else {
                 self.open_scene(i);
+                // Made from a Template Sheet: it starts as the form.
+                if let Some(form) = self.from_sheet.take() {
+                    self.editor.set_text(&form);
+                    self.flush();
+                    self.mark_changed(i);
+                    // On disk at once: the note is the form from the start.
+                    self.commit_saves();
+                }
             }
         }
         // Say what comes next, so an empty chapter isn't a dead end.
@@ -4309,6 +4363,7 @@ impl App {
             Key::Char('J') => self.move_selected(false),
             Key::Char('/') => self.open_find_book(String::new()),
             Key::Char('v') => self.open_beside(),
+            Key::Char('f') => self.start_from_sheet(),
             Key::Up => self.sel = self.sel.saturating_sub(1),
             Key::Down => {
                 if self.sel + 1 < self.visible.len() {
@@ -5308,6 +5363,15 @@ impl App {
                 if sel.is_some_and(|i| self.project.in_trash(i)) {
                     return format!(
                         "{esc}  ↵ fold  d empty the Trash  ? help  Tab pane  {m}Q quit "
+                    );
+                }
+                // A Template Sheet is there to be copied and filled in.
+                if sel.is_some_and(|i| {
+                    let n = &self.project.nodes[i];
+                    n.kind == Kind::Scene && n.area == Area::Templates
+                }) {
+                    return format!(
+                        "{esc}  f fill in a copy  ↵ open  ? help  Tab pane  r rename  d delete  {m}Q quit "
                     );
                 }
                 // Enter opens a scene and folds everything else.

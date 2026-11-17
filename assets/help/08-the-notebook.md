@@ -2,6 +2,10 @@
 
 The notebook is the book's sections for things that aren't the story: **Characters**, **Places**, **Notes** and **Research**. Each note is a Markdown file, like a scene.
 
+## Starting from a form
+
+**Template Sheets**, near the bottom of the outline, holds blank forms: a Character Sketch and a Setting Sketch. Highlight one and press `f`: you name the new note, and it opens in Characters or Places as a copy of the form, ready to fill in. The sheet itself stays blank for next time. Change a sheet, or add your own, and `f` copies that.
+
 ## Names light up
 
 The title of every note in the notebook is a **name**: as you write, names appear in the accent colour. A note can have other names too, with `aliases:` in its frontmatter:
