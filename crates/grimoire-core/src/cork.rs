@@ -66,6 +66,14 @@ pub fn part_of(p: &Project, parents: &[Option<usize>], idx: usize) -> Option<usi
 /// Cards for one part (or the whole manuscript when `scope` is None), grouped
 /// by chapter, in book order.
 pub fn board(p: &Project, scope: Option<usize>) -> Vec<Group> {
+    let mut groups = board_all(p, scope);
+    groups.retain(|g| !g.cards.is_empty());
+    groups
+}
+
+/// [`board`], and the chapters with no scenes in them yet too: a heading
+/// with nothing under it, so a chapter just made is seen to be there.
+pub fn board_all(p: &Project, scope: Option<usize>) -> Vec<Group> {
     let mut groups: Vec<Group> = Vec::new();
     let starts: Vec<usize> = match scope {
         Some(s) => vec![s],
@@ -74,7 +82,6 @@ pub fn board(p: &Project, scope: Option<usize>) -> Vec<Group> {
     for s in starts {
         walk(p, s, "", &mut groups);
     }
-    groups.retain(|g| !g.cards.is_empty());
     groups
 }
 
@@ -103,6 +110,13 @@ fn walk(p: &Project, idx: usize, chapter: &str, groups: &mut Vec<Group>) {
         }
         Kind::Container => {
             let title = if manuscript::section_of(p, idx) == Section::Chapter {
+                // A chapter has its heading whether or not it has scenes.
+                if groups.last().is_none_or(|g| g.title != n.title) {
+                    groups.push(Group {
+                        title: n.title.clone(),
+                        cards: Vec::new(),
+                    });
+                }
                 n.title.as_str()
             } else {
                 chapter

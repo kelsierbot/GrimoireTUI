@@ -14,6 +14,7 @@ A corkboard is how a lot of writers plan: every scene on an index card, pinned u
 ## Adding, removing and moving cards
 
 - `n` adds a new card (a new scene) at the end of the chapter the highlighted card is in. You name it first.
+- `c` adds a new chapter at the end of the part. You name it, then its first scene, and you're back on the board with the new card. A chapter with no scenes yet still shows its heading.
 - `r` renames the card's scene.
 - `d` sends the card's scene to the Trash. It asks first, and `Ctrl-Z` in the outline brings it back.
 - `<` and `>` move the card one place earlier or later. At the edge of a chapter it crosses into the next one.

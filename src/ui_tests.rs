@@ -3566,3 +3566,54 @@ fn a_template_sheet_fills_in_a_new_note() {
     d.key(KeyCode::Esc);
     assert_eq!(d.app.from_sheet, None);
 }
+
+/// `c` on the corkboard makes a chapter and asks for its first scene; a
+/// chapter with no scenes still shows its heading on the board.
+#[test]
+fn a_chapter_is_added_from_the_corkboard_and_an_empty_one_still_shows() {
+    let mut d = Desk::open(book("cork-chapter", true), 150, 50);
+    d.key(KeyCode::Char('b'));
+    assert!(matches!(d.app.overlay, Overlay::Cork { .. }));
+    assert!(d.shows("c chapter"), "{}", d.rows().join("\n"));
+    d.key(KeyCode::Char('c'));
+    assert!(d.shows("NEW CHAPTER"), "{}", d.rows().join("\n"));
+    d.typed("x");
+    for _ in 0..40 {
+        d.key(KeyCode::Backspace);
+    }
+    d.typed("Interlude");
+    d.key(KeyCode::Enter);
+    // Straight on to its first scene.
+    assert!(d.shows("NEW SCENE"), "{}", d.rows().join("\n"));
+    d.typed("The Gap");
+    d.key(KeyCode::Enter);
+    assert!(
+        matches!(d.app.overlay, Overlay::Cork { .. }),
+        "back on the board"
+    );
+    assert!(
+        d.shows("Interlude") && d.shows("The Gap"),
+        "{}",
+        d.rows().join("\n")
+    );
+
+    // A second one, left without a scene: its heading is there all the same.
+    d.key(KeyCode::Char('c'));
+    d.typed("x");
+    for _ in 0..40 {
+        d.key(KeyCode::Backspace);
+    }
+    d.typed("Coda");
+    d.key(KeyCode::Enter);
+    d.key(KeyCode::Esc);
+    assert!(matches!(d.app.overlay, Overlay::Cork { .. }));
+    // (Off the bottom of a short screen, so ask the board itself.)
+    let part = grimoire_core::cork::parts(&d.app.project)[0];
+    let all = grimoire_core::cork::board_all(&d.app.project, Some(part));
+    let shown = grimoire_core::cork::board(&d.app.project, Some(part));
+    assert!(all.iter().any(|g| g.title == "Coda" && g.cards.is_empty()));
+    assert!(
+        !shown.iter().any(|g| g.title == "Coda"),
+        "no card to stand on"
+    );
+}

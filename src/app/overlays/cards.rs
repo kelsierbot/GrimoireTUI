@@ -108,14 +108,16 @@ impl App {
             }
             // Cards come and go like scenes do in the outline: a new one at
             // the end of this card's chapter, renamed, or to the Trash, each
-            // asking first, then back to the board.
-            Key::Char('n') | Key::Char('r') | Key::Char('d') => {
+            // asking first, then back to the board. `c` is a new chapter
+            // at the end of the part, and then its first scene.
+            Key::Char('n') | Key::Char('r') | Key::Char('d') | Key::Char('c') => {
                 self.cork_back = Some((self.overlay.clone(), self.focus));
                 self.overlay = Overlay::None;
                 self.focus = Focus::Tree;
                 self.reveal(card.idx);
                 match key {
                     Key::Char('n') => self.start_create(New::Scene),
+                    Key::Char('c') => self.start_create(New::Chapter),
                     Key::Char('r') => self.start_rename(),
                     _ => self.start_delete(),
                 }
@@ -200,7 +202,9 @@ pub(super) fn draw_cork(
     };
     f.render_widget(Clear, box_area);
     let part = app.cork_scope(scope);
-    let groups = cork::board(&app.project, part);
+    // Drawn with its empty chapters too; the cards and the keys count only
+    // scenes, and both number them the same way.
+    let groups = cork::board_all(&app.project, part);
     let where_ = part
         .map(|i| app.project.nodes[i].title.to_uppercase())
         .unwrap_or_else(|| "THE BOOK".into());
@@ -429,7 +433,7 @@ pub(super) fn draw_cork(
         " type   ↵ save   esc cancel".to_string()
     } else {
         format!(
-            " ↵ open  n new  r rename  d delete  < > move card  s status  e synopsis  v POV  p POV filter{}  esc close",
+            " ↵ open  n new  c chapter  r rename  d delete  < > move  s status  e synopsis  v POV  p POV filter{}  esc close",
             if cork::parts(&app.project).len() > 1 {
                 format!("  [ ] other {}s", app.project.meta.part_noun())
             } else {

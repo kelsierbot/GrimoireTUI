@@ -3446,6 +3446,11 @@ impl App {
             if plan.folder {
                 // The next key is n or c, which only the tree hears.
                 self.focus = Focus::Tree;
+                // Made from the corkboard, a chapter is asked for its
+                // first scene straight away: a board shows cards.
+                if plan.made == New::Chapter && self.cork_back.is_some() {
+                    self.start_create(New::Scene);
+                }
             } else {
                 self.open_scene(i);
                 // Made from a Template Sheet: it starts as the form.
