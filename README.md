@@ -900,6 +900,7 @@ Another way to help: Grimoire comes from [Catfinity Studios](https://catfinity.c
 and we also make **[Catfinity](https://catfinity.com/catfinity/)**, a cozy idle
 cat RPG. It's free on [iPhone](https://apps.apple.com/us/app/catfinity-idle-cat-rpg/id6793207198)
 and [Android](https://play.google.com/store/apps/details?id=com.catfinity.game),
+coming soon to [Steam](https://store.steampowered.com/app/5203940/),
 and in the app, `c` in *About Grimoire…* takes you there.
 
 ## License
