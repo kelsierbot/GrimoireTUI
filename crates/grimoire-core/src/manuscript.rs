@@ -35,8 +35,8 @@ pub enum Section {
     Scene,
 }
 
-/// A container holding scenes is a chapter; one holding only containers is a
-/// part. Depth alone lies as soon as someone skips the part level.
+/// A container holding only scenes is a chapter; one holding containers is a
+/// part, and any scenes beside them are loose scenes of that part. Depth alone lies as soon as someone skips the part level.
 ///
 /// An empty folder has nothing inside to judge by, and a chapter is always
 /// empty the moment it's made. So it goes by its name first ("Chapter Two",
@@ -48,11 +48,13 @@ pub fn section_of(p: &Project, idx: usize) -> Section {
         return Section::Scene;
     }
     let holds = |i: usize, kind: Kind| p.nodes[i].children.iter().any(|&c| p.nodes[c].kind == kind);
-    if holds(idx, Kind::Scene) {
-        return Section::Chapter;
-    }
+    // A folder holding folders is a part, even with a loose scene or two
+    // beside them: as a chapter, its own chapters would drop out of the book.
     if holds(idx, Kind::Container) {
         return Section::Part;
+    }
+    if holds(idx, Kind::Scene) {
+        return Section::Chapter;
     }
     // A book that calls its parts Acts says "Act One" here, so the label from
     // novel.toml counts alongside the default word.

@@ -3824,4 +3824,69 @@ mod tests {
         }
         fs::remove_dir_all(&d).unwrap();
     }
+
+    /// An act that opens with one loose scene and then holds its chapters:
+    /// every word of it reaches every format, in order.
+    #[test]
+    fn a_part_with_a_loose_scene_keeps_its_chapters() {
+        let d = std::env::temp_dir().join(format!(
+            "grimoire-export-loose-and-chapters-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&d);
+        put(
+            &d,
+            "novel.toml",
+            "title = \"The Lantern\"\nauthor = \"Ada Quill\"\npart_label = \"Act\"\n",
+        );
+        put(
+            &d,
+            "manuscript/01-Act-One/00-Overture.md",
+            "Loose opening words.\n",
+        );
+        put(
+            &d,
+            "manuscript/01-Act-One/01-Chapter-One/01-Scene.md",
+            "First chapter words.\n",
+        );
+        put(
+            &d,
+            "manuscript/01-Act-One/02-Chapter-Two/01-Scene.md",
+            "Second chapter words.\n",
+        );
+        let p = Project::load(&d).unwrap();
+        let b = book(&p, None, Scope::Whole).unwrap();
+        assert_eq!(b.words, 9, "every word is counted");
+        assert_eq!(b.chapters, 2);
+        assert_eq!(b.scenes, 3);
+        let md = markdown(&b);
+        let at = |s: &str| md.find(s).unwrap_or_else(|| panic!("{s} is missing"));
+        assert!(at("ACT ONE") < at("Loose opening"));
+        assert!(at("Loose opening") < at("## Chapter One"));
+        assert!(at("First chapter") < at("## Chapter Two"));
+        assert!(at("Second chapter") > at("## Chapter Two"));
+
+        let (paras, ..) = docx_of(&d, &all_options());
+        let text: Vec<&str> = paras.iter().map(|(_, t)| t.as_str()).collect();
+        for words in [
+            "Loose opening words.",
+            "First chapter words.",
+            "Second chapter words.",
+        ] {
+            assert!(text.contains(&words), "{words} is in the DOCX");
+        }
+        let files = unzip_bytes(&epub(&b).unwrap());
+        let all: String = files
+            .iter()
+            .map(|(_, b)| String::from_utf8_lossy(b).to_string())
+            .collect();
+        for words in [
+            "Loose opening words.",
+            "First chapter words.",
+            "Second chapter words.",
+        ] {
+            assert!(all.contains(words), "{words} is in the EPUB");
+        }
+        fs::remove_dir_all(&d).unwrap();
+    }
 }
