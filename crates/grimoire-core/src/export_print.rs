@@ -1401,7 +1401,7 @@ fn convert(cmd: &[String], stage: &Path, src: &Path, pdf: &Path) -> Result<PathB
     // A profile of its own, so a LibreOffice already open doesn't swallow
     // the conversion.
     let profile = stage.join("profile");
-    let profile_url = format!("file://{}", profile.to_string_lossy().replace('\\', "/"));
+    let profile_url = crate::pdf::file_url(&profile);
     let mut child = std::process::Command::new(&cmd[0])
         .args(&cmd[1..])
         .arg("--headless")

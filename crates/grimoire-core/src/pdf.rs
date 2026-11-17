@@ -90,6 +90,17 @@ pub fn convert(office: &Office, docx: &Path) -> Result<PathBuf> {
     convert_here(office, docx)
 }
 
+/// `path` as a file URL on every system: file:///tmp/… and file:///C:/Users/….
+/// What LibreOffice takes for the profile it runs with.
+pub(crate) fn file_url(path: &Path) -> String {
+    let slashed = path.to_string_lossy().replace('\\', "/");
+    if slashed.starts_with('/') {
+        format!("file://{slashed}")
+    } else {
+        format!("file:///{slashed}")
+    }
+}
+
 /// [`convert`], with the PDF written in the DOCX's own folder.
 fn convert_here(office: &Office, docx: &Path) -> Result<PathBuf> {
     let dir = docx
@@ -102,13 +113,7 @@ fn convert_here(office: &Office, docx: &Path) -> Result<PathBuf> {
         .to_string();
     let out = dir.join(format!("{stem}.pdf"));
     let profile = std::env::temp_dir().join(format!("grimoire-lo-{}", std::process::id()));
-    // A file URL on every system: file:///tmp/… and file:///C:/Users/….
-    let slashed = profile.display().to_string().replace('\\', "/");
-    let profile_url = if slashed.starts_with('/') {
-        format!("file://{slashed}")
-    } else {
-        format!("file:///{slashed}")
-    };
+    let profile_url = file_url(&profile);
     let mut cmd = match office {
         Office::Binary(p) => Command::new(p),
         Office::Flatpak => {
@@ -148,4 +153,21 @@ fn convert_here(office: &Office, docx: &Path) -> Result<PathBuf> {
         );
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_profile_url_is_a_file_url_on_every_system() {
+        assert_eq!(
+            file_url(Path::new("/tmp/grimoire-lo-1/profile")),
+            "file:///tmp/grimoire-lo-1/profile"
+        );
+        assert_eq!(
+            file_url(Path::new("C:\\Users\\ada\\AppData\\Local\\Temp\\profile")),
+            "file:///C:/Users/ada/AppData/Local/Temp/profile"
+        );
+    }
 }
