@@ -40,7 +40,7 @@ def api(method, path, body=None, tok=None):
         headers={"Authorization": f"token {tok}", "Accept": "application/vnd.github+json"},
     )
     try:
-        with urllib.request.urlopen(req) as r:
+        with urllib.request.urlopen(req, timeout=30) as r:
             raw = r.read()
             return json.loads(raw) if raw else {}
     except urllib.error.HTTPError as e:
@@ -118,7 +118,7 @@ def main():
     version = args[0].lstrip("v")
     dry = "--dry-run" in sys.argv
     sha_url = f"https://github.com/{REPO}/releases/download/v{version}/{ZIP}.sha256"
-    with urllib.request.urlopen(sha_url) as r:
+    with urllib.request.urlopen(sha_url, timeout=30) as r:
         sha = r.read().decode().split()[0]
     files = manifests(version, sha)
     if dry:

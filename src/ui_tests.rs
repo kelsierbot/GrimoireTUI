@@ -3111,3 +3111,127 @@ fn nothing_in_ctrl_k_is_missing_from_the_menu() {
         .collect();
     assert!(missing.is_empty(), "only in Ctrl-K: {missing:#?}");
 }
+
+/// In many themes the quiet grey all but vanishes on the selection colour
+/// (Tokyo Night: 1.5 to 1). On the finished frame nothing on a highlight or
+/// a button is that faint, in any theme.
+#[test]
+fn words_on_a_highlight_read_in_every_theme() {
+    use crate::theme::{contrast, presets};
+    use crate::ui::{LEGIBLE, keep_highlights_legible};
+    use ratatui::buffer::Buffer;
+    use ratatui::layout::Rect;
+    use ratatui::style::Style;
+    let mut too_faint_before = 0;
+    for t in presets() {
+        let pairs = [
+            (t.dim, t.sel),
+            (t.accent, t.sel),
+            (t.text, t.sel),
+            (t.sun, t.sel),
+            (t.sel, t.accent),
+            (t.dim, t.accent),
+        ];
+        let mut buf = Buffer::empty(Rect::new(0, 0, pairs.len() as u16, 1));
+        for (x, (fg, bg)) in pairs.iter().enumerate() {
+            buf.set_string(x as u16, 0, "a", Style::default().fg(*fg).bg(*bg));
+            if contrast(*fg, *bg).is_some_and(|c| c < LEGIBLE) {
+                too_faint_before += 1;
+            }
+        }
+        keep_highlights_legible(&mut buf, &t);
+        for x in 0..pairs.len() as u16 {
+            let cell = buf.cell((x, 0)).expect("in the buffer");
+            let c = contrast(cell.fg, cell.bg).expect("themes are true colour");
+            assert!(
+                c >= LEGIBLE,
+                "{}: {:?} on {:?} is {c:.2} to 1",
+                t.name,
+                cell.fg,
+                cell.bg
+            );
+        }
+        // A colour that already reads is left as the theme chose it.
+        let mut buf = Buffer::empty(Rect::new(0, 0, 1, 1));
+        buf.set_string(0, 0, "a", Style::default().fg(t.text).bg(t.sel));
+        keep_highlights_legible(&mut buf, &t);
+        if contrast(t.text, t.sel).is_some_and(|c| c >= LEGIBLE) {
+            assert_eq!(buf.cell((0, 0)).expect("there").fg, t.text, "{}", t.name);
+        }
+    }
+    assert!(
+        too_faint_before > 10,
+        "the themes no longer need this ({too_faint_before})"
+    );
+}
+
+/// Pasted over a list, every letter would run as a key: "Tuesday" on the
+/// corkboard sent a scene to the Trash and answered yes.
+#[test]
+fn a_paste_only_goes_where_words_can_be_typed() {
+    let mut d = Desk::open(book("paste-box", true), 150, 44);
+    d.key(KeyCode::Char('b'));
+    assert!(matches!(d.app.overlay, Overlay::Cork { .. }));
+    assert!(
+        !d.app.overlay_takes_text(),
+        "a board has no box to paste in"
+    );
+    d.key(KeyCode::Char('r'));
+    assert!(matches!(d.app.overlay, Overlay::Rename { .. }));
+    assert!(d.app.overlay_takes_text());
+    d.key(KeyCode::Esc);
+    d.key(KeyCode::Esc);
+    d.key(KeyCode::Esc);
+    assert!(d.menu_open());
+    assert!(!d.app.overlay_takes_text(), "nor has the menu");
+}
+
+#[test]
+fn the_corkboard_gives_the_page_back_to_whoever_was_writing() {
+    let mut d = Desk::open(book("cork-focus", true), 150, 44);
+    d.app.focus = Focus::Editor;
+    d.app.open_cork();
+    assert!(matches!(d.app.overlay, Overlay::Cork { .. }));
+    d.key(KeyCode::Char('>'));
+    d.key(KeyCode::Esc);
+    assert!(matches!(d.app.overlay, Overlay::None));
+    assert_eq!(
+        d.app.focus,
+        Focus::Editor,
+        "typing must not land in the outline"
+    );
+}
+
+#[test]
+fn the_wheel_looks_down_the_outline_and_it_stays_there() {
+    let mut d = Desk::open(book("tree-wheel", true), 100, 16);
+    d.draw();
+    let (x, y) = (d.app.rect_tree.x + 1, d.app.rect_tree.y + 1);
+    // Far enough that the highlighted scene is off the top of the pane.
+    for _ in 0..4 {
+        d.app.on_scroll(x, y, true);
+        d.draw();
+    }
+    assert!(
+        d.app.tree_scroll > d.app.sel,
+        "the outline snapped back to the highlight"
+    );
+    // Moving the highlight brings the view back to it.
+    d.key(KeyCode::Down);
+    d.draw();
+    let height = d.app.rect_tree.height as usize;
+    assert!(d.app.sel >= d.app.tree_scroll && d.app.sel < d.app.tree_scroll + height);
+}
+
+#[test]
+fn undo_does_nothing_to_the_page_behind_a_box() {
+    let mut d = Desk::open(book("undo-box", true), 120, 40);
+    d.app.focus = Focus::Editor;
+    d.typed("Kept words");
+    d.key(KeyCode::Esc);
+    assert!(d.menu_open());
+    d.ctrl('z');
+    d.ctrl('x');
+    d.key(KeyCode::Esc);
+    assert!(d.app.editor.text().contains("Kept words"));
+}

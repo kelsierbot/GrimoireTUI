@@ -35,7 +35,13 @@ impl App {
         }
         match key {
             Key::Enter | Key::Char(' ') | Key::Right | Key::Char('l') => {
-                let (at, action) = (*sel, items[*sel].clone());
+                // The list can shrink while the menu is up (a conflict
+                // settles itself); never reach past its end.
+                let Some(action) = items.get(*sel).cloned() else {
+                    *sel = items.len().saturating_sub(1);
+                    return;
+                };
+                let at = *sel;
                 if action == Action::MenuBack {
                     self.menu_back(sub);
                     return;

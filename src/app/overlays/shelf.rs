@@ -289,9 +289,11 @@ impl App {
         next.screen = self.screen;
         next.frame = self.frame;
         next.state_file = self.state_file.take();
-        if self.speller.is_some() {
+        // The dictionary that's loaded serves for the moment the new book's
+        // own is being read: its names and its dictionary.txt take over as
+        // soon as that's in (the load `App::with` started is kept).
+        if self.speller.is_some() && next.speller.is_none() {
             next.speller = self.speller.take();
-            next.speller_rx = None;
         }
         let left = std::mem::replace(self, next).project.root;
         if let Some(state) = &self.state_file {

@@ -456,6 +456,27 @@ pub fn save_to(path: &std::path::Path, t: &Theme) -> std::io::Result<()> {
     grimoire_core::atomic::write_io(path, out.as_bytes())
 }
 
+/// How strongly two colours stand apart, from 1 (the same) to 21 (black on
+/// white): the usual contrast ratio. `None` unless both are true colours.
+pub fn contrast(a: Color, b: Color) -> Option<f32> {
+    let lum = |c: Color| -> Option<f32> {
+        let Color::Rgb(r, g, b) = c else {
+            return None;
+        };
+        let lin = |v: u8| {
+            let v = v as f32 / 255.0;
+            if v <= 0.03928 {
+                v / 12.92
+            } else {
+                ((v + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        Some(0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b))
+    };
+    let (a, b) = (lum(a)?, lum(b)?);
+    Some((a.max(b) + 0.05) / (a.min(b) + 0.05))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

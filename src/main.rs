@@ -605,7 +605,7 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
         if let Event::Paste(text) = &ev {
             if matches!(app.overlay, Overlay::None) {
                 app.paste(text);
-            } else {
+            } else if app.overlay_takes_text() {
                 for c in text.chars().filter(|c| !c.is_control()) {
                     app.on_overlay_key(Key::Char(c));
                 }
@@ -753,10 +753,13 @@ fn on_key(app: &mut App, k: KeyEvent, confirm_quit: &mut bool) -> bool {
                 *confirm_quit = false;
             }
             KeyCode::Char('c') => app.copy_selection(),
-            KeyCode::Char('x') => app.cut(),
+            // Cutting and undoing belong to the desk: with a box up they'd
+            // change the page behind it, unseen. (Find keeps undo, for a
+            // replace you want back.)
+            KeyCode::Char('x') if matches!(app.overlay, Overlay::None) => app.cut(),
             // Paste: into the page, or into whatever box is being typed in.
             KeyCode::Char('v') if matches!(app.overlay, Overlay::None) => app.paste_clipboard(),
-            KeyCode::Char('v') => {
+            KeyCode::Char('v') if app.overlay_takes_text() => {
                 for c in app.clipboard_text().chars().filter(|c| !c.is_control()) {
                     app.on_overlay_key(Key::Char(c));
                 }
@@ -781,6 +784,8 @@ fn on_key(app: &mut App, k: KeyEvent, confirm_quit: &mut bool) -> bool {
             KeyCode::Char('o') if matches!(app.overlay, Overlay::None) => app.open_codex(),
             KeyCode::Char('t') if matches!(app.overlay, Overlay::None) => app.open_marks(),
             KeyCode::Char('d') if matches!(app.overlay, Overlay::None) => app.toggle_focus_mode(),
+            KeyCode::Char('z' | 'Z' | 'y')
+                if !matches!(app.overlay, Overlay::None | Overlay::Find { .. }) => {}
             KeyCode::Char('z') if shift => app.redo(),
             KeyCode::Char('Z') => app.redo(),
             KeyCode::Char('z') => app.undo(),

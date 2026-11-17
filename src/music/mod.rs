@@ -191,6 +191,12 @@ impl Config {
             self.user_id,
         );
         grimoire_core::atomic::write_text(&path, &body)?;
+        // It holds the keys to the music servers: for this person only.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+        }
         Ok(())
     }
 

@@ -13,6 +13,10 @@ use anyhow::{Context, Result, anyhow};
 use std::time::Duration;
 
 const AGENT_TIMEOUT: Duration = Duration::from_secs(10);
+/// A whole track can be tens of megabytes over a slow link: ten seconds to
+/// be answered, but minutes to arrive.
+#[cfg(feature = "audio")]
+const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const CLIENT: &str = "Grimoire";
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -37,6 +41,23 @@ fn agent() -> ureq::Agent {
         .timeout_global(Some(AGENT_TIMEOUT))
         .build()
         .new_agent()
+}
+
+#[cfg(feature = "audio")]
+fn download_agent() -> ureq::Agent {
+    ureq::Agent::config_builder()
+        .timeout_connect(Some(AGENT_TIMEOUT))
+        .timeout_recv_response(Some(AGENT_TIMEOUT))
+        .timeout_global(Some(DOWNLOAD_TIMEOUT))
+        .build()
+        .new_agent()
+}
+
+/// This window's own copy of the track that's playing, so two windows (or
+/// two people on one computer) never share a file.
+#[cfg(feature = "audio")]
+fn now_playing_file() -> std::path::PathBuf {
+    std::env::temp_dir().join(format!("grimoire-now-playing-{}.audio", std::process::id()))
 }
 
 // ── Jellyfin ─────────────────────────────────────────────────────────
@@ -209,6 +230,15 @@ struct Audio {
     sink: rodio::Player,
 }
 
+#[cfg(feature = "audio")]
+impl Drop for Jukebox {
+    fn drop(&mut self) {
+        // The player lets go of the file first, or Windows keeps it.
+        self.audio = None;
+        let _ = std::fs::remove_file(now_playing_file());
+    }
+}
+
 impl Jukebox {
     pub fn new(catalog: Box<dyn Catalog>) -> Jukebox {
         Jukebox {
@@ -279,11 +309,11 @@ impl Jukebox {
         let Some(track) = self.queue.get(i).cloned() else {
             return Ok(());
         };
-        let mut res = agent()
+        let mut res = download_agent()
             .get(&track.url)
             .call()
             .context("fetching the track")?;
-        let tmp = std::env::temp_dir().join("grimoire-now-playing.audio");
+        let tmp = now_playing_file();
         let mut out = std::fs::File::create(&tmp)?;
         std::io::copy(&mut res.body_mut().as_reader(), &mut out)?;
         drop(out);

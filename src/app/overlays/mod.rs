@@ -41,14 +41,44 @@ pub(crate) use help::lay_out as help_lay_out;
 pub(crate) use menu::about_row;
 
 impl App {
+    /// Whether the box that's up has somewhere for typed words to go. A
+    /// paste only ever goes into one of those: pasted over a list, every
+    /// letter would run as a key ("Tuesday" on the corkboard sends a scene
+    /// to the Trash and answers yes).
+    pub fn overlay_takes_text(&self) -> bool {
+        match &self.overlay {
+            Overlay::NewBook { .. }
+            | Overlay::Details { .. }
+            | Overlay::Goals { .. }
+            | Overlay::BookPath { .. }
+            | Overlay::Custom { .. }
+            | Overlay::Create { .. }
+            | Overlay::Rename { .. }
+            | Overlay::Marks { .. }
+            | Overlay::Sprint { .. }
+            | Overlay::Palette { .. }
+            | Overlay::Find { .. }
+            | Overlay::Author { .. } => true,
+            Overlay::FindBook { confirm, .. } => !confirm,
+            Overlay::Help { reading, .. } => !reading,
+            Overlay::Cork { typing, .. } => typing.is_some(),
+            Overlay::Player { typing, .. } => *typing,
+            _ => false,
+        }
+    }
+
     /// A key while an overlay is up goes to that overlay alone.
     pub fn on_overlay_key(&mut self, key: Key) {
         self.route_overlay_key(key);
         // A card named, renamed or deleted from the corkboard: back to it.
+        // (Help opened over one of those questions is still that question.)
         if self.cork_back.is_some()
             && !matches!(
                 self.overlay,
-                Overlay::Create { .. } | Overlay::Rename { .. } | Overlay::Confirm { .. }
+                Overlay::Create { .. }
+                    | Overlay::Rename { .. }
+                    | Overlay::Confirm { .. }
+                    | Overlay::Help { .. }
             )
         {
             self.back_to_cork();

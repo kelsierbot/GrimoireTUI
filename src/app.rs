@@ -165,6 +165,9 @@ pub struct App {
     pub parents: Vec<Option<usize>>,
     pub sel: usize,
     pub tree_scroll: usize,
+    /// The highlight and pane height the outline last scrolled to keep in
+    /// view; it only follows again when one of them changes.
+    pub tree_seen: (usize, usize),
     pub open: Option<usize>,
     pub editor: Editor,
     pub focus: Focus,
@@ -308,7 +311,7 @@ pub struct App {
     pub reading: Option<Reading>,
     /// The corkboard to come back to after naming, renaming or deleting a
     /// card from it.
-    pub cork_back: Option<Overlay>,
+    pub cork_back: Option<(Overlay, Focus)>,
     /// The last click on the page: when, where, and how many in a row.
     last_click: Option<(Instant, u16, u16, u8)>,
     /// What was last copied or cut, for Ctrl-V when the system clipboard
@@ -761,6 +764,7 @@ impl App {
             parents,
             sel: 0,
             tree_scroll: 0,
+            tree_seen: (usize::MAX, 0),
             open: None,
             editor: Editor::from_text(""),
             focus: Focus::Tree,
@@ -1058,7 +1062,9 @@ impl App {
         let before = self.project.dirty_count();
         self.flush();
         let pending = self.project.dirty_count().max(before);
-        if self.commit_saves() {
+        // Words still waiting on a file that can't be checked yet aren't
+        // saved, and the status bar already says they're waiting.
+        if self.commit_saves() && !matches!(self.save_state, SaveState::Waiting(_)) {
             self.msg = match pending {
                 0 => "all saved".into(),
                 1 => "saved".into(),
@@ -3130,8 +3136,11 @@ impl App {
     }
 
     fn fix_name(&mut self, variant: &str, name: &str) {
+        // What's on the page right now is what gets fixed.
+        self.flush();
         let root = self.project.root.clone();
         let mut total = 0;
+        let mut changed = Vec::new();
         for i in 0..self.project.nodes.len() {
             let n = &self.project.nodes[i];
             if n.kind != Kind::Scene || !n.in_manuscript || self.project.in_trash(i) || n.read_only
@@ -3142,18 +3151,28 @@ impl App {
             if count == 0 {
                 continue;
             }
-            let path = n.path.clone();
+            let (path, before) = (n.path.clone(), n.body.clone());
             let _ = history::snapshot(&root, &path, &n.file_text(), None);
             if self.open == Some(i) {
                 self.editor.set_text(&text);
             }
-            self.project.nodes[i].body = text;
+            self.project.nodes[i].body = text.clone();
             self.mark_changed(i);
+            changed.push((path, before, text));
             total += count;
         }
         self.commit_saves();
+        // One step, like a replace across the book, so one undo takes the
+        // whole fix back.
+        if !changed.is_empty() {
+            self.record(TreeStep::Replaced {
+                what: format!("{variant} → {name}"),
+                scenes: changed,
+            });
+        }
+        let m = self.mod_label();
         self.msg = format!(
-            "{variant} → {name} in {total} place{}",
+            "{variant} → {name} in {total} place{} · {m}Z takes it back",
             if total == 1 { "" } else { "s" }
         );
     }

@@ -20,7 +20,9 @@ impl App {
         let groups = cork::board(&self.project, scope_idx);
         let cards: Vec<cork::Card> = groups.iter().flat_map(|g| g.cards.clone()).collect();
         if cards.is_empty() {
+            // The last card here went to the Trash: say why the board closed.
             self.overlay = Overlay::None;
+            self.msg = "no scenes left on that board · n in the outline adds one".into();
             return;
         }
         *sel = (*sel).min(cards.len() - 1);
@@ -57,14 +59,21 @@ impl App {
             Key::Char('[') | Key::Char(']') => {
                 let parts = cork::parts(&self.project);
                 if let Some(at) = scope_idx.and_then(|s| parts.iter().position(|&p| p == s)) {
+                    // The next one that has scenes to show: a board with no
+                    // cards has nothing to stand on.
+                    let has_cards =
+                        |n: &usize| !cork::board(&self.project, Some(parts[*n])).is_empty();
                     let next = if key == Key::Char('[') {
-                        at.checked_sub(1)
+                        (0..at).rev().find(has_cards)
                     } else {
-                        (at + 1 < parts.len()).then_some(at + 1)
+                        (at + 1..parts.len()).find(has_cards)
                     };
-                    if let Some(n) = next {
-                        *scope = Some(self.project.nodes[parts[n]].path.clone());
-                        *sel = 0;
+                    match next {
+                        Some(n) => {
+                            *scope = Some(self.project.nodes[parts[n]].path.clone());
+                            *sel = 0;
+                        }
+                        None => self.msg = "no more scenes that way".into(),
                     }
                 }
             }
@@ -102,7 +111,7 @@ impl App {
             // the end of this card's chapter, renamed, or to the Trash, each
             // asking first, then back to the board.
             Key::Char('n') | Key::Char('r') | Key::Char('d') => {
-                self.cork_back = Some(self.overlay.clone());
+                self.cork_back = Some((self.overlay.clone(), self.focus));
                 self.overlay = Overlay::None;
                 self.focus = Focus::Tree;
                 self.reveal(card.idx);
@@ -117,12 +126,15 @@ impl App {
             }
             // Rearranging: the card, and its scene, one place earlier or later.
             Key::Char('<') | Key::Char('>') | Key::Char(',') | Key::Char('.') => {
-                let board = self.overlay.clone();
+                let (board, was) = (self.overlay.clone(), self.focus);
                 self.overlay = Overlay::None;
                 self.focus = Focus::Tree;
                 self.reveal(card.idx);
                 self.move_selected(matches!(key, Key::Char('<') | Key::Char(',')));
                 self.overlay = board;
+                // The board borrowed the outline to do it; whoever was
+                // writing gets the page back when the board closes.
+                self.focus = was;
                 // A move renumbers files, but the outline's highlight goes
                 // with the scene.
                 if let Some(moved) = self.visible.get(self.sel).copied() {
@@ -138,11 +150,12 @@ impl App {
     /// Back to the corkboard after a prompt from it, on the scene that's open
     /// if it's on the board (a card just made), or where it was.
     pub(super) fn back_to_cork(&mut self) {
-        let Some(board) = self.cork_back.take() else {
+        let Some((board, was)) = self.cork_back.take() else {
             return;
         };
         let note = std::mem::take(&mut self.msg);
         self.overlay = board;
+        self.focus = was;
         self.msg = note;
         if let Some(open) = self.open {
             let path = self.project.nodes[open].path.clone();
