@@ -735,7 +735,6 @@ dependencies = [
  "flate2",
  "roxmltree",
  "serde",
- "serde_json",
  "similar",
  "spellbook",
  "toml",

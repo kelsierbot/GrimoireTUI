@@ -714,9 +714,9 @@ impl Editor {
             return Some(take(l0, c0, c1));
         }
         let mut out = take(l0, c0, self.line_len(l0));
-        for l in l0 + 1..l1 {
+        for line in &self.lines[l0 + 1..l1] {
             out.push('\n');
-            out.push_str(&self.lines[l]);
+            out.push_str(line);
         }
         out.push('\n');
         out.push_str(&take(l1, 0, c1));

@@ -888,10 +888,7 @@ fn on_key(app: &mut App, k: KeyEvent, confirm_quit: &mut bool) -> bool {
         Focus::Music => app.on_music_key(key),
     }
 
-    if std::mem::take(&mut app.quit) && quit_or_arm(app, confirm_quit) {
-        return true;
-    }
-    false
+    std::mem::take(&mut app.quit) && quit_or_arm(app, confirm_quit)
 }
 
 /// Quit, saving everything first; true to leave. A save that fails keeps

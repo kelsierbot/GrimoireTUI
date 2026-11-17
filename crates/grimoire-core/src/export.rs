@@ -3212,7 +3212,10 @@ mod tests {
         assert!(styles.contains("w:line=\"480\""));
         assert!(styles.contains("<w:ind w:firstLine=\"720\"/>"));
         assert!(doc.contains("<w:pgSz w:w=\"12240\" w:h=\"15840\"/>"));
-        assert!(header.contains("Quill / ARCHIVE / "), "the byline's surname");
+        assert!(
+            header.contains("Quill / ARCHIVE / "),
+            "the byline's surname"
+        );
         fs::remove_dir_all(&d).unwrap();
     }
 
