@@ -320,6 +320,9 @@ pub struct App {
     /// The sessions list a change was opened from, kept so that closing the
     /// change comes back to the same session and the same row.
     pub sessions_back: Option<Overlay>,
+    /// A search across the book that a match was opened from: what was
+    /// looked for, the replacement if one was typed, and the row.
+    pub book_find: Option<(String, Option<String>, usize)>,
     /// The last click on the page: when, where, and how many in a row.
     last_click: Option<(Instant, u16, u16, u8)>,
     /// What was last copied or cut, for Ctrl-V when the system clipboard
@@ -853,6 +856,7 @@ impl App {
             reading: None,
             cork_back: None,
             sessions_back: None,
+            book_find: None,
             clip: String::new(),
             last_click: None,
             state_file: None,
@@ -2077,19 +2081,86 @@ impl App {
 
     pub fn open_find_book(&mut self, query: String) {
         self.flush();
+        // Coming back from a match: the same search, on the same row, so
+        // the next one is one key away.
+        let (query, with, sel) = match self.book_find.take() {
+            Some((q, with, sel)) if query.is_empty() => (q, with, sel),
+            _ => (query, None, 0),
+        };
         let hits = search::book(&self.project, &self.parents, &query, self.find_opts);
         self.overlay = Overlay::FindBook {
             query,
-            with: None,
+            with,
             on_with: false,
+            sel: sel.min(hits.len().saturating_sub(1)),
             hits,
-            sel: 0,
             confirm: false,
         };
     }
 
+    /// Change the one highlighted match of a search across the book, and
+    /// leave the rest. One step to undo, like replacing them all.
+    pub(crate) fn replace_hit(&mut self, hit: &search::Hit, query: &str, with: &str) {
+        self.flush();
+        let Some(i) = self.project.nodes.iter().position(|n| n.path == hit.path) else {
+            return;
+        };
+        if self.project.nodes[i].read_only {
+            self.msg = "that one can't be changed right now".into();
+            return;
+        }
+        let before = self.project.nodes[i].body.clone();
+        let mut lines: Vec<String> = before.split('\n').map(str::to_string).collect();
+        // Only if the match is still exactly where the list says it is.
+        let still = lines.get(hit.line).is_some_and(|l| {
+            search::matches_with(l, query, self.find_opts).contains(&(hit.start, hit.end))
+        });
+        if !still {
+            self.msg = "that match has changed since the search · search again".into();
+            return;
+        }
+        let chars: Vec<char> = lines[hit.line].chars().collect();
+        lines[hit.line] = chars[..hit.start].iter().collect::<String>()
+            + with
+            + &chars[hit.end..].iter().collect::<String>();
+        let text = lines.join("\n");
+        let root = self.project.root.clone();
+        let path = self.project.nodes[i].path.clone();
+        let _ = history::snapshot(&root, &path, &self.project.nodes[i].file_text(), None);
+        if self.open == Some(i) {
+            self.editor.set_text(&text);
+        }
+        self.project.nodes[i].body = text.clone();
+        self.mark_changed(i);
+        self.commit_saves();
+        self.record(TreeStep::Replaced {
+            what: format!("replace one “{query}” with “{with}”"),
+            scenes: vec![(path, before, text)],
+        });
+        let m = self.mod_label();
+        self.msg = format!("replaced that one · {m}Z takes it back");
+    }
+
     /// Open the scene a hit is in, with the match selected.
     fn go_to_hit(&mut self, path: &Path, line: usize, start: usize, end: usize) {
+        // The search waits, to come back to with `/`.
+        if let Overlay::FindBook {
+            query,
+            with,
+            hits,
+            sel,
+            ..
+        } = &self.overlay
+        {
+            self.book_find = Some((query.clone(), with.clone(), *sel));
+            let m = self.mod_label();
+            self.msg = format!(
+                "match {} of {} · {m}F twice (or / in the outline) goes back to the list",
+                sel + 1,
+                hits.len()
+            );
+        }
+        let note = std::mem::take(&mut self.msg);
         self.overlay = Overlay::None;
         let Some(i) = self.project.nodes.iter().position(|n| n.path == path) else {
             return;
@@ -2100,6 +2171,7 @@ impl App {
         }
         self.focus = Focus::Editor;
         self.editor.select((line, start), (line, end));
+        self.msg = note;
     }
 
     fn replace_in_book(&mut self, query: &str, with: &str) {

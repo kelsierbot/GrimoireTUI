@@ -12,8 +12,9 @@
 
 `Ctrl-F` a second time (or `/` in the outline, or *Esc › This book › Search the whole book…*) searches every scene and note, grouped by part and chapter.
 
-- `↑` `↓` choose a match and `Enter` goes to it.
-- `Tab` moves to the replace box. `Enter` there (or `Ctrl-R`) asks before replacing across the book: `y` to go ahead, anything else to cancel.
+- `↑` `↓` choose a match and `Enter` goes to it. The search waits for you: `Ctrl-F` twice (or `/` in the outline) comes back to the same list, on the same match. `Esc` in the list ends the search.
+- `Tab` moves to the replace box. `Enter` there changes the highlighted match and leaves the rest, the same as in a scene, and the highlight moves on to the next one.
+- `Ctrl-R` replaces every match across the book. It asks first: `y` to go ahead, anything else to cancel.
 
 ## Whole words and capitals
 
@@ -26,4 +27,4 @@ The bar shows which is on.
 
 ## Undoing a replace
 
-A replace across the whole book is **one step**: `Ctrl-Z` puts every scene back (from the outline, or from the page if you haven't typed since). Each scene's previous version also goes to its history first.
+A replace across the whole book, of one match or all of them, is **one step**: `Ctrl-Z` puts every scene back (from the outline, or from the page if you haven't typed since). Each scene's previous version also goes to its history first.

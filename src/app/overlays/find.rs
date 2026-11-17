@@ -99,9 +99,13 @@ impl App {
                 self.caret = None;
             }
             k if list_nav(k, sel, hits.len(), TYPED) => {}
+            // Like the bar in a scene: Enter in the replace box changes the
+            // highlighted match and leaves the rest (Ctrl-R is all of them).
             Key::Enter if *on_with => {
-                if !hits.is_empty() && with.is_some() {
-                    *confirm = true;
+                if let (Some(h), Some(w)) = (hits.get(*sel).cloned(), with.clone()) {
+                    let q = query.clone();
+                    self.replace_hit(&h, &q, &w);
+                    changed = true;
                 }
             }
             Key::Enter => {
@@ -109,16 +113,29 @@ impl App {
                     self.go_to_hit(&h.path, h.line, h.start, h.end);
                 }
             }
-            Key::Esc => self.overlay = Overlay::None,
+            Key::Esc => {
+                self.overlay = Overlay::None;
+                self.book_find = None;
+            }
             _ => {}
         }
         if changed
             && let Overlay::FindBook {
-                query, hits, sel, ..
+                query,
+                hits,
+                sel,
+                on_with,
+                ..
             } = &mut self.overlay
         {
             *hits = search::book(&self.project, &self.parents, query, self.find_opts);
-            *sel = 0;
+            // A new search starts at the top; after changing one match the
+            // highlight stays, on the next one down.
+            *sel = if *on_with {
+                (*sel).min(hits.len().saturating_sub(1))
+            } else {
+                0
+            };
         }
     }
 }
@@ -343,7 +360,7 @@ pub(super) fn draw_find_book(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
                     .concat(),
                 )
             } else if with.is_some() {
-                hint_line(&format!(" ↑↓ choose   ↵ go to it   Tab switch field   ↵ in replace (or {m}R) replaces all   esc close"), t)
+                hint_line(&format!(" ↑↓ choose   ↵ go to it, or in replace: change this one   Tab switch   {m}R all   esc close"), t)
             } else {
                 hint_line(" ↑↓ choose   ↵ go to it   Tab replace   esc close", t)
             });

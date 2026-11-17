@@ -3350,3 +3350,59 @@ fn the_menu_answers_the_mouse() {
     assert_eq!(d.app.sel, d.app.tree_scroll + 1);
     assert!(d.shows("GRIMOIRE › THIS BOOK"), "{}", d.rows().join("\n"));
 }
+
+/// A search across the book changes one match at a time, and after going to
+/// a match the same search is there to come back to.
+#[test]
+fn a_book_search_replaces_one_match_and_keeps_its_place() {
+    let root = book("find-one", true);
+    let scene = first_scene(&root);
+    let text = fs::read_to_string(&scene).unwrap();
+    fs::write(&scene, format!("{text}Mara saw Mara.\nMara left.\n")).unwrap();
+    let mut d = Desk::open(root, 130, 40);
+    d.key(KeyCode::Char('/'));
+    d.typed("Mara");
+    let count = |d: &Desk| match &d.app.overlay {
+        Overlay::FindBook { hits, .. } => hits.len(),
+        _ => panic!("the search is up"),
+    };
+    assert_eq!(count(&d), 3);
+    // The second match, changed alone.
+    d.key(KeyCode::Down);
+    d.key(KeyCode::Tab);
+    d.typed("Wren");
+    d.key(KeyCode::Enter);
+    assert_eq!(count(&d), 2, "{}", d.rows().join("\n"));
+    assert!(
+        fs::read_to_string(&scene)
+            .unwrap()
+            .contains("Mara saw Wren.\nMara left.")
+    );
+    // Go to what is now the second match, and come back to the same row.
+    d.key(KeyCode::Tab);
+    d.key(KeyCode::Enter);
+    assert!(matches!(d.app.overlay, Overlay::None));
+    assert!(d.app.msg.starts_with("match 2 of 2"), "{}", d.app.msg);
+    assert_eq!(d.app.editor.selected_text().as_deref(), Some("Mara"));
+    d.app.focus = Focus::Tree;
+    d.key(KeyCode::Char('/'));
+    match &d.app.overlay {
+        Overlay::FindBook {
+            query, sel, hits, ..
+        } => {
+            assert_eq!((query.as_str(), *sel, hits.len()), ("Mara", 1, 2));
+        }
+        _ => panic!("the search comes back"),
+    }
+    // Esc ends the search for good, and one undo puts the word back.
+    d.key(KeyCode::Esc);
+    d.key(KeyCode::Char('/'));
+    assert_eq!(count(&d), 0);
+    d.key(KeyCode::Esc);
+    d.ctrl('z');
+    assert!(
+        fs::read_to_string(&scene)
+            .unwrap()
+            .contains("Mara saw Mara.")
+    );
+}
