@@ -18,7 +18,7 @@ When the book is ready to send, *Export…* in the menu (*Export for readers* in
 - **Include**: which parts go in.
 - **How much**: `←` `→` choose the whole book, the first chapters, chapters X–Y, or the first N words (the samples agents ask for), and type the number or range. The title page still gives the whole book's word count.
 - **Look…** and **Author details…** (below).
-- `x` (or `Enter` on the Export button) exports into the book's `exports/` folder. Files are named the way agents ask: `Surname_Title_Manuscript.docx`.
+- `x` (or `Enter` on the Export button) exports into the book's `exports/` folder. Files are named the way agents ask: `Surname_Title_Manuscript.docx`. When it's done, `o` opens that folder in your file manager.
 
 ## Look…
 

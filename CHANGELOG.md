@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.9.1 · A first book in the right place
+
+- **The very first start** on a computer now makes *My First Book* in
+  `Documents/Grimoire Books`, where every later book goes. If that folder
+  already has books in it (copied over from another computer, say), Grimoire
+  opens the one you worked on most recently and makes nothing. A book made
+  by an older version in `Documents/Grimoire` still opens where it is.
+- `grimoire new` with no folder named starts *New Book* in your books
+  folder.
+- **The help caught up.** Eleven topics now cover what the last few versions
+  added: where a book is kept and saving a copy, the caret in boxes, clicks
+  in the menu and right-click in the outline, read aloud speed, taking a
+  taught word back, one scene out of a deleted chapter, and every row of the
+  menu.
+
 ## 0.9.0 · Where's my book?
 
 A book is a folder of plain text files. That's what keeps it safe to sync

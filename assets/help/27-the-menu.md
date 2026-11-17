@@ -2,7 +2,7 @@
 
 `Esc` opens the menu from anywhere. The first screen is short on purpose: a row with a › opens a small group of its own, and `←` or `Esc` comes back out.
 
-Whichever row is highlighted says what it does, just under the list. `?` opens the help on it.
+Whichever row is highlighted says what it does, just under the list. `?` opens the help on it. A click on a row chooses it, like `Enter`.
 
 ## The first screen
 
@@ -18,6 +18,8 @@ Whichever row is highlighted says what it does, just under the list. `?` opens t
 
 ## This book
 
+- **Where this book is kept…**: the folder this book is, whether it's synced or copied anywhere, and a way to open it or move it in with your other books. See *Your books*.
+- **Save a copy**: the whole book as one `.zip`, named for the book and today, to keep safe or send. See *Your books*.
 - **Corkboard…** (`b` in the outline): every scene as an index card, to see the whole book at a glance. See *The corkboard*.
 - **New scene…** (`n`): at the end of the chapter you're in. You name it first.
 - **New chapter…** (`c`): at the end of the part you're in, already named for you.
@@ -25,11 +27,15 @@ Whichever row is highlighted says what it does, just under the list. `?` opens t
 - **New folder…** (`N`): beside the one selected, for anything that isn't a chapter.
 - **Rename…** (`r`): the file is renamed to match.
 - **Delete…** (`d`): moves it to the Trash at the bottom of the outline, and asks first.
+- **Restore from the Trash** (`u`): only while something in the Trash is highlighted. It goes back where it was.
 - **Move up** (`K`) and **Move down** (`J`): the scene or folder you're on, one place. You can also drag rows with the mouse.
 - **Scene history…** (`H`): every saved version of the scene, to compare or bring back. See *History & recovery*.
 - **Search the whole book…** (`/`): a word or phrase in every scene and note, with replace. See *Find & replace*.
 - **Goals…**: how many words the book is aiming for, and each day. Presets include a month of drafting (50,000 words).
 - **Writing sessions…**: your sittings, like a diary, each one to look back at. See *Writing sessions*.
+- **Save this session now**: keeps the sitting so far, without waiting until you quit.
+- **Compile to Markdown**: the whole manuscript as one Markdown file in the book's folder.
+- **Update the project map**: refreshes `project.md`, a one-page map of the book.
 - **Move writing history out…**: only for an older book in a synced folder. See *Writing sessions*.
 
 ## Writing tools
@@ -42,12 +48,15 @@ Some of these want a scene open, so they show up once you're in one.
 - **Find & replace…** (`Ctrl-F`): in this scene; press it again for the whole book.
 - **Open a scene beside…** (`v`): another scene next to this one, to read from while you write.
 - **Notes & TKs…** (`Ctrl-T`): every note and TK in the book, in one list. TK is the editor's mark for "to come": something to fill in later.
+- **Next TK or note**: jumps to the next one after the cursor.
+- **Look up the name here** (`Ctrl-O`): opens the note for the name the cursor is on. See *The notebook & names*.
 - **Next scene still in draft**: opens the next scene that isn't marked revised or done. Handy for a revision pass.
 - **Turn echo words on**: lights up a word you've used again within about forty words of the last time, like "the lamp… the lamp". Little words like *the* and *and*, and your characters' names, are left out. It's easy to miss while you write and easy to fix once you can see it. The same row turns it off.
 - **Check names…**: finds names spelled two ways, like Oren and Orin. See *The notebook & names*.
 - **Start a sprint…**: a word goal and a number of minutes, and the status bar keeps count. See *Sprints & targets*.
 - **Progress…**: your words each week, your pace lately, and roughly when you'll reach your goal. No streaks, ever.
-- **Read aloud**: reads the scene out loud from where you are, highlighting each sentence. `Space` pauses, `←` `→` skip, `Esc` stops. See *Revision*.
+- **Start the timer** (`F2`) and **Reset the timer** (`F3`): the Pomodoro. See *The Pomodoro*.
+- **Read aloud**: reads the scene out loud from where you are, highlighting each sentence. `Space` pauses, `←` `→` skip, `-` `+` change the speed, `Esc` stops. See *Revision*.
 - **Music player…** (`F7`): while music is on.
 
 ## Settings
@@ -56,6 +65,7 @@ Some of these want a scene open, so they show up once you're in one.
 - **Music source…** and **Turn music on**: music stays off until you want it. See *Music*.
 - **Turn spellcheck off / on**: the underline under words that might be misspelt.
 - **Spelling**: which English it knows: American, British, Canadian or Australian.
+- **Words spellcheck was taught…**: every word you told it to always ignore. `d` takes one back.
 - **Turn tree icons on / off**: a little symbol beside each row of the outline.
 - **Line width**: how long a line of prose can run. Each press tries the next: 60, 72, 80 or 100 columns, or the whole pane.
 - **Turn typewriter scrolling off / on**: in focus mode, the line you're writing stays near the middle of the screen.

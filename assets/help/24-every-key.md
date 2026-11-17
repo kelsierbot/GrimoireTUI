@@ -75,6 +75,18 @@
 
 Click to place the cursor, drag to select, double-click for a word and click once more for the paragraph. Click or right-click an underlined word for its spellings.
 
+## In any box you type in
+
+Renaming, a synopsis, an author's details, find and replace, a book's path: `←` and `→` move through what's typed, `Home` and `End` go to its ends, and `Backspace` and `Delete` take a letter away either side. `Ctrl-V` pastes into it.
+
+## Reading aloud
+
+`Space` pauses and goes on, `←` and `→` step a sentence, `-` and `+` change the speed, and `Esc` stops.
+
+## The menu and the mouse
+
+A click on a menu row chooses it. A right-click on a row of the outline opens *This book* for that row. In *Where this book is kept…*: `o` opens the folder, `s` saves a copy, `c` shows the copies and `m` moves the book to your books folder.
+
 ## The find bar
 
 | Key | Does |

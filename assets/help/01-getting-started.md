@@ -2,6 +2,8 @@
 
 Grimoire is a writing desk for one book at a time. The book is a folder of plain Markdown files, so everything you write can be read, copied and backed up without Grimoire. You can have as many books as you like: *Esc › Start a new book…* starts another, and *Esc › Open another book…* switches (see *Your books*).
 
+Your books are kept together in `Documents/Grimoire Books`. *Esc › This book › Where this book is kept…* shows this book's folder and opens it, and *Save a copy* there makes the whole book one file to keep safe or send.
+
 ## The desk
 
 - **The outline**, on the left, headed by the book's title: parts, chapters and scenes, then the notebook (Characters, Places, Notes, Research) and the rest of the book's sections.
@@ -27,7 +29,9 @@ To quit: `Ctrl-Q`, `q` in the outline, or *Quit Grimoire* at the bottom of the m
 
 ## The mouse
 
-Click a pane to move to it, a chapter to fold it, a scene to open it, and the prose to put the cursor there. Drag across the prose to select. The wheel scrolls whatever is under the pointer.
+Click a pane to move to it, a chapter to fold it, a scene to open it, and the prose to put the cursor there. Drag across the prose to select; double-click picks a word, and a third click the paragraph. The wheel scrolls whatever is under the pointer.
+
+Click a row in the menu to choose it. Right-click a row in the outline to open *This book* for it: rename, delete, details, a new scene.
 
 ## About Grimoire
 

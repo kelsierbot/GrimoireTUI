@@ -29,6 +29,34 @@ pub fn copies_dir(home: &Path) -> PathBuf {
     home.join("Copies")
 }
 
+/// What the very first book on a computer is called, until it's renamed.
+pub const FIRST_BOOK: &str = "My First Book";
+
+/// The books in the books folder, the one worked on most recently first.
+/// (Brought over from another computer, they're found without being told.)
+pub fn books_in(home: &Path) -> Vec<PathBuf> {
+    let touched = |root: &Path| {
+        [
+            root.join(".grimoire/resume.md"),
+            root.join("novel.toml"),
+            root.join("manuscript"),
+        ]
+        .iter()
+        .filter_map(|p| fs::metadata(p).ok()?.modified().ok())
+        .max()
+    };
+    let mut found: Vec<(Option<std::time::SystemTime>, PathBuf)> = fs::read_dir(home)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| is_book(p))
+        .map(|p| (touched(&p), p))
+        .collect();
+    found.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
+    found.into_iter().map(|(_, p)| p).collect()
+}
+
 /// Is this folder a book?
 pub fn is_book(p: &Path) -> bool {
     p.join("manuscript").is_dir()
@@ -499,6 +527,23 @@ mod tests {
         let opened = open_copy(&hand, &home).unwrap();
         assert_eq!(opened, home.join("My Novel"));
         assert!(opened.join("manuscript/01-One/01-Scene.md").is_file());
+    }
+
+    #[test]
+    fn the_books_folder_lists_its_books_and_nothing_else() {
+        let d = tmp("list");
+        let home = d.join("Grimoire Books");
+        assert!(books_in(&home).is_empty(), "no folder yet is no books");
+        book(&home, "Ash and Ember");
+        book(&home, "The Long Night");
+        fs::create_dir_all(copies_dir(&home)).unwrap();
+        fs::write(home.join("notes.txt"), "not a book").unwrap();
+        let mut names: Vec<String> = books_in(&home)
+            .iter()
+            .map(|p| p.file_name().unwrap().to_string_lossy().to_string())
+            .collect();
+        names.sort();
+        assert_eq!(names, ["Ash and Ember", "The Long Night"]);
     }
 
     #[test]

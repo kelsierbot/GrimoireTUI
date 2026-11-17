@@ -134,9 +134,11 @@ fn main() -> Result<()> {
         println!("                              spotify | jellyfin | plex");
         println!("  grimoire music-auth         re-pair only");
         println!();
-        println!("With no arguments grimoire opens the current directory if it is a");
-        println!("manuscript, otherwise the last one you had open, otherwise it creates");
-        println!("{}.", pretty(&default_root()));
+        println!("With no arguments grimoire opens the book in the folder you're in, if");
+        println!("you're in one, otherwise the last one you had open. On a computer's");
+        println!("first start it opens the newest book in your books folder,");
+        println!("{},", pretty(&grimoire_core::shelf::home()));
+        println!("or makes your first book there.");
         return Ok(());
     }
 
@@ -242,7 +244,10 @@ fn main() -> Result<()> {
                 None => dir = Some(PathBuf::from(a)),
             }
         }
-        let dir = dir.unwrap_or_else(default_root);
+        // No folder named: in the books folder, never over a book there.
+        let dir = dir.unwrap_or_else(|| {
+            grimoire_core::shelf::unique(&grimoire_core::shelf::home(), "New Book")
+        });
         std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
         project::scaffold_with(&dir, None, &shape.shape())?;
         println!("Started a manuscript in {}", pretty(&dir));
@@ -595,15 +600,31 @@ fn find_project(arg: Option<PathBuf>) -> Result<(PathBuf, Option<String>)> {
         return Ok((last, None));
     }
 
-    let root = default_root();
-    if is_project(&root) {
-        return Ok((root, None));
+    first_start(&grimoire_core::shelf::home(), &default_root())
+}
+
+/// Nothing to go on: no book here, none remembered. A computer with books
+/// in its books folder already (carried over from another one, say) opens
+/// the one worked on last. A book made before there was a books folder
+/// still opens where it is. Otherwise this is the very first start, and
+/// the first book is made in the books folder, where every later one goes.
+fn first_start(home: &Path, older: &Path) -> Result<(PathBuf, Option<String>)> {
+    if let Some(book) = grimoire_core::shelf::books_in(home).into_iter().next() {
+        let said = format!("opened {} from your books folder", books::title(&book));
+        return Ok((book, Some(said)));
     }
+    if is_project(older) {
+        return Ok((older.to_path_buf(), None));
+    }
+    let root = home.join(grimoire_core::shelf::FIRST_BOOK);
     std::fs::create_dir_all(&root).with_context(|| format!("creating {}", root.display()))?;
     project::scaffold(&root)?;
     Ok((
         root.clone(),
-        Some(format!("new manuscript at {}", pretty(&root))),
+        Some(format!(
+            "your first book is ready, in {} · this page shows how it's laid out",
+            pretty(&root)
+        )),
     ))
 }
 
@@ -1053,5 +1074,45 @@ fn quit_or_arm(app: &mut App, armed: &mut bool) -> bool {
 fn save_or_rescue(app: &mut App) {
     if !app.try_quit() {
         app.rescue();
+    }
+}
+
+#[cfg(test)]
+mod first_start_tests {
+    use super::*;
+
+    fn tmp(tag: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("grimoire-first-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[test]
+    fn the_very_first_book_is_made_in_the_books_folder() {
+        let d = tmp("new");
+        let home = d.join("Grimoire Books");
+        let (root, said) = first_start(&home, &d.join("Grimoire")).unwrap();
+        assert_eq!(root, home.join("My First Book"));
+        assert!(is_project(&root));
+        assert!(said.unwrap().starts_with("your first book is ready"));
+        // The next start with nothing remembered opens it; it makes no second.
+        let (again, said) = first_start(&home, &d.join("Grimoire")).unwrap();
+        assert_eq!(again, root);
+        assert!(said.unwrap().contains("from your books folder"));
+        assert_eq!(grimoire_core::shelf::books_in(&home).len(), 1);
+    }
+
+    #[test]
+    fn a_book_from_before_the_books_folder_still_opens_where_it_is() {
+        let d = tmp("older");
+        let older = d.join("Grimoire");
+        std::fs::create_dir_all(&older).unwrap();
+        project::scaffold(&older).unwrap();
+        let home = d.join("Grimoire Books");
+        let (root, said) = first_start(&home, &older).unwrap();
+        assert_eq!(root, older);
+        assert_eq!(said, None);
+        assert!(!home.exists(), "nothing new was made");
     }
 }

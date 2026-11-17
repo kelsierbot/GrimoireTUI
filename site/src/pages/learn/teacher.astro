@@ -103,7 +103,8 @@ const toc = [
           <h3>3. Decide a few things</h3>
           <ul>
             <li><strong>Story length.</strong> 1,500 to 2,500 words suits most high school classes. Younger writers might aim for 800 to 1,200.</li>
-            <li><strong>Where books live.</strong> Each student's Documents folder is simplest. On shared computers, put the student's name in the folder: <code>~/Documents/story-avery</code>. School cloud folders (Google Drive, OneDrive, Dropbox) are fine too: Grimoire never writes over a copy made by another device.</li>
+            <li><strong>Where books live.</strong> Each student's Documents folder is simplest. On shared computers, put the student's name in the folder: <code>~/Documents/story-avery</code>. School cloud folders (Google Drive, OneDrive, Dropbox) are fine too: Grimoire never writes over a copy made by another device. Anyone who loses track of a book can ask Grimoire: <em>Esc › This book › Where this book is kept…</em> shows the folder and opens it.</li>
+            <li><strong>Collecting work.</strong> A book is a folder of small files, so for handing in or backing up, have students use <em>Esc › This book › Save a copy</em>. It makes one file, named for the book and the day, in <code>Documents/Grimoire Books/Copies</code>. Any computer with Grimoire opens that file as a book again.</li>
             <li><strong>PDFs or not.</strong> Word files always work, and Google Docs opens them. For PDFs, install LibreOffice (free) on the machines.</li>
             <li><strong>Music.</strong> Grimoire can play music, but it's off until someone turns it on. Leave it off in class.</li>
           </ul>
@@ -508,7 +509,8 @@ const toc = [
                 <tr><td>Something got deleted</td><td><kbd>Ctrl-Z</kbd> in the outline, or open the Trash at the bottom of the outline.</td></tr>
                 <tr><td>A scene looks wrong after an edit</td><td><kbd>Ctrl-Z</kbd> on the page, or <kbd>H</kbd> in the outline for an earlier version.</td></tr>
                 <tr><td>The laptop died mid-sentence</td><td>Open the book again. Autosave means only the last few seconds can be missing, and anything Grimoire couldn't save is offered back from recovery.</td></tr>
-                <tr><td>Grimoire opens a different book</td><td>Open the right one by name: <code>grimoire ~/Documents/my-story</code>.</td></tr>
+                <tr><td>Grimoire opens a different book</td><td>Open the right one by name: <code>grimoire ~/Documents/my-story</code>, or pick it from <em>Esc › Open another book…</em>.</td></tr>
+                <tr><td>"Where did my story go?"</td><td><code>grimoire where</code> in a terminal names the folder of the last book opened. Inside Grimoire it's <em>Esc › This book › Where this book is kept…</em>.</td></tr>
                 <tr><td>Everything is tiny, or crowded</td><td>Zoom the terminal (<kbd>Ctrl</kbd> <kbd>+</kbd> or <kbd>Cmd</kbd> <kbd>+</kbd>) and make the window bigger.</td></tr>
                 <tr><td>Anything else</td><td><kbd>F1</kbd> opens the help on the topic for wherever you are, and typing searches every topic. In the menu, <kbd>?</kbd> opens the help for the highlighted row.</td></tr>
               </tbody>

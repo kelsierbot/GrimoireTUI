@@ -82,3 +82,5 @@ Your music keeps playing, the Pomodoro keeps counting, and the theme stays just 
 ## Which book opens when Grimoire starts
 
 `grimoire` on its own opens the book in the folder you're in, if you're in one. Otherwise it opens the last book you had open, so after a switch that's the one you switched to.
+
+The very first time on a computer, there's no last book. If your books folder already has books in it (copied over from another computer, say), Grimoire opens the one you worked on most recently. If not, it makes **My First Book** in `Documents/Grimoire Books` and opens it on the page that shows how a book is laid out. Rename it whenever you like: it's the `title` line in the book's `novel.toml`.

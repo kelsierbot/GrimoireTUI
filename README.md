@@ -89,7 +89,8 @@ On ARM it's `grimoire_arm64.deb` and `grimoire.aarch64.rpm`. The same commands
 again bring you up to date.
 
 Settings live in `~/.config/grimoire` (`%USERPROFILE%\.config\grimoire` on
-Windows) and a first manuscript goes in `Documents/Grimoire`.
+Windows) and your books go in `Documents/Grimoire Books`, starting with *My
+First Book* the first time you run it.
 
 **Linux needs two things every desktop distro already has:** glibc 2.35 or
 newer (Ubuntu 22.04, Debian 12, Fedora 36 and later), and ALSA's audio library.
@@ -143,8 +144,9 @@ word comes across. From Google Docs, download it as Word first. In the app it's
 *Start a new book…*.
 
 With no arguments it opens the current directory if it's a manuscript,
-otherwise the last one you had open, otherwise it creates one in
-`~/Documents/Grimoire`.
+otherwise the last one you had open. The very first time on a computer it
+opens the newest book in `~/Documents/Grimoire Books` (so books copied over
+from another machine are found), or makes *My First Book* there.
 
 ## On disk
 
@@ -187,7 +189,7 @@ the-archive/
 ├─ notes/
 ├─ research/
 │  └─ 01-Sample-Output/
-├─ template-sheets/              Character Sketch, Setting Sketch
+├─ template-sheets/              Character Sketch, Setting Sketch (f copies one)
 └─ .grimoire/                    session state, gitignored
    └─ trash/                     what you delete, still shown in the tree
 ```
@@ -395,14 +397,21 @@ row* goes through every row, and *Every key* lists every key. *About Grimoire…
   it, for suggestions right there, or to ignore it: until you close Grimoire,
   always in this book, or always in every book
   (`~/.config/grimoire/dictionary.txt`). Words you add go in `dictionary.txt` at
-  the book's root. On unless turned off (palette).
+  the book's root. On unless turned off (palette). Taught it a word by
+  mistake? *Esc › Settings › Words spellcheck was taught…* lists them all,
+  and `d` takes one back.
 - **Moving** a scene or folder renames only the files whose number changes,
-  and rewrites `[[links]]` in your notes that pointed at them.
+  and rewrites `[[links]]` in your notes that pointed at them. Renaming does
+  the same.
+- **Template Sheets** are blank forms (a character sketch, a setting sketch).
+  `f` on one in the outline starts a new note in Characters or Places as a
+  copy of it, ready to fill in.
 - **The corkboard** (`b`) shows a part as index cards chapter by chapter:
   POV (each character in its own colour), status, synopsis, words against
   target. `p` filters to one POV; `s`, `e` and `v` edit the card, changing only
   that line of the scene's frontmatter. `n` adds a card, `r` renames one, `d`
   sends one to the Trash, and `<` `>` move a card to try a scene somewhere else.
+  `c` adds a chapter and its first scene without leaving the board.
 
 <p align="center"><img src="assets/screenshots/spelling.png" alt="Clicking a misspelt word in Rosé Pine: fixes under the word, and three ways to ignore it" width="100%"></p>
 

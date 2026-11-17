@@ -16,6 +16,7 @@ Hearing your prose catches what the eye skips: the missing word, the sentence th
 
 - `Space` pauses, and `Space` again goes on.
 - `←` and `→` go back or forward a sentence.
+- `-` and `+` read slower or faster, a little at a time, from half speed to double. The line along the bottom shows the speed, and it's remembered for next time.
 - `Esc`, or any other key, stops. The cursor stays where it stopped, so you can fix what you heard.
 
 Notes (`%% … %%`) are never read out, and neither are the `*` and `_` around italics.

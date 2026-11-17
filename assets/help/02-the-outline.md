@@ -15,15 +15,15 @@ The outline is the book's folders and files, shown as a tree. Every change you m
 - `p` a new **part**, at the end of the manuscript. If your book calls its parts something else, like Acts, `part_label` in `novel.toml` says so and Grimoire uses that word everywhere.
 - `N` a new **folder** beside the one selected.
 
-Each asks for a name, with a suggestion already filled in. Type to replace it, or press `Enter` to take it. Nothing is ever renumbered to make room: a new item goes at the end.
+Each asks for a name, with a suggestion already filled in. Type to replace it, or press `Enter` to take it. To mend the name instead, `←` `→` `Home` and `End` move through it and `Delete` works too, as in every box you type in. Nothing is ever renumbered to make room: a new item goes at the end.
 
 ## Renaming and deleting
 
-- `r` renames what's selected. The file is renamed to match, and keeps its number and place.
+- `r` renames what's selected. The file is renamed to match, and keeps its number and place. Every `[[link]]` to it in the book is updated to the new name.
 - `d` deletes it. Grimoire asks first, by name, and moves it to the **Trash** section at the bottom of the outline.
 - Deleting something that is **already in the Trash** removes it for good. That one asks too.
 - `d` on the **Trash** itself empties it: everything in it goes for good, after one question.
-- `u` on something in the Trash **restores** it: back to its old folder under its old name (*Restore from the Trash* in `Esc › This book` and `Ctrl-K` too). If its folder has gone since, it's made again.
+- `u` on something in the Trash **restores** it: back to its old folder under its old name (*Restore from the Trash* in `Esc › This book` and `Ctrl-K` too). If its folder has gone since, it's made again. One scene inside a deleted chapter can come back on its own: unfold the chapter in the Trash and press `u` on the scene.
 
 ## Details
 

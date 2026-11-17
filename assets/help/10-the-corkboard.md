@@ -7,7 +7,7 @@ A corkboard is how a lot of writers plan: every scene on an index card, pinned u
 ## Moving around
 
 - The arrow keys, or `h` `j` `k` `l`, move between cards.
-- `[` and `]` go to the previous and next part.
+- `[` and `]` go to the previous and next part that has scenes in it.
 - `Enter` opens the scene.
 - `Esc` or `b` closes the board.
 
@@ -22,7 +22,7 @@ A corkboard is how a lot of writers plan: every scene on an index card, pinned u
 ## Changing cards
 
 - `s` steps the scene's **status**: idea, outline, draft, revised, done.
-- `e` edits the **synopsis**; `v` edits the **POV**. Type, then `Enter` to keep it or `Esc` to leave it as it was.
+- `e` edits the **synopsis**; `v` edits the **POV**. Type, then `Enter` to keep it or `Esc` to leave it as it was. `←` `→` `Home` and `End` move through what's typed, to mend it in the middle.
 - `p` lights only one POV's cards; press again for the next character, until it's back to everyone.
 
 Each change rewrites only that one line of the scene's frontmatter, and every POV keeps its own colour across the board.
