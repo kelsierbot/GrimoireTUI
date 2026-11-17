@@ -7,25 +7,10 @@ impl App {
         let Overlay::Create { plan, buf, fresh } = &mut self.overlay else {
             return;
         };
+        if name_key(buf, fresh, &mut self.caret, key) {
+            return;
+        }
         match key {
-            // The suggestion is selected: typing replaces it, Backspace
-            // clears it, → or End keeps it to add to.
-            Key::Char(c) if !c.is_control() => {
-                if std::mem::take(fresh) {
-                    buf.clear();
-                }
-                if buf.chars().count() < 60 {
-                    buf.push(c);
-                }
-            }
-            Key::Backspace => {
-                if std::mem::take(fresh) {
-                    buf.clear();
-                } else {
-                    buf.pop();
-                }
-            }
-            Key::Right | Key::End => *fresh = false,
             Key::Enter => {
                 let (plan, name) = (plan.clone(), buf.clone());
                 self.overlay = Overlay::None;
@@ -43,23 +28,10 @@ impl App {
         else {
             return;
         };
+        if name_key(buf, fresh, &mut self.caret, key) {
+            return;
+        }
         match key {
-            Key::Char(c) if !c.is_control() => {
-                if std::mem::take(fresh) {
-                    buf.clear();
-                }
-                if buf.chars().count() < 60 {
-                    buf.push(c);
-                }
-            }
-            Key::Backspace => {
-                if std::mem::take(fresh) {
-                    buf.clear();
-                } else {
-                    buf.pop();
-                }
-            }
-            Key::Right | Key::End => *fresh = false,
             Key::Enter => {
                 let (path, name) = (path.clone(), buf.clone());
                 self.overlay = Overlay::None;
@@ -97,6 +69,30 @@ impl App {
     }
 }
 
+/// The keys a name box takes. A suggested name starts selected (`fresh`):
+/// typing replaces it, `Backspace` or `Delete` clears it, and an arrow,
+/// `Home` or `End` keeps it to mend.
+fn name_key(buf: &mut String, fresh: &mut bool, caret: &mut Option<usize>, key: Key) -> bool {
+    if std::mem::take(fresh) {
+        match key {
+            Key::Char(c) if !c.is_control() => buf.clear(),
+            Key::Backspace | Key::Delete => {
+                buf.clear();
+                *caret = None;
+                return true;
+            }
+            // Enter, Esc and the rest act on the name as it stands.
+            Key::Left | Key::Right | Key::Home | Key::End => {}
+            _ => {
+                *fresh = true;
+                return false;
+            }
+        }
+        *caret = None;
+    }
+    line::edit(buf, caret, key, 60, |_| true)
+}
+
 pub(super) fn draw_create(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
     let Overlay::Create { plan, buf, fresh } = &app.overlay else {
         return;
@@ -125,11 +121,18 @@ pub(super) fn draw_create(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             Style::default().fg(t.dim),
         )),
         Line::from(""),
-        Line::from(vec![
-            Span::styled(" ▸ ", Style::default().fg(t.accent)),
-            Span::styled(buf.clone(), name),
-            Span::styled("█", Style::default().fg(t.accent)),
-        ]),
+        Line::from(
+            vec![Span::styled(" ▸ ", Style::default().fg(t.accent))]
+                .into_iter()
+                .chain(line::spans(
+                    buf,
+                    app.caret,
+                    inner.width.saturating_sub(4) as usize,
+                    name,
+                    t,
+                ))
+                .collect::<Vec<_>>(),
+        ),
         Line::from(""),
         hint_line(keys, t),
     ];
@@ -164,11 +167,18 @@ pub(super) fn draw_rename(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             Style::default().fg(t.dim),
         )),
         Line::from(""),
-        Line::from(vec![
-            Span::styled(" ▸ ", Style::default().fg(t.accent)),
-            Span::styled(buf.clone(), name),
-            Span::styled("█", Style::default().fg(t.accent)),
-        ]),
+        Line::from(
+            vec![Span::styled(" ▸ ", Style::default().fg(t.accent))]
+                .into_iter()
+                .chain(line::spans(
+                    buf,
+                    app.caret,
+                    inner.width.saturating_sub(4) as usize,
+                    name,
+                    t,
+                ))
+                .collect::<Vec<_>>(),
+        ),
         Line::from(""),
         hint_line(keys, t),
     ];

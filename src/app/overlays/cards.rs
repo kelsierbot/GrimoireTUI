@@ -29,11 +29,10 @@ impl App {
         let card = cards[*sel].clone();
 
         if let Some((field, buf)) = typing {
+            if line::edit(buf, &mut self.caret, key, 200, |_| true) {
+                return;
+            }
             match key {
-                Key::Char(c) if !c.is_control() && buf.chars().count() < 200 => buf.push(c),
-                Key::Backspace => {
-                    buf.pop();
-                }
                 Key::Enter => {
                     let (field, value) = (*field, buf.clone());
                     *typing = None;
@@ -382,7 +381,7 @@ pub(super) fn draw_cork(
         // No synopsis yet: the scene's own first line stands in, dimmed.
         let (synopsis, standin) = match typing {
             Some((crate::app::CardField::Synopsis, buf)) if editing_here => {
-                (format!("{buf}█"), false)
+                (line::marked(buf, app.caret), false)
             }
             _ => match card.synopsis.as_deref().filter(|s| !s.trim().is_empty()) {
                 Some(s) => (s.to_string(), false),
@@ -403,7 +402,7 @@ pub(super) fn draw_cork(
         if let Some((crate::app::CardField::Pov, buf)) = typing.filter(|_| editing_here) {
             lines[0] = Line::from(vec![
                 Span::styled("POV ▸ ", Style::default().fg(t.accent)),
-                Span::styled(format!("{buf}█"), Style::default().fg(t.text)),
+                Span::styled(line::marked(buf, app.caret), Style::default().fg(t.text)),
             ]);
         }
         let bar_w = w.saturating_sub(6).max(4);

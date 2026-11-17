@@ -64,7 +64,9 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     }
     draw_status(f, app, status, &t);
 
-    if !matches!(app.overlay, Overlay::None) {
+    if matches!(app.overlay, Overlay::None) {
+        app.caret = None;
+    } else {
         crate::app::overlays::draw(f, app, f.area(), &t);
     }
 

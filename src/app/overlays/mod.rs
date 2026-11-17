@@ -20,6 +20,7 @@ mod conflicts;
 mod details;
 mod find;
 mod help;
+mod line;
 mod looks;
 mod marks;
 mod menu;
@@ -69,7 +70,12 @@ impl App {
 
     /// A key while an overlay is up goes to that overlay alone.
     pub fn on_overlay_key(&mut self, key: Key) {
+        let was = std::mem::discriminant(&self.overlay);
         self.route_overlay_key(key);
+        // A different box starts with its caret at the end of its words.
+        if std::mem::discriminant(&self.overlay) != was {
+            self.caret = None;
+        }
         // A card named, renamed or deleted from the corkboard: back to it.
         // (Help opened over one of those questions is still that question.)
         if self.cork_back.is_some()

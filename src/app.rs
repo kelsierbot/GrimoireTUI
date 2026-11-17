@@ -171,6 +171,9 @@ pub struct App {
     pub open: Option<usize>,
     pub editor: Editor,
     pub focus: Focus,
+    /// Where the caret is in the one-line box being typed in, counted in
+    /// characters; `None` is the end. One box takes typing at a time.
+    pub caret: Option<usize>,
     /// The manuscript's word count at the start of today: "today" is what it
     /// has grown by since. See [`App::tick_today`].
     pub baseline: usize,
@@ -768,6 +771,7 @@ impl App {
             open: None,
             editor: Editor::from_text(""),
             focus: Focus::Tree,
+            caret: None,
             baseline,
             baseline_date: today_string(),
             msg: String::new(),

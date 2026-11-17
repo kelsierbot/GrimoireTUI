@@ -3246,3 +3246,27 @@ fn undo_does_nothing_to_the_page_behind_a_box() {
     d.key(KeyCode::Esc);
     assert!(d.app.editor.text().contains("Kept words"));
 }
+
+/// A one-line box has a caret: a name is mended in the middle, not rubbed
+/// out from the end.
+#[test]
+fn a_name_is_mended_in_the_middle_of_the_rename_box() {
+    let mut d = Desk::open(book("caret-rename", true), 120, 40);
+    d.key(KeyCode::Char('r'));
+    let Overlay::Rename { buf, .. } = &d.app.overlay else {
+        panic!("r renames");
+    };
+    let old = buf.clone();
+    // Keep the old name, go to its start, and put a word in front.
+    d.key(KeyCode::Home);
+    d.typed("The ");
+    assert!(d.shows(&format!("The {old}")), "{}", d.rows().join("\n"));
+    // Delete takes the letter under the caret; the rest stays.
+    d.key(KeyCode::Delete);
+    let Overlay::Rename { buf, .. } = &d.app.overlay else {
+        panic!("still renaming");
+    };
+    assert_eq!(*buf, format!("The {}", &old[1..]));
+    d.key(KeyCode::Esc);
+    assert_eq!(d.app.caret, None);
+}

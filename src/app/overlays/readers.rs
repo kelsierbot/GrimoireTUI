@@ -418,18 +418,27 @@ impl App {
         };
         let n = fields.len();
         match key {
-            Key::Up => *sel = sel.saturating_sub(1),
-            Key::Down | Key::Tab => *sel = (*sel + 1).min(n - 1),
-            Key::BackTab => *sel = sel.saturating_sub(1),
-            Key::Char(c) if !c.is_control() => {
-                if fields[*sel].chars().count() < 120 {
-                    fields[*sel].push(c);
-                }
+            Key::Up | Key::BackTab => {
+                *sel = sel.saturating_sub(1);
+                self.caret = None;
             }
-            Key::Backspace => {
-                fields[*sel].pop();
+            Key::Down | Key::Tab => {
+                *sel = (*sel + 1).min(n - 1);
+                self.caret = None;
             }
-            Key::Enter if *sel + 1 < n => *sel += 1,
+            Key::Char(_)
+            | Key::Backspace
+            | Key::Delete
+            | Key::Left
+            | Key::Right
+            | Key::Home
+            | Key::End => {
+                line::edit(&mut fields[*sel], &mut self.caret, key, 120, |_| true);
+            }
+            Key::Enter if *sel + 1 < n => {
+                *sel += 1;
+                self.caret = None;
+            }
             Key::Enter | Key::Esc => {
                 let (f, back) = (fields.clone(), back.take());
                 let keep = |v: &[String]| -> Vec<String> {
@@ -552,25 +561,28 @@ pub(super) fn draw_author(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
     let room = (inner.width as usize).saturating_sub(24);
     for (i, value) in fields.iter().enumerate() {
         let on = i == *sel;
-        let shown = if on {
-            format!("{}▏", truncate(value, room.saturating_sub(1)))
-        } else {
-            truncate(value, room)
-        };
-        let l = Line::from(vec![
-            Span::styled(
-                if on { " ▸ " } else { "   " },
-                Style::default().fg(t.accent),
-            ),
-            Span::styled(
-                format!("{:<19}", AUTHOR_LABELS[i]),
-                Style::default().fg(if on { t.accent } else { t.text }),
-            ),
-            Span::styled(
-                shown,
-                Style::default().fg(if on { t.accent } else { t.text }),
-            ),
-        ]);
+        let l = Line::from(
+            vec![
+                Span::styled(
+                    if on { " ▸ " } else { "   " },
+                    Style::default().fg(t.accent),
+                ),
+                Span::styled(
+                    format!("{:<19}", AUTHOR_LABELS[i]),
+                    Style::default().fg(if on { t.accent } else { t.text }),
+                ),
+            ]
+            .into_iter()
+            .chain(if on {
+                line::spans(value, app.caret, room, Style::default().fg(t.accent), t)
+            } else {
+                vec![Span::styled(
+                    truncate(value, room),
+                    Style::default().fg(t.text),
+                )]
+            })
+            .collect::<Vec<_>>(),
+        );
         lines.push(if on {
             l.style(Style::default().bg(t.sel))
         } else {

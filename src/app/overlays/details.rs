@@ -86,8 +86,14 @@ impl App {
             _ => None,
         };
         match key {
-            Key::Up | Key::BackTab => *sel = (*sel + fields.len() - 1) % fields.len(),
-            Key::Down | Key::Tab => *sel = (*sel + 1) % fields.len(),
+            Key::Up | Key::BackTab => {
+                *sel = (*sel + fields.len() - 1) % fields.len();
+                self.caret = None;
+            }
+            Key::Down | Key::Tab => {
+                *sel = (*sel + 1) % fields.len();
+                self.caret = None;
+            }
             Key::Enter => self.save_details(),
             Key::Esc => {
                 self.overlay = Overlay::None;
@@ -108,25 +114,14 @@ impl App {
             Key::Left | Key::Right | Key::Char(' ') if field == Field::InExports => {
                 *compile = !*compile;
             }
-            Key::Char(c) if field == Field::Target && c.is_ascii_digit() && target.len() < 7 => {
-                target.push(c)
+            _ if field == Field::Target => {
+                line::edit(target, &mut self.caret, key, 7, |c| c.is_ascii_digit());
             }
-            Key::Backspace if field == Field::Target => {
-                target.pop();
-            }
-            Key::Char(c) if !c.is_control() => {
-                if let Some(t) = text
-                    && t.chars().count() < 500
-                {
-                    t.push(c);
-                }
-            }
-            Key::Backspace => {
+            _ => {
                 if let Some(t) = text {
-                    t.pop();
+                    line::edit(t, &mut self.caret, key, 500, |_| true);
                 }
             }
-            _ => {}
         }
     }
 
@@ -265,7 +260,7 @@ pub(super) fn draw_details(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
                     "◂ no, left out ▸"
                 }
                 .to_string(),
-                "a scene left out stays in the book, just not the manuscript",
+                "left out of exports, it still stays in the book",
             ),
             Field::Aliases => (
                 "Other names",
@@ -273,6 +268,7 @@ pub(super) fn draw_details(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
                 "commas between: the notebook lights these up too",
             ),
         };
+        let typed = value.clone();
         let shown: String = {
             let room = (inner.width as usize).saturating_sub(18);
             let n = value.chars().count();
@@ -283,30 +279,39 @@ pub(super) fn draw_details(f: &mut Frame, app: &App, area: Rect, t: &Theme) {
             }
         };
         lines.push(
-            Line::from(vec![
-                Span::styled(
-                    if on { " ▸ " } else { "   " },
-                    Style::default().fg(if on { t.accent } else { t.dim }),
-                ),
-                Span::styled(format!("{label:<13}"), Style::default().fg(t.text)),
-                Span::styled(
-                    shown,
-                    Style::default().fg(if on { t.accent } else { t.text }),
-                ),
-                Span::styled(
+            Line::from(
+                vec![
+                    Span::styled(
+                        if on { " ▸ " } else { "   " },
+                        Style::default().fg(if on { t.accent } else { t.dim }),
+                    ),
+                    Span::styled(format!("{label:<13}"), Style::default().fg(t.text)),
+                ]
+                .into_iter()
+                .chain(
                     if on
                         && matches!(
                             field,
                             Field::Pov | Field::Synopsis | Field::Target | Field::Aliases
                         )
                     {
-                        "█"
+                        // The box being typed in: its caret, wherever it is.
+                        line::spans(
+                            &typed,
+                            app.caret,
+                            (inner.width as usize).saturating_sub(18),
+                            Style::default().fg(t.accent),
+                            t,
+                        )
                     } else {
-                        ""
+                        vec![Span::styled(
+                            shown,
+                            Style::default().fg(if on { t.accent } else { t.text }),
+                        )]
                     },
-                    Style::default().fg(t.accent),
-                ),
-            ])
+                )
+                .collect::<Vec<_>>(),
+            )
             .style(if on {
                 Style::default().bg(t.sel)
             } else {
