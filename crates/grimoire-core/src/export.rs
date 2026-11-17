@@ -1207,6 +1207,17 @@ pub(crate) fn xml_escape(s: &str) -> String {
 
 // ── Shunn Markdown ───────────────────────────────────────────────────
 
+/// A scene's text with a blank line between its paragraphs. In a scene one
+/// line is one paragraph; Markdown needs a blank line to see that, and joins
+/// lines without one. Blank lines already there count as that one.
+fn md_paragraphs(s: &str) -> String {
+    s.lines()
+        .map(str::trim_end)
+        .filter(|l| !l.trim().is_empty())
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
 /// The manuscript as one Markdown file — the text `grimoire compile` writes.
 pub(crate) fn markdown(b: &Book) -> String {
     let mut out = String::new();
@@ -1228,6 +1239,7 @@ pub(crate) fn markdown(b: &Book) -> String {
         let _ = writeln!(out, "\nabout {count} words\n");
     }
 
+    let mut last: Option<&Piece> = None;
     for piece in &b.pieces {
         match piece {
             Piece::Part { title, .. } => {
@@ -1250,13 +1262,19 @@ pub(crate) fn markdown(b: &Book) -> String {
                     if i > 0 {
                         let _ = writeln!(out, "\n\\#\n");
                     }
-                    let _ = writeln!(out, "{s}");
+                    let _ = writeln!(out, "{}", md_paragraphs(s));
                 }
             }
             Piece::Scene(s) => {
-                let _ = writeln!(out, "{s}");
+                // Two loose scenes side by side are two scenes, and get the
+                // break a chapter's scenes do.
+                if matches!(last, Some(Piece::Scene(_))) {
+                    let _ = writeln!(out, "\n\\#\n");
+                }
+                let _ = writeln!(out, "{}", md_paragraphs(s));
             }
         }
+        last = Some(piece);
     }
     if let Some(end) = b.look.ending.text().filter(|_| b.to_the_end) {
         let _ = writeln!(out, "\n{end}");
@@ -1601,7 +1619,9 @@ fn docx(b: &Book) -> Result<Vec<u8>> {
     // A part heading shares its first chapter's page (Shunn): the part a
     // third of the way down, the chapter heading halfway.
     let mut under_part = false;
+    let mut last: Option<&Piece> = None;
     for piece in &b.pieces {
+        let prev = last.replace(piece);
         let start = body.len();
         match piece {
             Piece::Part { title, .. } => {
@@ -1646,6 +1666,12 @@ fn docx(b: &Book) -> Result<Vec<u8>> {
             Piece::Scene(s) => {
                 under_part = false;
                 let mut first = false;
+                // Two loose scenes side by side are two scenes, and get the
+                // break a chapter's scenes do.
+                if matches!(prev, Some(Piece::Scene(_))) {
+                    body.push(Para::new("SceneBreak", docx_text("#")));
+                    first = true;
+                }
                 docx_blocks(s, false, &look, &mut first, &mut body);
             }
         }
@@ -3887,6 +3913,71 @@ mod tests {
         ] {
             assert!(all.contains(words), "{words} is in the EPUB");
         }
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    /// A book of loose scenes, no chapters: one scene file each.
+    fn loose_book(tag: &str, scenes: &[&str]) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("grimoire-export-{tag}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&d);
+        put(
+            &d,
+            "novel.toml",
+            "title = \"The Lantern\"\nauthor = \"Ada Quill\"\n",
+        );
+        for (i, text) in scenes.iter().enumerate() {
+            put(&d, &format!("manuscript/{:02}-Scene.md", i + 1), text);
+        }
+        d
+    }
+
+    #[test]
+    fn loose_scenes_side_by_side_have_a_scene_break_between() {
+        let d = loose_book(
+            "loose-breaks",
+            &["The first scene.\n", "The second scene.\n"],
+        );
+        let p = Project::load(&d).unwrap();
+        let md = markdown(&book(&p, None, Scope::Whole).unwrap());
+        assert!(
+            md.contains("The first scene.\n\n\\#\n\nThe second scene."),
+            "a break in the Markdown: {md}"
+        );
+        let (paras, ..) = docx_of(&d, &all_options());
+        let one = paras
+            .iter()
+            .position(|(_, t)| t == "The first scene.")
+            .unwrap();
+        let two = paras
+            .iter()
+            .position(|(_, t)| t == "The second scene.")
+            .unwrap();
+        assert_eq!(
+            paras[one + 1..two]
+                .iter()
+                .filter(|(s, _)| s == "SceneBreak")
+                .count(),
+            1,
+            "a break in the DOCX"
+        );
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn the_compiled_markdown_keeps_each_line_its_own_paragraph() {
+        let d = flat_book(
+            "md-paragraphs",
+            &[(
+                "Chapter-One",
+                "First line.\nSecond line.\n\n\nThird line.\n",
+            )],
+        );
+        let p = Project::load(&d).unwrap();
+        let md = markdown(&book(&p, None, Scope::Whole).unwrap());
+        assert!(
+            md.contains("First line.\n\nSecond line.\n\nThird line.\n"),
+            "one blank line between paragraphs, never two: {md}"
+        );
         fs::remove_dir_all(&d).unwrap();
     }
 }
