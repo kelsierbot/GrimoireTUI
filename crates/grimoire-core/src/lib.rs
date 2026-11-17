@@ -28,6 +28,7 @@ pub mod revision;
 pub mod search;
 pub mod sessions;
 pub mod settings;
+pub mod shelf;
 pub mod spell;
 pub mod submission;
 pub mod sync;
