@@ -885,6 +885,9 @@ struct Tally {
     /// Words in the changed manuscript scenes, before and after.
     words_before: usize,
     words_after: usize,
+    /// A changed scene sat inside a part (`manuscript/part/chapter/scene`),
+    /// so the top-level names are parts; otherwise they are chapters.
+    in_parts: bool,
 }
 
 impl Tally {
@@ -893,6 +896,7 @@ impl Tally {
             if is_scene(path) {
                 self.acts
                     .insert(rest.split('/').next().unwrap_or(rest).to_string());
+                self.in_parts |= rest.matches('/').count() >= 2;
             }
         } else if NOTEBOOK.iter().any(|d| path.starts_with(d)) {
             self.notes = true;
@@ -908,7 +912,9 @@ fn label(when: NaiveDateTime, tally: &Tally, part_noun: &str) -> String {
         parts.push(match titles.as_slice() {
             [one] => one.clone(),
             [a, b] => format!("{a} and {b}"),
-            many => format!("{} {part_noun}s", many.len()),
+            // A book with no parts has chapters at the top.
+            many if tally.in_parts => format!("{} {part_noun}s", many.len()),
+            many => format!("{} chapters", many.len()),
         });
         parts.push(match tally.words_after.cmp(&tally.words_before) {
             Ordering::Greater => words(tally.words_after - tally.words_before),
@@ -1704,6 +1710,34 @@ mod tests {
         }
     }
 
+    #[test]
+    fn a_book_without_parts_counts_chapters() {
+        let Some(d) = book("rv-chapters-noun") else { return };
+        enable(&d).unwrap();
+        let repo = outside_dir(&d);
+        // No parts here: chapters sit straight under the manuscript.
+        for (i, ch) in ["01-Chapter-One", "02-Chapter-Two", "03-Chapter-Three"]
+            .iter()
+            .enumerate()
+        {
+            write(&d, &format!("manuscript/{ch}/01-Scene.md"), &scene(i + 1));
+        }
+        let got = pending_label(&d, tuesday_evening()).unwrap().unwrap();
+        commit_session(&d, tuesday_evening()).unwrap();
+        assert_eq!(got, "Tuesday evening · 3 chapters · 6 words");
+        // And the part label still names parts when there are parts.
+        write(&d, A1, &scene(11));
+        write(&d, A2, &scene(1));
+        write(&d, A3, &scene(1));
+        let got = pending_label(&d, tuesday_evening()).unwrap().unwrap();
+        commit_session(&d, tuesday_evening()).unwrap();
+        assert_eq!(got, "Tuesday evening · 3 acts · 3 words");
+        match repo {
+            Some(r) => cleanup(&[&d, &r]),
+            None => cleanup(&[&d]),
+        }
+    }
+
     /// A fixed local time; the label reads the wall clock, so no time zone
     /// can change what these tests expect.
     fn at(month: u32, day: u32, hour: u32, minute: u32) -> DateTime<Local> {
@@ -1743,6 +1777,7 @@ mod tests {
             notes,
             words_before: before,
             words_after: after,
+            in_parts: true,
         }
     }
 
