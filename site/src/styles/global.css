@@ -221,7 +221,7 @@ a:hover {
 
 .doc ul { margin: 0 0 var(--row); padding: 0; list-style: none; }
 .doc ul li { padding-left: 1.4em; text-indent: -1.4em; }
-.doc ul li::before { content: '— '; color: var(--mute); }
+.doc ul li::before { content: '› '; color: var(--mute); }
 
 /* Character grids: the only place real box-drawing is used, where the
    whole block shares one font and alignment is self-contained. */

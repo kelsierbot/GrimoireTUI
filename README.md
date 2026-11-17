@@ -1,4 +1,4 @@
-<img src="assets/readme/banner.svg" alt="grimoire — a terminal writing desk for novels" width="100%">
+<img src="assets/readme/banner.svg" alt="grimoire: a terminal writing desk for novels" width="100%">
 
 **[grimoiretui.com](https://grimoiretui.com)** · [free classroom curriculum](https://grimoiretui.com/learn/) · Rust + [Ratatui](https://ratatui.rs) · MIT · macOS, Linux and Windows · made by [Catfinity Studios](https://catfinity.com), makers of [Catfinity](https://catfinity.com/catfinity/)
 
@@ -11,7 +11,7 @@ plain files you can open with anything, even `cat`.
 
 <p align="center"><img src="assets/readme/demo.webp" alt="Twenty seconds with Grimoire: a sentence being written, Esc opening a short menu where each row explains itself, the themes changing live, and the Progress page's weekly bars" width="100%"></p>
 
-<p align="center"><img src="assets/screenshots/themes.webp" alt="Grimoire's desk — the outline under a spellbook, a scene being written, the Pomodoro and the music pane — changing through all nineteen themes, from Rainbow to GitHub Dark" width="100%"></p>
+<p align="center"><img src="assets/screenshots/themes.webp" alt="Grimoire's desk (the outline under a spellbook, a scene being written, the Pomodoro and the music pane) changing through all nineteen themes, from Rainbow to GitHub Dark" width="100%"></p>
 
 <p align="center"><b>Nineteen themes, and you can switch any time with <code>F9</code>.</b><br>
 <a href="#themes">See every one below</a> · or <a href="https://grimoiretui.com/#themes">try them on the website</a>, which switches too.</p>
@@ -35,20 +35,20 @@ and everything else was built around it.
 
 ## Install
 
-**Windows** — open PowerShell or Command Prompt and paste:
+**Windows**: open PowerShell or Command Prompt and paste:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -c "irm https://github.com/kelsierbot/GrimoireTUI/releases/latest/download/grimoire-tui-installer.ps1 | iex"
 ```
 
-**macOS and Linux** — in a terminal:
+**macOS and Linux**: in a terminal:
 
 ```sh
 curl --proto '=https' --tlsv1.2 -LsSf https://github.com/kelsierbot/GrimoireTUI/releases/latest/download/grimoire-tui-installer.sh | sh
 ```
 
 Then open a **new** terminal (on Windows, Windows Terminal is best) and run
-`grimoire`. Nothing else to install — no Rust, no build tools. The installer
+`grimoire`. Nothing else to install: no Rust, no build tools. The installer
 puts `grimoire` in `~/.cargo/bin` and adds that to your `PATH`. Builds are for
 Windows x64, macOS (Apple Silicon and Intel) and Linux (x86_64 and ARM64);
 every download is on the [releases page](https://github.com/kelsierbot/GrimoireTUI/releases).
@@ -71,7 +71,7 @@ winget install CatfinityStudios.Grimoire
 
 `winget upgrade CatfinityStudios.Grimoire` brings each new release. New versions can take a day or so to reach winget after they come out here.
 
-**Debian and Ubuntu** — a package, handy for a school lab or anywhere IT
+**Debian and Ubuntu**: a package, handy for a school lab or anywhere IT
 installs things for everyone:
 
 ```sh
@@ -145,7 +145,7 @@ otherwise the last one you had open, otherwise it creates one in
 ## On disk
 
 Folders are containers, at any depth. Files are scenes. Order comes from the
-name — a leading `01-` sorts the file and is stripped for display.
+name: a leading `01-` sorts the file and is stripped for display.
 
 ```
 the-archive/
@@ -175,18 +175,18 @@ the-archive/
    └─ trash/                     what you delete, still shown in the tree
 ```
 
-The tree shows each of those as a section — Novel Format, Manuscript,
-Characters, Places, Front Matter, Notes, Research, Template Sheets, Trash —
+The tree shows each of those as a section (Novel Format, Manuscript,
+Characters, Places, Front Matter, Notes, Research, Template Sheets, Trash),
 and every section and folder folds. A symbol beside each row is off to begin
-with; turn tree icons on in `Esc` → Settings, or from the palette. The pane is headed
+with; turn tree icons on in `Esc` › Settings, or from the palette. The pane is headed
 with the book's title and, when the window is tall enough to spare the rows,
 an open spellbook with light rising from its spine.
 
 **A new book arrives with its shape already standing:** three parts of nine
-chapters, three scenes in each — twenty-seven chapters, eighty-one scenes, all
+chapters, three scenes in each: twenty-seven chapters, eighty-one scenes, all
 of them empty. The structure is a suggestion you rearrange; the writing is
 never presumed. `part_label` in `novel.toml` is what this book calls its
-largest division — `Part` to begin with, `Act` or `Book` if you prefer — and
+largest division (`Part` to begin with, `Act` or `Book` if you prefer) and
 the app says your word back everywhere it names one.
 
 **Front matter goes by edition.** Pages in `Manuscript Format` go into the Word
@@ -236,46 +236,46 @@ row* goes through every row, and *Every key* lists every key. *About Grimoire…
 | Key | |
 |---|---|
 | `Esc` | **the menu**, from anywhere: find anything, this book, the writing tools, export, a new book or another one, settings, help, and *Quit Grimoire* at the bottom. `Esc` again closes it; with a note or a scene open beside, the first `Esc` closes that |
-| `F1` · `?` | **the help** — every feature explained, opened on the topic for where you are. `?` works wherever you aren't typing; on the page it's a question mark |
-| `Ctrl-K` | **find anything** — every action, scene, note and theme by name, with its key |
-| `Tab` / `Shift-Tab` | cycle panes — tree, editor, the open note, Pomodoro, music |
+| `F1` · `?` | **the help**: every feature explained, opened on the topic for where you are. `?` works wherever you aren't typing; on the page it's a question mark |
+| `Ctrl-K` | **find anything**: every action, scene, note and theme by name, with its key |
+| `Tab` / `Shift-Tab` | cycle panes: tree, editor, the open note, Pomodoro, music |
 | `↑ ↓` · `j k` | move in the tree |
 | `Enter` · `Space` | fold or unfold a section or folder · open a scene |
 | `→` `l` / `←` `h` | expand / collapse, or jump to parent |
-| `n` | new scene — at the end of the selected chapter (a selected part's last chapter); in another section, a note, document or sheet there |
-| `c` | new chapter — named for you ("Chapter Two"), at the end of the part you're in |
-| `p` | new part — named for you ("Part Two", or "Act Two" if `part_label` says so), at the end of the manuscript |
-| `N` | new folder beside the selected one — outside the manuscript; in it, a chapter or part |
-| `r` | rename what's selected — the file is renamed to match and keeps its place |
-| `d` | delete what's selected — asks first, then moves it to `.grimoire/trash` |
-| `Ctrl-Z` `Ctrl-Y` *(in the tree)* | undo · redo a delete, rename, move or new item — a delete comes back from the trash to where it was |
-| `Alt-↑` `Alt-↓` · `K` `J` | move what's selected up or down — a scene or folder crosses chapters and parts at the ends, a section changes places with its neighbour; dragging a row in the tree does the same |
-| `H` | the scene's history — every kept version, what changed, restore any |
+| `n` | new scene: at the end of the selected chapter (a selected part's last chapter); in another section, a note, document or sheet there |
+| `c` | new chapter: named for you ("Chapter Two"), at the end of the part you're in |
+| `p` | new part: named for you ("Part Two", or "Act Two" if `part_label` says so), at the end of the manuscript |
+| `N` | new folder beside the selected one: outside the manuscript; in it, a chapter or part |
+| `r` | rename what's selected: the file is renamed to match and keeps its place |
+| `d` | delete what's selected: asks first, then moves it to `.grimoire/trash` |
+| `Ctrl-Z` `Ctrl-Y` *(in the tree)* | undo · redo a delete, rename, move or new item: a delete comes back from the trash to where it was |
+| `Alt-↑` `Alt-↓` · `K` `J` | move what's selected up or down: a scene or folder crosses chapters and parts at the ends, a section changes places with its neighbour; dragging a row in the tree does the same |
+| `H` | the scene's history: every kept version, what changed, restore any |
 | `b` | the corkboard |
 | `/` | find in the whole book |
 | `Ctrl-F` | find in the scene (`Ctrl-F` again: the whole book) · `Tab` to replace · `Ctrl-R` replace all |
 | `Ctrl-W` · `Ctrl-E` *(in find)* | whole words ↔ inside words · exact case ↔ any case (`Alt-W` / `Alt-C` too) |
 | `Ctrl-Z` `Ctrl-Y` | undo · redo (`Ctrl-Shift-Z` too, where the terminal can send it) |
 | `Ctrl-X` `Ctrl-C` | cut · copy the selection |
-| `Ctrl-O` | open the note for the name under the cursor beside the scene — again to put it away |
-| `v` *(in the tree)* | show the selected scene beside, read-only — `Esc` closes it, `Enter` writes in it |
-| `Ctrl-D` | focus mode — just the prose; again to leave |
-| `Ctrl-T` | notes & TKs — every `%% note %%` and TK in the book; type to filter, `Enter` to go there |
+| `Ctrl-O` | open the note for the name under the cursor beside the scene, again to put it away |
+| `v` *(in the tree)* | show the selected scene beside, read-only: `Esc` closes it, `Enter` writes in it |
+| `Ctrl-D` | focus mode: just the prose; again to leave |
+| `Ctrl-T` | notes & TKs: every `%% note %%` and TK in the book; type to filter, `Enter` to go there |
 | `F8` | spelling suggestions for this word, or the next misspelling |
-| `Ctrl-S` | save now — autosave already does, two seconds after you stop typing |
+| `Ctrl-S` | save now: autosave already does, two seconds after you stop typing |
 | `Ctrl-Q` · `q` in the tree | quit, saving everything first |
 | `F2` `F3` | start or pause the timer · reset |
 | `F9` · `t` | themes |
 | `←` `→` | in the Pomodoro pane: switch between the Pomodoro and the Visualizer |
 | `F4` `F5` `F6` | previous · play-pause · next (with music on) |
 | *(music pane)* | the player's keys: `[` `]` track · `space` pause · `←` `→` seek · `r` repeat · `s` shuffle · `+` `-` volume · `l` like · `Enter` the player |
-| `F7` | the music player — queue, your playlists, search, and every control (also in the menu, or `Enter` on the music pane) |
+| `F7` | the music player: queue, your playlists, search, and every control (also in the menu, or `Enter` on the music pane) |
 
 ## Writing
 
 - **Focus mode** (`Ctrl-D`) hides everything but the prose: centred, no
   frame, a quiet status line. `Esc` still opens the menu.
-- **A readable line.** Prose wraps at 72 columns, centred in the pane —
+- **A readable line.** Prose wraps at 72 columns, centred in the pane.
   *Line width* in the menu's Settings cycles 60 / 72 / 80 / 100 / full. In
   focus mode the line you're writing stays mid-screen (*Typewriter scrolling*);
   elsewhere you're never drafting on the bottom row.
@@ -310,7 +310,7 @@ row* goes through every row, and *Every key* lists every key. *About Grimoire…
 - **Changes made elsewhere are never overwritten.** Grimoire looks at the book
   on disk every couple of seconds. An edit from Obsidian, a sync app or the
   phone is taken in; if you had unsaved words in that scene too, they're kept
-  beside it as *Scene (from this-computer, date)* — a parked copy — and neither
+  beside it as *Scene (from this-computer, date)* (a parked copy), and neither
   version is lost. Scenes added, moved or deleted elsewhere show up by
   themselves. A file that isn't UTF-8 opens read-only and is never rewritten.
 
@@ -320,7 +320,7 @@ row* goes through every row, and *Every key* lists every key. *About Grimoire…
   window, logging out or `kill` saves first; so does quitting.
 - **Recovery.** If a save fails (a full disk, a file another program has
   locked) or Grimoire crashes, the words go to `.grimoire/recovery/` and the
-  next launch offers them back beside the saved version — chosen with the
+  next launch offers them back beside the saved version, chosen with the
   arrows and `Enter`, never by a stray key; declining puts them in the trash.
 - **Undo.** A word at a time, per scene, kept when you switch scenes. Typing
   over a selection replaces it; a paste is one step; a replace across the
@@ -328,9 +328,9 @@ row* goes through every row, and *Every key* lists every key. *About Grimoire…
 - **Moves can't strand anything.** A move that can't finish (a locked folder,
   a sync app holding a file) puts everything back, and anything a crash left
   mid-move reappears when the book opens.
-- **History.** Every scene keeps dated copies as you work — at most every five
+- **History.** Every scene keeps dated copies as you work (at most every five
   minutes, plus how it was before today's first change and before anything
-  drastic — in `.grimoire/history/`, as plain Markdown. `H` lists them with a
+  drastic), in `.grimoire/history/`, as plain Markdown. `H` lists them with a
   word diff against now and restores any version (itself undoable).
 
 ## Finding and shaping
@@ -340,11 +340,11 @@ row* goes through every row, and *Every key* lists every key. *About Grimoire…
   scene's previous version goes to its history first). Whole words in their
   exact case unless you say otherwise (`Ctrl-W`, `Ctrl-E`).
 - **Name drift** (palette: *Check names*): spellings one or two letters away
-  from a name in your notebook — *Kaelan* where the Characters note says
-  *Kaelen* — with where they are, fixed in one go.
+  from a name in your notebook (*Kaelan* where the Characters note says
+  *Kaelen*), with where they are, fixed in one go.
 - **Spellcheck** underlines misspellings from a bundled en_US dictionary and
   never flags your notebook's names. Click an underlined word, or right-click
-  it, for suggestions right there — or to ignore it: until you close Grimoire,
+  it, for suggestions right there, or to ignore it: until you close Grimoire,
   always in this book, or always in every book
   (`~/.config/grimoire/dictionary.txt`). Words you add go in `dictionary.txt` at
   the book's root. On unless turned off (palette).
@@ -360,8 +360,8 @@ row* goes through every row, and *Every key* lists every key. *About Grimoire…
 
 ## The notebook and the prose
 
-Names from your notebook — note titles, their `aliases:`, the distinctive
-words of a longer title — show in the accent colour as you write. `Ctrl-O` on
+Names from your notebook (note titles, their `aliases:`, the distinctive
+words of a longer title) show in the accent colour as you write. `Ctrl-O` on
 one opens that note beside the scene, with **Appears in**: every scene that
 mentions it. Nothing extra is stored; it's all read from the files.
 
@@ -369,9 +369,9 @@ mentions it. Nothing extra is stored; it's all read from the files.
 
 - **Export** (`Esc` › *Export…*): a Word document in standard manuscript
   format, the same pages as a PDF, a print-ready paperback, an EPUB for
-  phones and e-readers, and Markdown — the whole book, chosen parts, or the
+  phones and e-readers, and Markdown: the whole book, chosen parts, or the
   sample an agent asked for (the first N chapters, chapters X–Y, or the first
-  N words) — into `exports/`. Also `grimoire export [--docx] [--pdf]
+  N words), into `exports/`. Also `grimoire export [--docx] [--pdf]
   [--paperback [--trim 6x9]] [--epub] [--md] [--parts 1,3]
   [--chapters 1-3 | --words 10000]`.
 
@@ -385,30 +385,30 @@ manuscript format by default:
 <p align="center"><img src="assets/screenshots/manuscript.png" alt="The first three pages of a compiled manuscript: a title page with the contact block and word count, Part One and Chapter One on the opening page, and a page with a centred # scene break" width="100%"></p>
 
 - **The title page**: your contact block top left, single-spaced (legal name,
-  address, phone, email, and an agent if you have one — *Author details…* in
+  address, phone, email, and an agent if you have one: *Author details…* in
   the export dialog or `Esc` › Settings), "about 82,000 words" top right
   (rounded to the nearest 100 for a story, 500 for a novella, 1,000 for a
   novel), the title halfway down as you typed it, and your byline under it.
 - **Every page after it**: Times New Roman 12, double-spaced, one-inch
   margins, half-inch first-line indents, no space between paragraphs, ragged
-  right, and `Surname / KEYWORD / page` top right — numbered from 1 on the
+  right, and `Surname / KEYWORD / page` top right, numbered from 1 on the
   first page of text.
 - **Chapters** open on a new page a third of the way down; a part shares its
   first chapter's page (the part a third down, the chapter halfway). A
   Prologue, Epilogue or Interlude keeps its own heading and takes no number.
   Scene breaks are a centred `#`, and the manuscript ends with END.
 - **Book typography** is done for you: curly quotes and apostrophes (’tis,
-  ’90s), `--` to an em dash, `...` to an ellipsis — in every format, never
+  ’90s), `--` to an em dash, `...` to an ellipsis, in every format, never
   on disk.
 - **Nothing half-finished goes out quietly**: empty scenes and chapters are
   left out (no blank pages from a template), `%% notes %%` are removed, and a
-  `TK` stays visible — export lists every one before it writes anything.
+  `TK` stays visible: export lists every one before it writes anything.
 - **Files** are named the way agents ask: `Surname_Title_Manuscript.docx`,
   plus the sample (`…_Chapters-1-3`).
 
 *Manuscript look…* changes the rest, saved in `novel.toml` under
 `[manuscript]`: Modern (Times New Roman) or Classic (Courier, with
-underlines for italics and typewriter quotes — "Shunn Classic"), US Letter or
+underlines for italics and typewriter quotes: "Shunn Classic"), US Letter or
 A4 (UK and European agents), double or 1.5 spacing, chapter headings
 (*Chapter One*, *CHAPTER ONE*, *Chapter 1*, *1*, or the chapter's title),
 first paragraphs indented or flush, END / THE END / nothing, the header's
@@ -416,15 +416,15 @@ keyword, and whether a spaced hyphen becomes an em dash (US) or a spaced en
 dash (UK). Always follow an agent's own guidelines where they differ.
 
 **PDF** comes from LibreOffice (free), which converts the Word file page for
-page — Grimoire finds it on your PATH, in the usual install places, or as the
+page. Grimoire finds it on your PATH, in the usual install places, or as the
 Flatpak (`flatpak install flathub org.libreoffice.LibreOffice`). Without it,
 the export dialog says so and writes everything else.
 
 ### The reader editions
 
-Every edition is compiled the same way as the manuscript — empty chapters
+Every edition is compiled the same way as the manuscript (empty chapters
 left out, the same typography, TKs kept and warned about, a Prologue under
-its own name — and laid out for its readers:
+its own name) and laid out for its readers:
 
 - **Paperback** (*Paperback* in the export dialog, `←` `→` for the trim, or
   `grimoire export --paperback --trim 6x9`): a print-ready interior, a DOCX
@@ -441,7 +441,7 @@ its own name — and laid out for its readers:
   matter, as the Kindle store asks; `[ebook]` fills in the language,
   publisher, ISBN, description, subjects, rights, publication date, and series
   and number. It passes EPUBCheck.
-- **Back matter** — Acknowledgements, About the Author, Also By — lives in its
+- **Back matter** (Acknowledgements, About the Author, Also By) lives in its
   own section and goes after the story, by edition like the front matter:
   pages in `back-matter/Paperback` only in the paperback, in `back-matter/Ebook`
   only in the EPUB, and loose ones in both. New books start with the three,
@@ -449,33 +449,33 @@ its own name — and laid out for its readers:
 - **Resume.** `.grimoire/resume.md` remembers the scene and paragraph you were
   at, so opening the book on any computer the folder reaches lands you there.
 - **Writing sessions** (palette): turn on history for the book and each
-  session is kept as a snapshot labelled like a diary line — *Tuesday evening ·
-  Act Two · 1,240 words* — with what changed that session. It's Git, kept on
+  session is kept as a snapshot labelled like a diary line: *Tuesday evening ·
+  Act Two · 1,240 words*, with what changed that session. It's Git, kept on
   this machine outside the book folder (so a sync service can't damage it);
   connect a remote and sessions back themselves up in the background. Needs
   Git installed.
 
-Vertical movement in the editor is **visual, not logical** — Down moves one
+Vertical movement in the editor is **visual, not logical**: Down moves one
 screen row inside a wrapped paragraph rather than jumping the whole paragraph,
 which is the only behaviour that feels right for prose.
 
 Grimoire accepts `Ctrl` or `Cmd`, and the status bar labels whichever your
 terminal can actually deliver. Cmd only reaches a terminal application through
-the Kitty keyboard protocol — Ghostty, Kitty, WezTerm and foot support it,
+the Kitty keyboard protocol: Ghostty, Kitty, WezTerm and foot support it,
 Apple Terminal cannot send it at all. Ctrl always works.
 
 <p align="center"><img src="assets/screenshots/paperback.png" alt="A spread from the 6×9 paperback: a left-hand page with the author's running head facing the Chapter Two opener with its small-caps lead-in" width="100%"></p>
 
 ## Keeping a book in Dropbox, Google Drive, pCloud or Box
 
-A book is a folder, so any sync service carries it — OneDrive and iCloud
-Drive too. What Grimoire does about the ways syncing goes wrong:
+A book is a folder, so any sync service carries it (OneDrive and iCloud
+Drive too). What Grimoire does about the ways syncing goes wrong:
 
 - **Two devices change one scene.** Nothing is written over. Grimoire checks
   the file before every save; if it changed elsewhere, the other version stays
   the scene and this one is kept beside it as a *parked copy*. The copies a
-  sync service makes itself are recognised too — they're parked, never
-  counted or exported twice — and *Settle conflicts…* shows the two side by
+  sync service makes itself are recognised too: they're parked, never
+  counted or exported twice, and *Settle conflicts…* shows the two side by
   side to keep one, the other or both.
 
 <p align="center"><img src="assets/screenshots/conflicts.png" alt="Settling a Dropbox conflict copy: the scene on the left, the copy on the right, and the choice to take the copy, keep the scene, or keep both" width="100%"></p>
@@ -502,7 +502,7 @@ What each service calls its conflict copies (Grimoire recognises them all):
 | Service | Conflict copy |
 |---|---|
 | Dropbox | `Scene (Ann's conflicted copy 2026-09-25).md` |
-| Google Drive | `Scene (1).md` — only a copy when `Scene.md` is beside it |
+| Google Drive | `Scene (1).md`: only a copy when `Scene.md` is beside it |
 | pCloud | `Scene (conflicted).md`, `Scene [conflicted].md` |
 | Box | `Scene (1).md`, `Scene (ann@example.com).md` |
 | OneDrive | `Scene-LAPTOP.md` |
@@ -511,16 +511,16 @@ What each service calls its conflict copies (Grimoire recognises them all):
 
 ## Themes
 
-`F9` anywhere, or `t` from the tree. Nineteen presets — Grimoire, Gruvbox
+`F9` anywhere, or `t` from the tree. Nineteen presets: Grimoire, Gruvbox
 Dark, Nord, Dracula, Solarized Dark, Catppuccin Mocha, Tokyo Night,
 Everforest, **Lost Forest**, Rosé Pine, One Dark, Monokai, Kanagawa, Ayu
 Mirage, Night Owl, Material Palenight, Synthwave '84, GitHub Dark and
-**Rainbow** — each row showing a strip of its colours, and `j`/`k` **previews
+**Rainbow**, each row showing a strip of its colours, and `j`/`k` **previews
 each one live** as you move, so you pick by looking rather than by name.
 `Enter` keeps it, `Esc` puts back what you had. All of them are dark themes:
 Grimoire draws on your terminal's own background.
 
-**Pick one to see the whole desk in it** — or switch
+**Pick one to see the whole desk in it**, or switch
 [the website](https://grimoiretui.com/#themes) itself, with `t`:
 
 <details><summary><img src="assets/readme/swatches/grimoire.svg" height="14" alt=""> <b>Grimoire</b></summary>
@@ -583,8 +583,8 @@ Grimoire draws on your terminal's own background.
 
 <p align="center"><img src="assets/screenshots/rainbow.png" alt="The Rainbow theme: every accent a drifting spectrum, and a rainbow over the Pomodoro" width="100%"></p>
 
-**Rainbow** isn't a flat palette. Everything the others draw in their accent —
-the focused border, titles, the progress bar, the word count — is painted as a
+**Rainbow** isn't a flat palette. Everything the others draw in their accent
+(the focused border, titles, the progress bar, the word count) is painted as a
 diagonal sweep of the spectrum that flows round the wheel once every
 twelve seconds; the Visualizer's bars climb from red to violet; and its Pomodoro is a
 rainbow over the hills.
@@ -592,8 +592,8 @@ rainbow over the hills.
 Lost Forest is the one written for this app rather than borrowed. It is
 green-led on purpose: `accent` drives focused borders, pane titles, the
 open-scene marker and the progress bar, so a cyan accent would make the whole
-interface read cyan. Cyan is kept for the two places it stays rare — the
-break-time moon and the flowers — with a warm rust for warnings, since an
+interface read cyan. Cyan is kept for the two places it stays rare: the
+break-time moon and the flowers, with a warm rust for warnings, since an
 all-green palette otherwise hides its own alerts.
 
 The last entry is **Custom…**, which opens a swatch editor: twelve named roles
@@ -603,8 +603,8 @@ moment the sixth lands. It starts from whichever theme you were previewing, so
 you can pick the closest preset and adjust from there.
 
 Below the swatches, **Custom mixes and matches**: `pomodoro` and `visualizer`
-each borrow any preset's — Kanagawa's great wave with Synthwave '84's neon
-grid, say — cycled with `←` `→` and previewed in the pane under the tree as
+each borrow any preset's: Kanagawa's great wave with Synthwave '84's neon
+grid, say, cycled with `←` `→` and previewed in the pane under the tree as
 you go. Entering Custom from a preset starts from that preset's world and look.
 
 <p align="center"><img src="assets/screenshots/custom.png" alt="The custom theme editor: twelve swatches, then Kanagawa's Pomodoro and Synthwave '84's Visualizer" width="100%"></p>
@@ -621,7 +621,7 @@ pane is under the pointer without stealing focus.
 
 **Drag to select.** Click and drag in the prose to select across lines;
 `Ctrl-C` copies it (via `pbcopy`, `wl-copy`, `xclip` or `xsel`, whichever the
-machine has). Any keystroke collapses the selection — it deliberately does not
+machine has). Any keystroke collapses the selection. It deliberately does not
 delete it, because there is no undo yet and a stray key must never eat text.
 
 Mouse capture does suppress the terminal's *own* drag-to-select. Grimoire's is
@@ -651,64 +651,64 @@ Monokai; the great wave for Kanagawa; hot-air balloons for Ayu Mirage; an owl,
 asleep until dark, for Night Owl; a reef for Palenight; a neon horizon for
 Synthwave '84, where the striped sun itself is the clock; a campsite for GitHub
 Dark; and a rainbow of fine ribbons standing in two clouds for Rainbow. All of them move slowly, if at
-all — this sits beside someone writing.
+all. This sits beside someone writing.
 
 `←`/`→` switches the pane to the **Visualizer**, which listens to whatever the
-computer is playing — on a Mac (macOS 14.6+, once your terminal is allowed
+computer is playing: on a Mac (macOS 14.6+, once your terminal is allowed
 under *Privacy & Security › Screen & System Audio Recording › System Audio
 Recording Only*), and on Linux through PipeWire's `pw-record` or PulseAudio's
 `parec` (set `GRIMOIRE_MONITOR=<sink>` to hear an output other than the
-default). It too is drawn in each theme's own style — meter segments for
+default). It too is drawn in each theme's own style: meter segments for
 Gruvbox, pastel beads for Catppuccin, dotted frost over snowdrifts for Nord, a
 neon skyline for Tokyo Night, a rolling wave for Kanagawa, a synthwave grid, a
-mirrored prism for Rainbow — and it always names the song that's playing, in
+mirrored prism for Rainbow, and it always names the song that's playing, in
 its title or written along the bottom, cut to fit.
 
 <p align="center"><img src="assets/screenshots/visualizers.png" alt="Every theme's Visualizer, playing" width="100%"></p>
 
 ## Music
 
-Music is **off until you turn it on** — from the menu (`Esc` → Settings → *Turn music on*)
+Music is **off until you turn it on**: from the menu (`Esc` › Settings › *Turn music on*)
 or the palette. Setting a source up turns it on too. Four sources, chosen from
-the menu (`Esc` → Settings → Music source) and remembered.
+the menu (`Esc` › Settings › Music source) and remembered.
 
 | Source | How it works | Setup |
 |---|---|---|
 | **YouTube Music** | drives [th-ch/youtube-music](https://github.com/th-ch/youtube-music)'s API Server | `grimoire music-setup youtube-music` |
-| **Spotify** | drives the desktop app — AppleScript on macOS, MPRIS on Linux (not Windows yet) | nothing to do |
-| **Jellyfin** | **Grimoire plays it** — your files, your server | `grimoire music-setup jellyfin` |
-| **Plex** | **Grimoire plays it** — your files, your server | `grimoire music-setup plex` |
+| **Spotify** | drives the desktop app: AppleScript on macOS, MPRIS on Linux (not Windows yet) | nothing to do |
+| **Jellyfin** | **Grimoire plays it**: your files, your server | `grimoire music-setup jellyfin` |
+| **Plex** | **Grimoire plays it**: your files, your server | `grimoire music-setup plex` |
 
 ### The player
 
 `F7` opens it from anywhere. The top shows what's playing with a real progress
 bar; below it are three tabs, switched with `Tab`:
 
-- **Queue** — everything queued, following the playing track. `↑↓` to browse,
+- **Queue**: everything queued, following the playing track. `↑↓` to browse,
   `Enter` to jump to any song.
-- **Playlists** — your YouTube Music library. `Enter` replaces the queue with a
+- **Playlists**: your YouTube Music library. `Enter` replaces the queue with a
   playlist and starts it; `a` queues the whole thing after the current song.
   `/` searches every public playlist on YouTube Music; `Esc` brings yours back.
-- **Search** — `/`, type, `Enter`. `Enter` on a result plays it now; `a` plays
+- **Search**: `/`, type, `Enter`. `Enter` on a result plays it now; `a` plays
   it next. Songs and videos only.
 
-Everywhere in the player — and on the music pane when it has focus: `space`
+Everywhere in the player, and on the music pane when it has focus: `space`
 pause · `←` `→` seek 10 s · `[` `]` previous / next · `s` shuffle · `r` repeat ·
 `+` `-` volume · `l` like · `Esc` close. The player shows repeat, shuffle,
 volume and like under the progress bar, the pane shows `↻` (repeat all), `↻1`,
-`⇄` and `♥` beside the time, and each key says what it did — "repeat: one",
-"volume 70" — or why the player refused it.
+`⇄` and `♥` beside the time, and each key says what it did: "repeat: one",
+"volume 70", or why the player refused it.
 
 How playlists work, since the API Server has no "play playlist" call: Grimoire
-reads the songs from YouTube Music's public web listing — so the playlist has
-to be public or unlisted, and a private one tells you so — then queues them in
+reads the songs from YouTube Music's public web listing, so the playlist has
+to be public or unlisted, and a private one tells you so. It then queues them in
 the app one at a time, first song first so the music starts straight away.
 Playlists past 300 songs are cut there. Queue browsing also works for Jellyfin
 and Plex; Spotify gets the controls but doesn't share its queue.
 
 The split matters. There is no official YouTube Music API, and anything that
 extracts stream URLs both violates the terms and side-steps the subscription
-you already pay for — so for YouTube Music and Spotify, Grimoire never touches
+you already pay for, so for YouTube Music and Spotify, Grimoire never touches
 audio. It presses buttons on a player you already run.
 
 Jellyfin and Plex are the opposite case: your own files on your own hardware,
@@ -726,7 +726,7 @@ Linux it asks whether the machine is x86 or ARM (Enter takes what it detects);
 on Windows the installer picks the right build itself, so it doesn't ask.
 
 **Jellyfin** signs in with the same username and password you use for the web
-UI — no hunting through the dashboard for an API key. **Plex** needs an
+UI: no hunting through the dashboard for an API key. **Plex** needs an
 `X-Plex-Token`, and the setup flow tells you where to find it.
 
 Audio playback is a default cargo feature. On Linux it needs ALSA headers
@@ -782,7 +782,7 @@ Bump `version` in `Cargo.toml`, add a matching section to `CHANGELOG.md`,
 commit, then tag and push the tag:
 
 ```sh
-git tag v0.2.0 && git push origin v0.2.0
+git tag vX.Y.Z && git push origin vX.Y.Z
 ```
 
 The **Release** workflow ([dist](https://github.com/axodotdev/cargo-dist))

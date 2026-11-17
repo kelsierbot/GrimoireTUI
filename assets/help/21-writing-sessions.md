@@ -1,6 +1,6 @@
 # Writing sessions
 
-Writing sessions keep a snapshot of the book each time you sit down to write, labelled like a diary — *Tuesday evening · Act Two · 1,240 words* — so you can see what changed in any sitting. It needs Git installed.
+Writing sessions keep a snapshot of the book each time you sit down to write, labelled like a diary: *Tuesday evening · Act Two · 1,240 words*, so you can see what changed in any sitting. It needs Git installed.
 
 ## Turning it on
 
@@ -21,4 +21,4 @@ If that history has a Git remote, sessions are sent to it in the background, so 
 
 ## Older books
 
-A book from an earlier version may keep its history in a `.git` folder inside the book. That keeps working — but if the book is in a sync service, *Esc › This book* offers **Move writing history out…** (in `Ctrl-K`, *Move writing history out of the synced folder*), which copies it to the data folder, checks the copy, and moves the old one to the Trash. Your scenes are never touched.
+A book from an earlier version may keep its history in a `.git` folder inside the book. That keeps working, but if the book is in a sync service, *Esc › This book* offers **Move writing history out…** (in `Ctrl-K`, *Move writing history out of the synced folder*), which copies it to the data folder, checks the copy, and moves the old one to the Trash. Your scenes are never touched.

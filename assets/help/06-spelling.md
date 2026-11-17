@@ -16,8 +16,8 @@ A fix is a single step to undo with `Ctrl-Z`.
 Under the suggestions are three ways to stop a word being called a mistake:
 
 - **Ignore for now**: until you close Grimoire.
-- **Always ignore — this book**: added to `dictionary.txt` in the book's folder, so it travels with the book.
-- **Always ignore — every book**: added to your own list in `~/.config/grimoire/dictionary.txt`.
+- **Always ignore: this book**: added to `dictionary.txt` in the book's folder, so it travels with the book.
+- **Always ignore: every book**: added to your own list in `~/.config/grimoire/dictionary.txt`.
 
 The underline disappears everywhere the word appears, straight away.
 

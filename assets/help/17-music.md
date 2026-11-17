@@ -9,7 +9,7 @@ Music is **off until you turn it on**: *Esc › Settings › Turn music on*. The
 | Jellyfin | Grimoire plays your own music from your server. Set up with `grimoire music-setup jellyfin` |
 | Plex | the same, from Plex. Set up with `grimoire music-setup plex` |
 
-Grimoire never pulls audio out of YouTube Music or Spotify — it presses the buttons of the app you already pay for.
+Grimoire never pulls audio out of YouTube Music or Spotify. It presses the buttons of the app you already pay for.
 
 ## From anywhere
 

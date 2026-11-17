@@ -6,7 +6,7 @@
 
 | Key | Does |
 |---|---|
-| `Esc` | the menu — or first, closes a note or scene beside, or lets go of a selection |
+| `Esc` | the menu, or first, closes a note or scene beside, or lets go of a selection |
 | `F1` | this help, on the topic for where you are |
 | `?` | this help too, wherever you aren't typing; on the page it's a question mark |
 | `Ctrl-K` | find anything: actions, scenes, notes, themes |

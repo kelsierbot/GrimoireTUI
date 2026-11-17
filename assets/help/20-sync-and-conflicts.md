@@ -6,7 +6,7 @@ A book is a folder, so any sync service carries it: Dropbox, Google Drive, pClou
 
 **Nothing is ever written over.** Before every save Grimoire checks the file on disk. If it changed somewhere else, the other version stays the scene, and your words from here are kept beside it as a *parked copy*.
 
-Sync services make their own copies when two devices clash — Dropbox's "conflicted copy", pCloud's "(conflicted)", Box's "(1)", and so on. Grimoire recognises all of them. They appear right under their scene, marked with where they came from ("Dropbox copy"), and they're never counted or exported twice. They move with their scene.
+Sync services make their own copies when two devices clash: Dropbox's "conflicted copy", pCloud's "(conflicted)", Box's "(1)", and so on. Grimoire recognises all of them. They appear right under their scene, marked with where they came from ("Dropbox copy"), and they're never counted or exported twice. They move with their scene.
 
 While there are any, the status bar says `⚠ 1 conflict`.
 
@@ -14,9 +14,9 @@ While there are any, the status bar says `⚠ 1 conflict`.
 
 *Settle conflicts…* (menu or `Ctrl-K`) lists every copy. Choose one and it opens beside its scene, with how much longer or shorter it is. Then:
 
-- `1` **take the copy** — the scene's own words go into its history first;
-- `2` **keep the scene** — the copy goes to the Trash;
-- `3` **keep both** — the copy becomes a scene of its own, right after the original.
+- `1` **take the copy**: the scene's own words go into its history first;
+- `2` **keep the scene**: the copy goes to the Trash;
+- `3` **keep both**: the copy becomes a scene of its own, right after the original.
 
 One `Ctrl-Z` takes it back. Nothing is ever deleted.
 

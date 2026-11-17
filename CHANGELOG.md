@@ -130,12 +130,12 @@
   makes **Catfinity**, an idle cat RPG for iPhone and Android. `c` (or a
   click on its line) opens its page. `grimoire --version` mentions it too.
 
-## 0.5.6 — grimoiretui.com
+## 0.5.6: grimoiretui.com
 
 - Grimoire has its own home now: **grimoiretui.com**. *About Grimoire…*
   and the installers point there, and the old address forwards to it.
 
-## 0.5.5 — The license, in plain words
+## 0.5.5: The license, in plain words
 
 - **License** is a new help topic: Grimoire is MIT, so commercial use is
   welcome, credit is required (keep the copyright notice and license with
@@ -144,7 +144,7 @@
   *License*.
 - *About Grimoire…* says the same in two lines.
 
-## 0.5.4 — Help, About and Donate
+## 0.5.4: Help, About and Donate
 
 - **Help inside the app**: 24 topics explaining every feature, from getting
   started to compiling and sync. `F1` opens it anywhere, `?` wherever you
@@ -155,7 +155,7 @@
   Catfinity Studios, with a link to catfinity.com. `grimoire --version` says
   the same.
 - **Donate…**: Grimoire is free and a donation is never required, but it's
-  appreciated and goes toward Grimoire's development — the box opens the
+  appreciated and goes toward Grimoire's development. The box opens the
   Ko-fi page.
 - Writing sessions: `l` opens a session's changes, like `→`; `h` no longer
   does.
@@ -168,10 +168,10 @@
 - Fixed on a Mac: a scene with an accented name listed each saved version
   twice in its history.
 
-## 0.5.2 — a paperback and a proper ebook
+## 0.5.2: a paperback and a proper ebook
 
 - **Paperback** (Export ▸ Paperback, or `grimoire export --paperback --trim
-  6x9`): a print-ready interior — a DOCX for Word, and a PDF when LibreOffice
+  6x9`): a print-ready interior: a DOCX for Word, and a PDF when LibreOffice
   is installed. Trim 5×8, 5.25×8, 5.5×8.5 or 6×9, mirrored margins with KDP's
   gutter for the page count, author and title running heads, every chapter on
   a right-hand page with a small-caps lead-in (or a drop cap), justified and
@@ -186,10 +186,10 @@
   empty chapters, curly quotes and real dashes, TKs kept and warned about, a
   Prologue's own heading, samples.
 
-## 0.5.1 — compiled for submission
+## 0.5.1: compiled for submission
 
 - **Export compiles a submission manuscript in standard manuscript format**
-  — William Shunn's modern standard: a title page with your contact block,
+  (William Shunn's modern standard): a title page with your contact block,
   byline and rounded word count; "Surname / KEYWORD / page" on every page
   after it; parts and chapters a third of the way down, a part sharing its
   first chapter's page; `#` between scenes; END.
@@ -200,28 +200,28 @@
 - **Author details…**: legal name, byline, address, phone, email and agent,
   for the title page.
 - **Samples for agents**: chapters X–Y, the first N chapters, or whole scenes
-  up to N words — the title page still gives the whole book's count.
+  up to N words. The title page still gives the whole book's count.
 - **PDF**, through LibreOffice when it's installed.
 - **Typography in every export**: curly quotes and apostrophes, real dashes and
-  ellipses — your files are left as you typed them.
+  ellipses. Your files are left as you typed them.
 - **Nothing blank**: empty scenes, chapters and parts are left out, and `#`
   only ever sits between two written scenes.
-- **TKs stay visible** — they were dropped mid-sentence — and export lists
+- **TKs stay visible** (they were dropped mid-sentence), and export lists
   where they are first.
 - **A Prologue or Epilogue keeps its own heading.**
 - Fixed: reordering sections could reduce an unreadable `novel.toml` to one
   line.
 
-## 0.5.0 — safe in every sync service
+## 0.5.0: safe in every sync service
 
 A complete pass over how a book behaves in pCloud, Google Drive, Dropbox and
 Box (and OneDrive, iCloud Drive, Syncthing), checked against each service's
 documented behaviour and tested on a real pCloud Drive.
 
-- **Conflict copies from every sync service are recognised** — Dropbox's
+- **Conflict copies from every sync service are recognised**: Dropbox's
   "conflicted copy", pCloud's "(conflicted)", Box's "(1)", OneDrive's device
   suffix, iCloud's "2", Syncthing's "sync-conflict", Google Drive's variants,
-  and Grimoire's own — named in the tree ("Dropbox copy"), never counted or
+  and Grimoire's own, named in the tree ("Dropbox copy"), never counted or
   exported twice, and moved with their scene. `⚠ N conflicts` shows in the
   status bar until you settle them.
 - **Settle conflicts…** puts both versions side by side: take the copy, keep
@@ -235,7 +235,7 @@ documented behaviour and tested on a real pCloud Drive.
 - **Saves never write a file in place**: a temp name every service ignores,
   retried while another program holds the file, and the words kept in
   recovery until it succeeds.
-- **Every name Grimoire makes is safe on every service and system** — no
+- **Every name Grimoire makes is safe on every service and system**: no
   characters Windows forbids, no reserved names, nothing too long, never two
   names that differ only by capitals or accents. Pairs like that already on
   disk are marked *name clash*.
@@ -252,10 +252,10 @@ documented behaviour and tested on a real pCloud Drive.
 
 - **Custom themes mix and match**: under the swatches, choose any theme's
   Pomodoro world and any theme's Visualizer (`←` `→`), previewed live in the
-  pane — Kanagawa's great wave with Synthwave '84's neon grid, say.
+  pane: Kanagawa's great wave with Synthwave '84's neon grid, say.
 - **Rainbow's Pomodoro is redrawn**: five fine ribbons curving in braille,
   standing in two soft clouds, a light running slowly along the outer band by
-  day — instead of chunky blocks.
+  day, instead of chunky blocks.
 - **Tokyo Night's Visualizer is a neon city**: night-blue towers with warm and
   cool windows set into them, a neon roofline on each, a mast with a slow red
   light on the tallest, neon smeared on the wet street.
@@ -270,12 +270,12 @@ documented behaviour and tested on a real pCloud Drive.
   castle and bats for Dracula, snowy peaks and the aurora for Nord, cats on a
   fence for Catppuccin, the great wave for Kanagawa, a neon horizon for
   Synthwave '84 (its striped sun is the clock), a rainbow over the hills for
-  Rainbow — nineteen in all. Lost Forest and custom themes keep the glade.
+  Rainbow: nineteen in all. Lost Forest and custom themes keep the glade.
 - **The ground fills in behind the sun** as a session goes, and a paused sun
   waits, dimmed.
-- **The Visualizer looks different in every theme** too — meters, beads,
+- **The Visualizer looks different in every theme** too: meters, beads,
   dotted frost, a lit skyline, a synthwave grid, a rolling wave, a mirrored
-  prism — and custom themes keep the original.
+  prism, and custom themes keep the original.
 - **It always names the song**, cut to fit, in its title or written along the
   bottom and lit as the song plays.
 - **Calmer**: a gentler beat, fewer stray peak marks, and a quiet resting line
@@ -291,7 +291,7 @@ documented behaviour and tested on a real pCloud Drive.
 ## 0.4.4
 
 - **Click a misspelt word** (or right-click it) for its fixes, right under the
-  word, in the word's own capitals — or tell Grimoire to stop calling it one:
+  word, in the word's own capitals, or tell Grimoire to stop calling it one:
   for now, always in this book, or always in every book. Typing anything else
   just carries on writing.
 - A spelling fix undoes with one `Ctrl-Z`.
@@ -305,14 +305,14 @@ documented behaviour and tested on a real pCloud Drive.
 - **Repeat, shuffle, volume and like are on screen**: under the player's
   progress bar, and as `↻` `↻1` `⇄` `♥` beside the pane's time. Before, `r` and
   friends worked but nothing showed it, so they looked broken.
-- **Every key says what it did** — "repeat: one", "shuffle on", "volume 100 —
-  as loud as it goes" — read back from the player once it has applied the
+- **Every key says what it did**: "repeat: one", "shuffle on", "volume 100:
+  as loud as it goes", read back from the player once it has applied the
   change, and a command the player refuses now says why instead of vanishing.
 
 ## 0.4.2
 
 - **A spellbook heads the tree**: an open grimoire, light rising from its
-  spine, sparkles twinkling above it — in your theme's colours, and in every
+  spine, sparkles twinkling above it, in your theme's colours, and in every
   colour under Rainbow. It steps aside on short windows so the outline keeps
   its rows.
 - **Focus mode says where it is**: `^D focus mode` sits right after `Esc menu`
@@ -323,7 +323,7 @@ documented behaviour and tested on a real pCloud Drive.
 ## 0.4.1
 
 - **Ten new themes**: Rosé Pine, One Dark, Monokai, Kanagawa, Ayu Mirage,
-  Night Owl, Material Palenight, Synthwave '84, GitHub Dark — and **Rainbow**,
+  Night Owl, Material Palenight, Synthwave '84, GitHub Dark, and **Rainbow**,
   where everything drawn in the accent (focused borders, titles, the progress
   bar, the word count) is a slowly drifting spectrum, the spectrum view's bars
   climb from red to violet, and the clearing is every colour at once.
@@ -354,8 +354,8 @@ documented behaviour and tested on a real pCloud Drive.
   tree next time the book opens.
 - **Undoing a move keeps its link fixes**, and a new scene no longer inherits
   a deleted scene's undo or history.
-- **Find and replace match whole words in their exact case** by default —
-  `Ctrl-W` for inside words, `Ctrl-E` for any case — and one `Ctrl-Z` undoes a
+- **Find and replace match whole words in their exact case** by default:
+  `Ctrl-W` for inside words, `Ctrl-E` for any case, and one `Ctrl-Z` undoes a
   replace across the whole book.
 
 ### Writing
@@ -367,7 +367,7 @@ documented behaviour and tested on a real pCloud Drive.
 - **Typewriter scrolling**: in focus mode the line you're writing stays
   mid-screen; elsewhere you're never drafting on the bottom row.
 - **Notes that never reach the book**: `%% like this %%` (Obsidian's comment
-  syntax, may cross lines) and TK — dimmed in the editor, left out of every
+  syntax, may cross lines) and TK, dimmed in the editor, left out of every
   word count, compile and export, kept on disk exactly as typed. **`Ctrl-T`**
   lists every note and TK in the book; type to filter, `Enter` goes there.
 - **Sprints**: *Start a sprint…* sets a word goal and minutes, starts the
@@ -387,12 +387,12 @@ documented behaviour and tested on a real pCloud Drive.
   and the menu scrolls on a short terminal. From the editor, the menu's
   New/Rename/Delete act on the scene you're writing, as `Ctrl-K`'s always did.
   Lists answer PgUp/PgDn and Home/End throughout.
-- **Export… is in the menu** — Word, EPUB or Markdown from one dialog, which
+- **Export… is in the menu**: Word, EPUB or Markdown from one dialog, which
   now fits an 80-column terminal. Compile and the project map are still in
   `Ctrl-K`.
 - **A new book opens on its Novel Format guide**, written as plain prose.
 - **New books count in parts again** (Part One, `p` new part). Older books
-  keep their folders' names — a book an earlier version switched to pages
+  keep their folders' names: a book an earlier version switched to pages
   keeps its pages, and one with its own label (Act, Book) is untouched.
 - **The spectrum works on Linux**: it hears whatever the machine plays through
   PipeWire (`pw-record`) or PulseAudio (`parec`), only while the view is
@@ -412,7 +412,7 @@ documented behaviour and tested on a real pCloud Drive.
 
 ## 0.3.6
 
-- **`Esc` closes an open character note** whichever pane you're in — 0.3.5
+- **`Esc` closes an open character note** whichever pane you're in. 0.3.5
   promised this but only did it with the note itself focused; from the editor
   it opened the menu and left the note up. `Ctrl-O` on the same name (or on
   none) now puts the note away too.
@@ -421,7 +421,7 @@ documented behaviour and tested on a real pCloud Drive.
 
 ## 0.3.5
 
-- **`Esc` opens the menu**, from any pane — no more reaching for `F1`, which
+- **`Esc` opens the menu**, from any pane, with no more reaching for `F1`, which
   many keyboards only send with `Fn` held (it still works). `Esc` again closes
   it and puts you back where you were, so it no longer drops you from the
   editor into the tree; `Shift-Tab` does that. A selection in the editor, or
@@ -449,7 +449,7 @@ documented behaviour and tested on a real pCloud Drive.
 
 - **Everything in the tree moves**: drag a section, or press `K`/`J` on it, to
   reorder the sections (saved in `novel.toml`; the trash stays last). Notes
-  without a number in their filename can be moved too — the folder is numbered
+  without a number in their filename can be moved too: the folder is numbered
   on the first move. All of it undoes with `Ctrl-Z`.
 - **A shorter menu**: themes, music source, music, spellcheck and tree icons
   are in `F1` → **Settings…**, which opens a menu of its own.
@@ -468,7 +468,7 @@ documented behaviour and tested on a real pCloud Drive.
   Matter, Notes, Research, Template Sheets and Trash, each with its own symbol,
   every section and folder foldable, headed by the book's title.
 - **Pages** are the book's largest division (they were parts): `p page`.
-- **Front matter by edition** — Manuscript Format, Paperback, Ebook — with
+- **Front matter by edition** (Manuscript Format, Paperback, Ebook), with
   starter title, copyright and dedication pages, left out of exports until
   you include them. The EPUB takes the Ebook pages; Word takes the Manuscript
   Format ones.
@@ -510,7 +510,7 @@ find and shape.
 
 ## 0.1.0
 
-The first release, and the first with ready-to-run downloads — no Rust
+The first release, and the first with ready-to-run downloads, with no Rust
 toolchain needed.
 
 Built for Windows (x64), macOS (Apple Silicon and Intel) and Linux (x86_64 and
@@ -518,7 +518,7 @@ ARM64); the one-line installers are below.
 
 **What's in it**
 
-- A manuscript that is just folders and Markdown files — the directory tree is
+- A manuscript that is just folders and Markdown files: the directory tree is
   the outline. New books start as three acts of nine chapters with three scenes
   each, plus a notebook and a visible trash.
 - Create, rename and delete parts, chapters and scenes from the tree; deleting

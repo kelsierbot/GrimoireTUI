@@ -23,4 +23,4 @@ For phones and e-readers.
 
 ## Front and back matter
 
-The **Front Matter** section holds pages that go before the story — a title page, copyright, dedication — in folders for each edition: *Manuscript Format*, *Paperback* and *Ebook*. **Back Matter** holds pages after it — Acknowledgements, About the Author, Also By — in *Paperback* and *Ebook* folders. A page loose in the section goes into every edition, and a page marked `compile: false` stays out until you're ready.
+The **Front Matter** section holds pages that go before the story (a title page, copyright, dedication) in folders for each edition: *Manuscript Format*, *Paperback* and *Ebook*. **Back Matter** holds pages after it (Acknowledgements, About the Author, Also By) in *Paperback* and *Ebook* folders. A page loose in the section goes into every edition, and a page marked `compile: false` stays out until you're ready.

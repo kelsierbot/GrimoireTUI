@@ -32,10 +32,10 @@ Both are in `Ctrl-K`:
 
 The lines between `---` at the top of a scene:
 
-- `title` — its name in the outline.
-- `pov`, `status`, `synopsis` — shown on the corkboard. Statuses are idea, outline, draft, revised and done.
-- `target` — the scene's word target.
-- `compile: false` — keep it in the outline but out of exports.
+- `title`: its name in the outline.
+- `pov`, `status`, `synopsis`: shown on the corkboard. Statuses are idea, outline, draft, revised and done.
+- `target`: the scene's word target.
+- `compile: false`: keep it in the outline but out of exports.
 
 A note can have `aliases` too. Grimoire only changes the one line it means to, so Obsidian and anything else can keep fields of their own there.
 
