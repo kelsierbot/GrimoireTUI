@@ -6,7 +6,7 @@
 //! one paragraph, which is the only behaviour that feels right for prose.
 
 use std::time::{Duration, Instant};
-use unicode_width::UnicodeWidthStr;
+use unicode_width::UnicodeWidthChar;
 
 /// Typing pauses longer than this start a new undo step.
 const PAUSE: Duration = Duration::from_millis(1200);
@@ -302,9 +302,21 @@ impl Editor {
         true
     }
 
-    /// Insert text that may span paragraphs, as one undo step.
+    /// Insert text that may span paragraphs, as one undo step. Pasted text
+    /// comes in clean: a tab becomes a space, any line ending a newline, and
+    /// other control characters, which the screen can't show, are left out.
     pub fn insert_str(&mut self, text: &str) {
-        let text = text.replace("\r\n", "\n").replace('\r', "\n");
+        let text: String = text
+            .replace("\r\n", "\n")
+            .replace('\r', "\n")
+            .chars()
+            .filter_map(|c| match c {
+                '\t' => Some(' '),
+                '\n' => Some('\n'),
+                c if c.is_control() => None,
+                c => Some(c),
+            })
+            .collect();
         if text.is_empty() {
             return;
         }
@@ -422,12 +434,13 @@ impl Editor {
             }
         }
         let r = rows[best];
-        let seg: String = self.lines[r.line]
+        let col = self.lines[r.line]
             .chars()
             .skip(r.start)
             .take(self.cx.saturating_sub(r.start))
-            .collect();
-        (best, seg.width())
+            .map(char_width)
+            .sum();
+        (best, col)
     }
 
     // ---- editing ----------------------------------------------------------
@@ -783,9 +796,15 @@ impl Editor {
     }
 }
 
+/// The columns `c` takes on screen, the one measure the wrap and the cursor
+/// both use. The terminal draws a tab or other control character as nothing,
+/// and a combining accent on the letter before it, so those take no room.
 fn char_width(c: char) -> usize {
-    let mut b = [0u8; 4];
-    c.encode_utf8(&mut b).width().max(1)
+    if c.is_control() {
+        0
+    } else {
+        c.width().unwrap_or(0)
+    }
 }
 
 /// Within char range [start,end) of `line`, find the char index nearest to
@@ -1122,5 +1141,39 @@ mod tests {
         e.clear_selection();
         assert!(!e.has_selection());
         assert_eq!(e.selected_text(), None);
+    }
+
+    #[test]
+    fn pasted_text_comes_in_clean() {
+        let mut e = Editor::from_text("Ada said ");
+        e.place(0, 9);
+        e.insert_str("hi\tthere\u{7}\r\nnext\rlast\u{1b}");
+        assert_eq!(e.lines, vec!["Ada said hi there", "next", "last"]);
+        assert_eq!((e.cy, e.cx), (2, 4), "the cursor ends after what went in");
+    }
+
+    #[test]
+    fn a_tab_in_a_loaded_scene_stays_and_takes_no_room() {
+        let mut e = Editor::from_text("a\tb");
+        assert_eq!(e.lines[0], "a\tb", "loading never changes the words");
+        let rows = e.layout(2);
+        assert_eq!(rows.len(), 1, "the tab draws as nothing, so a and b fit: {rows:?}");
+        e.place(0, 3);
+        assert_eq!(e.cursor_vis(&rows), (0, 2));
+    }
+
+    #[test]
+    fn the_cursor_and_the_wrap_agree_on_accents() {
+        // "café" written with a combining accent: four letters, five chars.
+        let text = "cafe\u{301} cafe\u{301}";
+        let mut e = Editor::from_text(text);
+        let rows = e.layout(4);
+        assert_eq!((rows[0].start, rows[0].end), (0, 5), "{rows:?}");
+        let wide = e.layout(20);
+        e.place(0, 11);
+        assert_eq!(e.cursor_vis(&wide), (0, 9), "the end of the second café");
+        // Down and up land after the accent, never between it and its letter.
+        assert_eq!(char_at_width(text, 0, 11, 4), 5);
+        assert_eq!(char_at_width(text, 0, 11, 9), 11);
     }
 }
